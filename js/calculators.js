@@ -16,11 +16,7 @@
   let nilaiSetoranLogs = [];
 
   function getPredicate(score) {
-    const val = Number(score) || 0;
-    if (val >= 90) return { code: 'A', label: 'Sangat Baik', cls: 'status-hadir' };
-    if (val >= 80) return { code: 'B', label: 'Baik', cls: 'status-izin' };
-    if (val >= 70) return { code: 'C', label: 'Cukup', cls: 'status-sakit' };
-    return { code: 'D', label: 'Perlu Bimbingan', cls: 'status-alpa' };
+    return API.computeRaportGrade(score);
   }
 
   function clampNum(v, min, max) {
@@ -948,8 +944,8 @@
 
         <!-- Tabel Interaktif Raport -->
         <datalist id="${scope}-raport-santri-list">${buildSantriDatalistOptions()}</datalist>
-        <div class="table-scroll">
-          <table class="data-table">
+        <div class="table-scroll mobile-cards-wrap">
+          <table class="data-table mobile-cards-table mobile-cards-raport">
             <thead>
               <tr>
                 <th style="width:48px;">No</th>
@@ -959,7 +955,7 @@
                 <th style="width:104px;">UAS</th>
                 <th style="width:116px;">Kehadiran (%)</th>
                 <th style="width:110px;">Nilai Akhir</th>
-                <th style="width:110px;">Grade</th>
+                <th style="width:165px;">Predikat</th>
                 <th class="no-print" style="width:74px;">Aksi</th>
               </tr>
             </thead>
@@ -1102,7 +1098,7 @@
         const predCell = tbody.querySelector(`[data-pred-for="${row.uid}"]`);
         if (scoreCell) scoreCell.textContent = finalScore.toFixed(2);
         if (predCell) {
-          predCell.textContent = pred.code;
+          predCell.textContent = `${pred.code} (${pred.label})`;
           predCell.className = `status-badge ${pred.cls} mono-num`;
         }
       });
@@ -1133,7 +1129,7 @@
 
       if (visible.length === 0) {
         tbody.innerHTML = `
-          <tr>
+          <tr class="table-state-row">
             <td colspan="9">
               ${UI.renderStateBox({
                 type: 'empty',
@@ -1154,25 +1150,25 @@
           const pred = getPredicate(finalScore);
           return `
             <tr data-row-uid="${UI.esc(row.uid)}">
-              <td class="mono-num">${idx + 1}</td>
-              <td>
+              <td class="mono-num rc-no" data-label="No">${idx + 1}</td>
+              <td class="rc-nama" data-label="Nama Santri">
                 <input type="text" list="${scope}-raport-santri-list" class="table-input table-input-name" data-field="nama_santri" value="${UI.esc(row.nama_santri)}" aria-label="Nama santri baris ${idx + 1}" placeholder="Nama santri" />
               </td>
-              <td>
+              <td class="rc-kelas" data-label="Kelas">
                 <input type="text" class="table-input" data-field="kelas" value="${UI.esc(row.kelas)}" aria-label="Kelas baris ${idx + 1}" placeholder="Kelas" />
               </td>
-              <td>
+              <td class="rc-harian" data-label="N. Harian">
                 <input type="number" min="0" max="100" step="0.1" class="table-input table-input-num" data-field="n_harian" value="${UI.esc(row.n_harian)}" aria-label="Nilai harian ${UI.esc(row.nama_santri || `baris ${idx + 1}`)}" />
               </td>
-              <td>
+              <td class="rc-uas" data-label="N. UAS">
                 <input type="number" min="0" max="100" step="0.1" class="table-input table-input-num" data-field="n_uas" value="${UI.esc(row.n_uas)}" aria-label="Nilai UAS ${UI.esc(row.nama_santri || `baris ${idx + 1}`)}" />
               </td>
-              <td>
+              <td class="rc-hadir" data-label="Kehadiran (%)">
                 <input type="number" min="0" max="100" step="0.1" class="table-input table-input-num" data-field="n_kehadiran" value="${UI.esc(row.n_kehadiran)}" aria-label="Persentase kehadiran ${UI.esc(row.nama_santri || `baris ${idx + 1}`)}" />
               </td>
-              <td class="mono-num" style="font-weight:700;" data-score-for="${UI.esc(row.uid)}">${finalScore.toFixed(2)}</td>
-              <td><span class="status-badge ${pred.cls} mono-num" data-pred-for="${UI.esc(row.uid)}">${pred.code}</span></td>
-              <td class="no-print">
+              <td class="mono-num rc-akhir" style="font-weight:700;" data-label="Nilai Akhir" data-score-for="${UI.esc(row.uid)}">${finalScore.toFixed(2)}</td>
+              <td class="rc-pred" data-label="Predikat"><span class="status-badge ${pred.cls} mono-num" data-pred-for="${UI.esc(row.uid)}">${pred.code} (${pred.label})</span></td>
+              <td class="no-print rc-del" data-label="Hapus">
                 <button type="button" class="btn btn-danger btn-icon-sm" data-delete-uid="${UI.esc(row.uid)}" aria-label="Hapus baris ${UI.esc(row.nama_santri || `nomor ${idx + 1}`)}">
                   <i data-lucide="trash-2" aria-hidden="true"></i>
                 </button>
@@ -1327,19 +1323,26 @@
       }
 
       const periode = `${semSelect.value} ${tahunInput.value.trim()}`;
-      const itemsArray = validRows.map((r) => ({
-        id_raport: r.id_raport || '',
-        id_santri: r.id_santri || '',
-        nama_santri: r.nama_santri.trim(),
-        kelas: r.kelas.trim(),
-        periode,
-        n_harian: Number(r.n_harian) || 0,
-        n_uas: Number(r.n_uas) || 0,
-        n_kehadiran: Number(r.n_kehadiran) || 0,
-        bobot_harian: w.harian,
-        bobot_uas: w.uas,
-        bobot_kehadiran: w.absensi,
-      }));
+      const itemsArray = validRows.map((r) => {
+        const finalScore = computeRowScore(r, w);
+        const pred = getPredicate(finalScore);
+        return {
+          id_raport: r.id_raport || '',
+          id_santri: r.id_santri || '',
+          nama_santri: r.nama_santri.trim(),
+          kelas: r.kelas.trim(),
+          periode,
+          n_harian: Number(r.n_harian) || 0,
+          n_uas: Number(r.n_uas) || 0,
+          n_kehadiran: Number(r.n_kehadiran) || 0,
+          bobot_harian: w.harian,
+          bobot_uas: w.uas,
+          bobot_kehadiran: w.absensi,
+          n_akhir: finalScore,
+          grade: pred.code,
+          keterangan: pred.label,
+        };
+      });
 
       const res = await API.saveNilaiRaport(itemsArray);
       const d = res.data || res;

@@ -52,6 +52,103 @@ function parseNumSafe(val, fallback = 0) {
 }
 
 /**
+ * Helper mendeteksi nilai error spreadsheet (#ERROR!, #NAME?, dll) atau sel kosong
+ */
+function isSheetErrorValue(val) {
+  if (val === null || val === undefined) return true;
+  const s = String(val).trim();
+  if (!s) return true;
+  return /^#(ERROR!|NAME\?|VALUE!|REF!|DIV\/0!|N\/A|NUM!|NULL!)/i.test(s);
+}
+
+/**
+ * Menghitung grade dan keterangan raport murni dalam JavaScript (tanpa rumus Sheets)
+ */
+function computeRaportGrade(nAkhir) {
+  const score = parseNumSafe(nAkhir, 0);
+  if (score >= 90) return { grade: 'A', keterangan: 'Sangat Baik' };
+  if (score >= 80) return { grade: 'B', keterangan: 'Baik' };
+  if (score >= 70) return { grade: 'C', keterangan: 'Cukup' };
+  return { grade: 'D', keterangan: 'Kurang' };
+}
+
+/**
+ * Menormalkan satu baris nilai raport termasuk memulihkan data lama #ERROR!
+ */
+function resolveRaportRowValues(r) {
+  const nHarian = parseNumSafe(r.n_harian, 0);
+  const nUas = parseNumSafe(r.n_uas, 0);
+  const nHadir = parseNumSafe(r.n_kehadiran, 0);
+  const bH = parseNumSafe(r.bobot_harian, 40);
+  const bU = parseNumSafe(r.bobot_uas, 40);
+  const bK = parseNumSafe(r.bobot_kehadiran, 20);
+  const bSum = (bH + bU + bK) || 100;
+  const computedAkhir = Math.round(((nHarian * bH + nUas * bU + nHadir * bK) / bSum) * 100) / 100;
+
+  const rawAkhir = parseNumSafe(r.n_akhir, NaN);
+  const nAkhir = (!isSheetErrorValue(r.n_akhir) && isFinite(rawAkhir))
+    ? Math.round(rawAkhir * 100) / 100
+    : computedAkhir;
+
+  const computed = computeRaportGrade(nAkhir);
+  const rawGrade = !isSheetErrorValue(r.grade) ? String(r.grade).trim().toUpperCase() : '';
+  const grade = ['A', 'B', 'C', 'D'].indexOf(rawGrade) >= 0 ? rawGrade : computed.grade;
+  const keterangan = !isSheetErrorValue(r.keterangan) ? String(r.keterangan).trim() : computed.keterangan;
+
+  return {
+    n_harian: nHarian,
+    n_uas: nUas,
+    n_kehadiran: nHadir,
+    bobot_harian: bH,
+    bobot_uas: bU,
+    bobot_kehadiran: bK,
+    n_akhir: nAkhir,
+    grade: grade,
+    keterangan: keterangan
+  };
+}
+
+/**
+ * Menghasilkan ID berurutan unik berdasarkan angka tertinggi yang ada + 1 (anti-timpa)
+ */
+function generateUniqueSequentialId(rows, fieldName, prefix, padLen, extraUsedSet) {
+  const used = new Set(extraUsedSet || []);
+  const escapedPrefix = prefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const pattern = new RegExp('^' + escapedPrefix + '(\\d+)$', 'i');
+  let maxNum = 0;
+
+  (rows || []).forEach(r => {
+    const val = String(r[fieldName] || '').trim();
+    if (!val) return;
+    used.add(val);
+    const m = val.match(pattern);
+    if (m) {
+      const num = parseInt(m[1], 10);
+      if (isFinite(num) && num > maxNum) maxNum = num;
+    }
+  });
+
+  used.forEach(val => {
+    const m = String(val).match(pattern);
+    if (m) {
+      const num = parseInt(m[1], 10);
+      if (isFinite(num) && num > maxNum) maxNum = num;
+    }
+  });
+
+  let next = maxNum + 1;
+  let candidate = prefix + String(next).padStart(padLen, '0');
+  while (used.has(candidate)) {
+    next++;
+    candidate = prefix + String(next).padStart(padLen, '0');
+  }
+  if (extraUsedSet) {
+    extraUsedSet.add(candidate);
+  }
+  return candidate;
+}
+
+/**
  * Helper format tanggal WIB yyyy-MM-dd dari Date atau string
  */
 function formatDateOnlyWIB(val) {
@@ -165,7 +262,7 @@ function doGet(e) {
       case 'getNilaiUAS':
         return jsonResponse(true, getSheetData('Nilai_UAS'));
       case 'getNilaiRaport':
-        return jsonResponse(true, getSheetData('Nilai_Raport'));
+        return jsonResponse(true, handleGetNilaiRaport());
       case 'getDokumenArsip':
         return jsonResponse(true, getSheetData('Dokumen_Arsip'));
       case 'getLogSetoran':
@@ -266,6 +363,29 @@ function handleGetUsers() {
   }));
 }
 
+function handleGetNilaiRaport() {
+  return getSheetData('Nilai_Raport').map(r => {
+    const resolved = resolveRaportRowValues(r);
+    return {
+      id_raport: String(r.id_raport || ''),
+      id_santri: String(r.id_santri || ''),
+      nama_santri: String(r.nama_santri || ''),
+      kelas: String(r.kelas || ''),
+      periode: String(r.periode || 'Ganjil 2026/2027'),
+      n_harian: resolved.n_harian,
+      n_uas: resolved.n_uas,
+      n_kehadiran: resolved.n_kehadiran,
+      bobot_harian: resolved.bobot_harian,
+      bobot_uas: resolved.bobot_uas,
+      bobot_kehadiran: resolved.bobot_kehadiran,
+      n_akhir: resolved.n_akhir,
+      grade: resolved.grade,
+      keterangan: resolved.keterangan,
+      updated_at: formatDateOnlyWIB(r.updated_at)
+    };
+  });
+}
+
 function handleGetDashboard() {
   const presensi = getSheetData('Presensi');
   const users = handleGetUsers();
@@ -289,56 +409,128 @@ function handleGetDashboard() {
 function handleSaveUser(data) {
   const { sheet, headers } = getSheetAndHeaders('Users');
   const rows = getSheetData('Users');
-  const existing = rows.find(r => r.id_user === data.id_user || r.username === data.username);
   const now = Utilities.formatDate(new Date(), 'Asia/Jakarta', 'yyyy-MM-dd');
+  const username = String((data && data.username) || '').trim();
+  const namaLengkap = String((data && data.nama_lengkap) || '').trim();
 
-  if (existing) {
+  if (!username || !namaLengkap) {
+    throw new Error('Nama lengkap dan username wajib diisi.');
+  }
+
+  const isEdit = Boolean(data && data.isEdit === true);
+  const targetId = String((data && data.id_user) || '').trim();
+
+  if (isEdit) {
+    if (!targetId) {
+      throw new Error('ID pengguna tidak valid untuk mode edit.');
+    }
+    let existing = rows.find(r => String(r.id_user || '').trim() === targetId);
+    if (!existing) {
+      const origUser = String((data && data.original_username) || targetId).trim().toLowerCase();
+      existing = rows.find(
+        r => String(r.id_user || '').trim() === '' && String(r.username || '').trim().toLowerCase() === origUser
+      );
+    }
+    if (!existing) {
+      throw new Error('Data pengguna yang akan diubah tidak ditemukan.');
+    }
+
+    const dupUsername = rows.some(
+      r => r._rowIndex !== existing._rowIndex && String(r.username || '').trim().toLowerCase() === username.toLowerCase()
+    );
+    if (dupUsername) {
+      throw new Error('Username "' + username + '" sudah dipakai oleh akun lain.');
+    }
+
+    const finalId = String(existing.id_user || '').trim() || generateUniqueSequentialId(rows, 'id_user', 'USR-', 3);
     const updated = headers.map(h => {
-      if (h === 'password' && !data.password) return existing.password;
+      if (h === 'id_user') return finalId;
+      if (h === 'username') return username;
+      if (h === 'nama_lengkap') return namaLengkap;
+      if (h === 'password') return data.password ? String(data.password) : existing.password;
+      if (h === 'created_at') return existing.created_at || now;
       return data[h] !== undefined ? data[h] : existing[h];
     });
     sheet.getRange(existing._rowIndex, 1, 1, headers.length).setValues([updated]);
-    return { id_user: existing.id_user, updated: true };
-  } else {
-    const newId = data.id_user || 'USR-' + String(rows.length + 1).padStart(3, '0');
-    const newRow = [
-      newId,
-      data.username,
-      data.password || '123456',
-      data.nama_lengkap,
-      data.role || 'guru',
-      data.status_aktif || 'aktif',
-      now
-    ];
-    sheet.appendRow(newRow);
-    return { id_user: newId, created: true };
+    return { id_user: finalId, updated: true };
   }
+
+  const dupNewUsername = rows.some(
+    r => String(r.username || '').trim().toLowerCase() === username.toLowerCase()
+  );
+  if (dupNewUsername) {
+    throw new Error('Username "' + username + '" sudah digunakan oleh akun lain. Gunakan username berbeda.');
+  }
+
+  const newId = generateUniqueSequentialId(rows, 'id_user', 'USR-', 3);
+  const newRowValues = {
+    id_user: newId,
+    username: username,
+    password: (data && data.password) ? String(data.password) : '123456',
+    nama_lengkap: namaLengkap,
+    role: (data && data.role) ? String(data.role).trim() : 'guru',
+    status_aktif: (data && data.status_aktif) ? String(data.status_aktif).trim() : 'aktif',
+    created_at: now
+  };
+  sheet.appendRow(headers.map(h => newRowValues[h] !== undefined ? newRowValues[h] : ''));
+  return { id_user: newId, created: true };
 }
 
 function handleSaveSantri(data) {
   const { sheet, headers } = getSheetAndHeaders('Santri');
   const rows = getSheetData('Santri');
-  const existing = rows.find(r => r.id_santri === data.id_santri);
   const now = Utilities.formatDate(new Date(), 'Asia/Jakarta', 'yyyy-MM-dd');
+  const namaLengkap = String((data && data.nama_lengkap) || '').trim();
 
-  if (existing) {
-    const updated = headers.map(h => data[h] !== undefined ? data[h] : existing[h]);
-    sheet.getRange(existing._rowIndex, 1, 1, headers.length).setValues([updated]);
-    return { id_santri: existing.id_santri, updated: true };
-  } else {
-    const idSantri = data.id_santri || 'S-' + String(rows.length + 1).padStart(3, '0');
-    const qrToken = data.qr_token || ('QR-MDTA-' + idSantri.replace(/[^a-zA-Z0-9]/g, ''));
-    sheet.appendRow([
-      idSantri,
-      data.nama_lengkap,
-      data.kelas,
-      data.no_wa_ortu || '',
-      qrToken,
-      data.status || 'aktif',
-      now
-    ]);
-    return { id_santri: idSantri, qr_token: qrToken, created: true };
+  if (!namaLengkap) {
+    throw new Error('Nama lengkap santri wajib diisi.');
   }
+
+  const isEdit = Boolean(data && data.isEdit === true);
+  const targetId = String((data && data.id_santri) || '').trim();
+
+  if (isEdit) {
+    if (!targetId) {
+      throw new Error('ID santri tidak valid untuk mode edit.');
+    }
+    const existing = rows.find(r => String(r.id_santri || '').trim() === targetId);
+    if (!existing) {
+      throw new Error('Data santri yang akan diubah tidak ditemukan.');
+    }
+
+    const finalQrToken = String((data && data.qr_token) || '').trim() ||
+      String(existing.qr_token || '').trim() ||
+      ('QR-MDTA-' + existing.id_santri.replace(/[^a-zA-Z0-9]/g, ''));
+
+    const updated = headers.map(h => {
+      if (h === 'id_santri') return existing.id_santri;
+      if (h === 'nama_lengkap') return namaLengkap;
+      if (h === 'qr_token') return finalQrToken;
+      if (h === 'created_at') return existing.created_at || now;
+      return data[h] !== undefined ? data[h] : existing[h];
+    });
+    sheet.getRange(existing._rowIndex, 1, 1, headers.length).setValues([updated]);
+    return { id_santri: existing.id_santri, qr_token: finalQrToken, updated: true };
+  }
+
+  const idSantri = generateUniqueSequentialId(rows, 'id_santri', 'S-', 3);
+  const existingQr = new Set(rows.map(r => String(r.qr_token || '').trim()).filter(Boolean));
+  let qrToken = String((data && data.qr_token) || '').trim() ||
+    ('QR-MDTA-' + idSantri.replace(/[^a-zA-Z0-9]/g, ''));
+  if (existingQr.has(qrToken)) {
+    qrToken = 'QR-MDTA-' + idSantri.replace(/[^a-zA-Z0-9]/g, '') + '-' + String(Date.now()).slice(-4);
+  }
+
+  sheet.appendRow([
+    idSantri,
+    namaLengkap,
+    String((data && data.kelas) || '').trim(),
+    String((data && data.no_wa_ortu) || '').trim(),
+    qrToken,
+    String((data && data.status) || 'aktif').trim(),
+    now
+  ]);
+  return { id_santri: idSantri, qr_token: qrToken, created: true };
 }
 
 function handleSavePresensi(data) {
@@ -441,12 +633,30 @@ function handleSaveNilaiRaport(items) {
   const rows = getSheetData('Nilai_Raport');
   const list = Array.isArray(items) ? items : [items];
   const now = Utilities.formatDate(new Date(), 'Asia/Jakarta', 'yyyy-MM-dd');
-  let nextNum = rows.length + 1;
+  const usedIds = new Set(rows.map(r => String(r.id_raport || '').trim()).filter(Boolean));
 
   list.forEach(item => {
-    const newId = item.id_raport || ('RPT-' + String(nextNum++).padStart(3, '0'));
-    const existing = rows.find(r => r.id_raport === item.id_raport);
-    const rowIdx = existing ? existing._rowIndex : sheet.getLastRow() + 1;
+    const incomingId = String((item && item.id_raport) || '').trim();
+    const existing = incomingId ? rows.find(r => String(r.id_raport || '').trim() === incomingId) : null;
+    let newId = existing ? existing.id_raport : '';
+    if (!newId) {
+      if (incomingId && !usedIds.has(incomingId)) {
+        usedIds.add(incomingId);
+        newId = incomingId;
+      } else {
+        newId = generateUniqueSequentialId(rows, 'id_raport', 'RPT-', 3, usedIds);
+      }
+    }
+
+    const nHarian = parseNumSafe(item.n_harian, 0);
+    const nUas = parseNumSafe(item.n_uas, 0);
+    const nKehadiran = parseNumSafe(item.n_kehadiran, 0);
+    const bHarian = parseNumSafe(item.bobot_harian, 40);
+    const bUas = parseNumSafe(item.bobot_uas, 40);
+    const bKehadiran = parseNumSafe(item.bobot_kehadiran, 20);
+    const totalBobot = (bHarian + bUas + bKehadiran) || 100;
+    const nAkhir = Math.round(((nHarian * bHarian + nUas * bUas + nKehadiran * bKehadiran) / totalBobot) * 100) / 100;
+    const pred = computeRaportGrade(nAkhir);
 
     const rowValues = [
       newId,
@@ -454,20 +664,20 @@ function handleSaveNilaiRaport(items) {
       item.nama_santri,
       item.kelas || '',
       item.periode || 'Ganjil 2026/2027',
-      Number(item.n_harian || 0),
-      Number(item.n_uas || 0),
-      Number(item.n_kehadiran || 0),
-      Number(item.bobot_harian || 40),
-      Number(item.bobot_uas || 40),
-      Number(item.bobot_kehadiran || 20),
-      `=(F${rowIdx}*I${rowIdx}+G${rowIdx}*J${rowIdx}+H${rowIdx}*K${rowIdx})/100`,
-      `=IF(L${rowIdx}>=90,"A",IF(L${rowIdx}>=80,"B",IF(L${rowIdx}>=70,"C","D")))`,
-      `=IF(L${rowIdx}>=90,"Sangat Baik",IF(L${rowIdx}>=80,"Baik",IF(L${rowIdx}>=70,"Cukup","Kurang")))`,
+      nHarian,
+      nUas,
+      nKehadiran,
+      bHarian,
+      bUas,
+      bKehadiran,
+      nAkhir,
+      pred.grade,
+      pred.keterangan,
       now
     ];
 
     if (existing) {
-      sheet.getRange(rowIdx, 1, 1, rowValues.length).setValues([rowValues]);
+      sheet.getRange(existing._rowIndex, 1, 1, rowValues.length).setValues([rowValues]);
     } else {
       sheet.appendRow(rowValues);
     }
@@ -479,10 +689,16 @@ function handleSaveNilaiRaport(items) {
 function handleDeleteById(sheetName, idColumn, idValue) {
   const { sheet } = getSheetAndHeaders(sheetName);
   const rows = getSheetData(sheetName);
-  const found = rows.find(r => String(r[idColumn]) === String(idValue));
+  const target = String(idValue || '').trim();
+  if (!target) throw new Error('ID data tidak valid.');
+
+  let found = rows.find(r => String(r[idColumn] || '').trim() === target);
+  if (!found && sheetName === 'Users') {
+    found = rows.find(r => String(r.id_user || '').trim() === '' && String(r.username || '').trim() === target);
+  }
   if (!found) throw new Error('Data tidak ditemukan.');
   sheet.deleteRow(found._rowIndex);
-  return { deletedId: idValue };
+  return { deletedId: target };
 }
 
 function handleUploadDokumenDrive(data) {
@@ -765,20 +981,7 @@ function handleGetRekapKepsek(tanggalParam, kelasParam) {
     if (!nilaiGroups[key]) {
       nilaiGroups[key] = { kelas: k, periode: per, rows: [] };
     }
-    const nHarian = parseNumSafe(r.n_harian, 0);
-    const nUas = parseNumSafe(r.n_uas, 0);
-    const nHadir = parseNumSafe(r.n_kehadiran, 0);
-    const bH = parseNumSafe(r.bobot_harian, 40);
-    const bU = parseNumSafe(r.bobot_uas, 40);
-    const bK = parseNumSafe(r.bobot_kehadiran, 20);
-    const bSum = (bH + bU + bK) || 100;
-    const nAkhirRaw = r.n_akhir !== '' && r.n_akhir !== undefined && r.n_akhir !== null
-      ? parseNumSafe(r.n_akhir, 0)
-      : Math.round(((nHarian * bH + nUas * bU + nHadir * bK) / bSum) * 100) / 100;
-    const grade = String(r.grade || '').trim() ||
-      (nAkhirRaw >= 90 ? 'A' : nAkhirRaw >= 80 ? 'B' : nAkhirRaw >= 70 ? 'C' : 'D');
-    const ket = String(r.keterangan || '').trim() ||
-      (nAkhirRaw >= 90 ? 'Sangat Baik' : nAkhirRaw >= 80 ? 'Baik' : nAkhirRaw >= 70 ? 'Cukup' : 'Perlu Bimbingan');
+    const resolved = resolveRaportRowValues(r);
 
     nilaiGroups[key].rows.push({
       id_raport: String(r.id_raport || ''),
@@ -786,12 +989,15 @@ function handleGetRekapKepsek(tanggalParam, kelasParam) {
       nama_santri: String(r.nama_santri || '-'),
       kelas: k,
       periode: per,
-      n_harian: nHarian,
-      n_uas: nUas,
-      n_kehadiran: nHadir,
-      n_akhir: Math.round(nAkhirRaw * 100) / 100,
-      grade: grade,
-      keterangan: ket,
+      n_harian: resolved.n_harian,
+      n_uas: resolved.n_uas,
+      n_kehadiran: resolved.n_kehadiran,
+      bobot_harian: resolved.bobot_harian,
+      bobot_uas: resolved.bobot_uas,
+      bobot_kehadiran: resolved.bobot_kehadiran,
+      n_akhir: resolved.n_akhir,
+      grade: resolved.grade,
+      keterangan: resolved.keterangan,
       updated_at: formatDateOnlyWIB(r.updated_at)
     });
   });

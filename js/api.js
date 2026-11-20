@@ -179,7 +179,7 @@
     const cols = colCount || 5;
     let html = '';
     for (let r = 0; r < rows; r++) {
-      html += '<tr>';
+      html += '<tr class="table-skeleton-row">';
       for (let c = 0; c < cols; c++) {
         const w = c === 0 ? '42%' : c === cols - 1 ? '64%' : '78%';
         html += `<td><div class="skeleton-line" style="width:${w};"></div></td>`;
@@ -344,9 +344,14 @@
 
     function positionPill(activeTab) {
       if (!pill || !activeTab) return;
-      tablistEl.classList.add('has-pill');
       const x = activeTab.offsetLeft;
       const w = activeTab.offsetWidth;
+      if (!w || w <= 0) {
+        tablistEl.classList.remove('has-pill');
+        pill.style.opacity = '0';
+        return;
+      }
+      tablistEl.classList.add('has-pill');
       pill.style.width = `${w}px`;
       pill.style.transform = `translate3d(${x}px, 0, 0)`;
       pill.style.opacity = '1';
@@ -358,6 +363,7 @@
         const isTarget = t === tabEl;
         t.setAttribute('aria-selected', isTarget ? 'true' : 'false');
         t.setAttribute('tabindex', isTarget ? '0' : '-1');
+        t.classList.toggle('active', isTarget);
         const panelId = t.getAttribute('aria-controls');
         if (panelId) {
           const panel = document.getElementById(panelId);
@@ -638,22 +644,83 @@
     };
   }
 
+  function isSheetErrorValue(val) {
+    if (val === null || val === undefined) return true;
+    const s = String(val).trim();
+    if (!s) return true;
+    return /^#(ERROR!|NAME\?|VALUE!|REF!|DIV\/0!|N\/A|NUM!|NULL!)/i.test(s);
+  }
+
+  function computeRaportGrade(score) {
+    const val = parseLocaleNumber(score, 0);
+    if (val >= 90) {
+      return { grade: 'A', code: 'A', keterangan: 'Sangat Baik', label: 'Sangat Baik', cls: 'status-hadir', isTuntas: true };
+    }
+    if (val >= 80) {
+      return { grade: 'B', code: 'B', keterangan: 'Baik', label: 'Baik', cls: 'status-izin', isTuntas: true };
+    }
+    if (val >= 70) {
+      return { grade: 'C', code: 'C', keterangan: 'Cukup', label: 'Cukup', cls: 'status-sakit', isTuntas: true };
+    }
+    return { grade: 'D', code: 'D', keterangan: 'Kurang', label: 'Kurang', cls: 'status-alpa', isTuntas: false };
+  }
+
+  function resolveRaportNilai(raw) {
+    const src = raw || {};
+    const nHarian = parseLocaleNumber(pick(src, ['n_harian', 'harian'], 0), 0);
+    const nUas = parseLocaleNumber(pick(src, ['n_uas', 'uas'], 0), 0);
+    const rawHadir = pick(src, ['n_kehadiran', 'kehadiran', 'absensi'], null);
+    const nKehadiran = rawHadir !== null && rawHadir !== '' ? parseLocaleNumber(rawHadir, 100) : 100;
+    const bH = parseLocaleNumber(pick(src, ['bobot_harian'], 40), 40);
+    const bU = parseLocaleNumber(pick(src, ['bobot_uas'], 40), 40);
+    const bK = parseLocaleNumber(pick(src, ['bobot_kehadiran'], 20), 20);
+    const bSum = bH + bU + bK || 100;
+
+    const computedAkhir = Math.round(((nHarian * bH + nUas * bU + nKehadiran * bK) / bSum) * 100) / 100;
+    const rawAkhirVal = pick(src, ['n_akhir'], null);
+    const parsedAkhir = !isSheetErrorValue(rawAkhirVal) ? parseLocaleNumber(rawAkhirVal, NaN) : NaN;
+    const nAkhir = Number.isFinite(parsedAkhir) ? Math.round(parsedAkhir * 100) / 100 : computedAkhir;
+
+    const pred = computeRaportGrade(nAkhir);
+    const rawGrade = pick(src, ['grade'], null);
+    const cleanGrade = !isSheetErrorValue(rawGrade) ? String(rawGrade).trim().toUpperCase() : '';
+    const grade = ['A', 'B', 'C', 'D'].includes(cleanGrade) ? cleanGrade : pred.grade;
+
+    const rawKet = pick(src, ['keterangan'], null);
+    const keterangan = !isSheetErrorValue(rawKet) ? String(rawKet).trim() : computeRaportGrade(nAkhir).keterangan;
+
+    return {
+      n_harian: nHarian,
+      n_uas: nUas,
+      n_kehadiran: nKehadiran,
+      bobot_harian: bH,
+      bobot_uas: bU,
+      bobot_kehadiran: bK,
+      n_akhir: nAkhir,
+      grade,
+      keterangan,
+      isTuntas: ['A', 'B', 'C'].includes(grade),
+      cls: computeRaportGrade(nAkhir).cls,
+    };
+  }
+
   function normalizeNilaiRaport(raw) {
+    const resolved = resolveRaportNilai(raw);
     return {
       id_raport: String(pick(raw, ['id_raport', 'id'], '')),
       id_santri: String(pick(raw, ['id_santri'], '')),
       nama_santri: String(pick(raw, ['nama_santri', 'nama'], '-')),
       kelas: String(pick(raw, ['kelas'], '')),
       periode: String(pick(raw, ['periode'], 'Ganjil 2026/2027')),
-      n_harian: parseLocaleNumber(pick(raw, ['n_harian', 'harian'], 0), 0),
-      n_uas: parseLocaleNumber(pick(raw, ['n_uas', 'uas'], 0), 0),
-      n_kehadiran: parseLocaleNumber(pick(raw, ['n_kehadiran', 'kehadiran', 'absensi'], 100), 100),
-      bobot_harian: parseLocaleNumber(pick(raw, ['bobot_harian'], 40), 40),
-      bobot_uas: parseLocaleNumber(pick(raw, ['bobot_uas'], 40), 40),
-      bobot_kehadiran: parseLocaleNumber(pick(raw, ['bobot_kehadiran'], 20), 20),
-      n_akhir: parseLocaleNumber(pick(raw, ['n_akhir'], 0), 0),
-      grade: String(pick(raw, ['grade'], '')),
-      keterangan: String(pick(raw, ['keterangan'], '')),
+      n_harian: resolved.n_harian,
+      n_uas: resolved.n_uas,
+      n_kehadiran: resolved.n_kehadiran,
+      bobot_harian: resolved.bobot_harian,
+      bobot_uas: resolved.bobot_uas,
+      bobot_kehadiran: resolved.bobot_kehadiran,
+      n_akhir: resolved.n_akhir,
+      grade: resolved.grade,
+      keterangan: resolved.keterangan,
       updated_at: formatSheetDate(pick(raw, ['updated_at'], '')),
     };
   }
@@ -727,6 +794,9 @@
     pick,
     extractArray,
     parseLocaleNumber,
+    isSheetErrorValue,
+    computeRaportGrade,
+    resolveRaportNilai,
     normalizeSantri,
     normalizeUser,
     normalizePresensi,

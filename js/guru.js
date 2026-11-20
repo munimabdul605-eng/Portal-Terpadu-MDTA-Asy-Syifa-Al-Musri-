@@ -173,7 +173,7 @@
     const combined = getCombinedTodayPresensi();
     if (combined.length === 0) {
       tbody.innerHTML = `
-        <tr>
+        <tr class="table-state-row">
           <td colspan="5">
             ${UI.renderStateBox({
               type: 'empty',
@@ -191,11 +191,11 @@
       .map(
         (item) => `
         <tr>
-          <td class="mono-num">${UI.esc(item.waktu || '-')}</td>
-          <td><strong>${UI.esc(item.nama_santri)}</strong></td>
-          <td>${UI.esc(item.kelas || '-')}</td>
-          <td><span class="status-badge ${statusBadgeClass(item.status)}">${UI.esc(item.status)}</span></td>
-          <td>${UI.esc(item.metode)}${item.catatan ? ` · ${UI.esc(item.catatan)}` : ''}</td>
+          <td class="mono-num" data-label="Waktu">${UI.esc(item.waktu || '-')}</td>
+          <td class="mc-primary" data-label="Nama Santri"><strong>${UI.esc(item.nama_santri)}</strong></td>
+          <td data-label="Kelas">${UI.esc(item.kelas || '-')}</td>
+          <td class="mc-status" data-label="Status"><span class="status-badge ${statusBadgeClass(item.status)}">${UI.esc(item.status)}</span></td>
+          <td data-label="Metode &amp; Catatan">${UI.esc(item.metode)}${item.catatan ? ` · ${UI.esc(item.catatan)}` : ''}</td>
         </tr>
       `
       )
@@ -423,7 +423,14 @@
 
       await qrScannerInstance.start(
         cameraId,
-        { fps: 10, qrbox: { width: 230, height: 230 } },
+        {
+          fps: 10,
+          aspectRatio: 1.0,
+          qrbox: (viewfinderWidth, viewfinderHeight) => {
+            const side = Math.max(160, Math.min(240, Math.floor(Math.min(viewfinderWidth, viewfinderHeight) * 0.72)));
+            return { width: side, height: side };
+          },
+        },
         (decodedText) => submitQRTokenPresensi(decodedText, 'Scan kamera QR'),
         () => {}
       );

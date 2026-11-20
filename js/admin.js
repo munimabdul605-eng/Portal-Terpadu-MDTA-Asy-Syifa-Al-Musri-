@@ -31,6 +31,9 @@
     currentQRData: null,
     rekapNilaiList: [],
     selectedNilaiCard: null,
+    editingUserId: null,
+    editingUserOriginalUsername: '',
+    editingSantriId: null,
   };
 
   function statusBadgeClass(status) {
@@ -55,6 +58,32 @@
     const m = String(waktuStr).match(/(\d{1,2}):(\d{2})/);
     if (m) return `${m[1].padStart(2, '0')}.${m[2]} WIB`;
     return String(waktuStr);
+  }
+
+  function generateNextLocalId(list, field, prefix, padLen) {
+    const used = new Set();
+    const escapedPrefix = String(prefix || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const pattern = new RegExp('^' + escapedPrefix + '(\\d+)$', 'i');
+    let maxNum = 0;
+
+    (Array.isArray(list) ? list : []).forEach((item) => {
+      const val = String((item && item[field]) || '').trim();
+      if (!val) return;
+      used.add(val);
+      const m = val.match(pattern);
+      if (m) {
+        const num = parseInt(m[1], 10);
+        if (Number.isFinite(num) && num > maxNum) maxNum = num;
+      }
+    });
+
+    let next = maxNum + 1;
+    let candidate = prefix + String(next).padStart(padLen, '0');
+    while (used.has(candidate)) {
+      next++;
+      candidate = prefix + String(next).padStart(padLen, '0');
+    }
+    return candidate;
   }
 
   // =========================================================================
@@ -194,9 +223,55 @@
     UI.refreshIcons(container);
   }
 
+  function sanitizeRekapNilaiCard(card) {
+    const rawRows = Array.isArray(card && card.detail_nilai) ? card.detail_nilai : [];
+    const detailRows = rawRows.map((r) => {
+      const resolved = API.resolveRaportNilai(r);
+      return {
+        id_raport: String(r.id_raport || ''),
+        id_santri: String(r.id_santri || ''),
+        nama_santri: String(r.nama_santri || '-'),
+        kelas: String(r.kelas || (card && card.kelas) || ''),
+        periode: String(r.periode || (card && card.periode) || ''),
+        n_harian: resolved.n_harian,
+        n_uas: resolved.n_uas,
+        n_kehadiran: resolved.n_kehadiran,
+        bobot_harian: resolved.bobot_harian,
+        bobot_uas: resolved.bobot_uas,
+        bobot_kehadiran: resolved.bobot_kehadiran,
+        n_akhir: resolved.n_akhir,
+        grade: resolved.grade,
+        keterangan: resolved.keterangan,
+        updated_at: String(r.updated_at || ''),
+      };
+    });
+
+    const jumlahSantri = detailRows.length;
+    const rataRata =
+      jumlahSantri > 0
+        ? Math.round((detailRows.reduce((s, item) => s + item.n_akhir, 0) / jumlahSantri) * 100) / 100
+        : Number((card && card.rata_rata) || 0);
+    const jumlahTuntas =
+      jumlahSantri > 0
+        ? detailRows.filter((item) => ['A', 'B', 'C'].includes(String(item.grade).toUpperCase())).length
+        : Number((card && card.jumlah_tuntas) || 0);
+    const jumlahPerluBimbingan =
+      jumlahSantri > 0
+        ? jumlahSantri - jumlahTuntas
+        : Number((card && card.jumlah_perlu_bimbingan) || 0);
+
+    return Object.assign({}, card, {
+      jumlah_santri: jumlahSantri > 0 ? jumlahSantri : Number((card && card.jumlah_santri) || 0),
+      rata_rata: rataRata,
+      jumlah_tuntas: jumlahTuntas,
+      jumlah_perlu_bimbingan: jumlahPerluBimbingan,
+      detail_nilai: detailRows,
+    });
+  }
+
   function renderRekapNilaiDisetor(cards) {
     const grid = document.getElementById('kepsek-rekap-nilai-grid');
-    localState.rekapNilaiList = Array.isArray(cards) ? cards : [];
+    localState.rekapNilaiList = (Array.isArray(cards) ? cards : []).map(sanitizeRekapNilaiCard);
     if (!grid) return;
 
     if (localState.rekapNilaiList.length === 0) {
@@ -276,7 +351,8 @@
     UI.refreshIcons(grid);
   }
 
-  function openDetailNilaiModal(card) {
+  function openDetailNilaiModal(rawCard) {
+    const card = sanitizeRekapNilaiCard(rawCard || {});
     localState.selectedNilaiCard = card;
     const title = document.getElementById('detail-nilai-modal-title');
     const sub = document.getElementById('detail-nilai-subtitle');
@@ -290,7 +366,7 @@
     const rows = Array.isArray(card.detail_nilai) ? card.detail_nilai : [];
     if (tbody) {
       if (rows.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="7">${UI.renderStateBox({
+        tbody.innerHTML = `<tr class="table-state-row"><td colspan="7">${UI.renderStateBox({
           type: 'empty',
           title: 'Belum ada rincian nilai santri',
           message: 'Ringkasan setoran: ' + (card.ringkasan || 'Belum ada data nilai tersimpan untuk kelas ini.'),
@@ -301,13 +377,13 @@
           .map(
             (r, idx) => `
             <tr>
-              <td class="mono-num">${idx + 1}</td>
-              <td><strong>${UI.esc(r.nama_santri)}</strong></td>
-              <td class="mono-num">${UI.esc(r.n_harian)}</td>
-              <td class="mono-num">${UI.esc(r.n_uas)}</td>
-              <td class="mono-num">${UI.esc(r.n_kehadiran)}%</td>
-              <td class="mono-num"><strong>${Number(r.n_akhir || 0).toFixed(2)}</strong></td>
-              <td><span class="status-badge ${gradeBadgeClass(r.grade)} mono-num">${UI.esc(r.grade)} (${UI.esc(r.keterangan)})</span></td>
+              <td class="mono-num dn-no" data-label="No">${idx + 1}</td>
+              <td class="dn-nama" data-label="Nama Santri"><strong>${UI.esc(r.nama_santri)}</strong></td>
+              <td class="mono-num dn-harian" data-label="N. Harian">${UI.esc(r.n_harian)}</td>
+              <td class="mono-num dn-uas" data-label="N. UAS">${UI.esc(r.n_uas)}</td>
+              <td class="mono-num dn-hadir" data-label="Kehadiran">${UI.esc(r.n_kehadiran)}%</td>
+              <td class="mono-num dn-akhir" data-label="Nilai Akhir"><strong>${Number(r.n_akhir || 0).toFixed(2)}</strong></td>
+              <td class="dn-pred" data-label="Predikat"><span class="status-badge ${gradeBadgeClass(r.grade)} mono-num">${UI.esc(r.grade)} (${UI.esc(r.keterangan)})</span></td>
             </tr>
           `
           )
@@ -318,7 +394,8 @@
     UI.openModal('modal-detail-nilai');
   }
 
-  function printKepsekNilaiCard(card) {
+  function printKepsekNilaiCard(rawCard) {
+    const card = sanitizeRekapNilaiCard(rawCard || {});
     const printMeta = document.getElementById('kepsek-nilai-print-meta');
     const printTbody = document.getElementById('kepsek-nilai-print-tbody');
     if (printMeta) {
@@ -366,7 +443,7 @@
 
     if (filtered.length === 0) {
       tbody.innerHTML = `
-        <tr>
+        <tr class="table-state-row">
           <td colspan="6">
             ${UI.renderStateBox({
               type: 'empty',
@@ -387,12 +464,12 @@
       .map(
         (r) => `
         <tr>
-          <td class="mono-num">${UI.esc(r.tanggal || '-')}${r.waktu ? ` <span class="text-muted">${UI.esc(r.waktu)}</span>` : ''}</td>
-          <td><strong>${UI.esc(r.nama_santri)}</strong></td>
-          <td>${UI.esc(r.kelas)}</td>
-          <td><span class="status-badge ${statusBadgeClass(r.status)}">${UI.esc(r.status)}</span></td>
-          <td>${UI.esc(r.metode)}</td>
-          <td>${UI.esc(r.nama_guru_piket)}</td>
+          <td class="mono-num" data-label="Tanggal &amp; Jam">${UI.esc(r.tanggal || '-')}${r.waktu ? ` <span class="text-muted">${UI.esc(r.waktu)}</span>` : ''}</td>
+          <td class="mc-primary" data-label="Nama Santri"><strong>${UI.esc(r.nama_santri)}</strong></td>
+          <td data-label="Kelas">${UI.esc(r.kelas)}</td>
+          <td class="mc-status" data-label="Status"><span class="status-badge ${statusBadgeClass(r.status)}">${UI.esc(r.status)}</span></td>
+          <td data-label="Metode">${UI.esc(r.metode)}</td>
+          <td data-label="Guru Piket">${UI.esc(r.nama_guru_piket)}</td>
         </tr>
       `
       )
@@ -405,7 +482,7 @@
 
     if (STATE.users.length === 0) {
       tbody.innerHTML = `
-        <tr>
+        <tr class="table-state-row">
           <td colspan="4">
             ${UI.renderStateBox({
               type: 'empty',
@@ -423,27 +500,29 @@
       .map(
         (u) => `
         <tr>
-          <td>
+          <td class="usr-nama" data-label="Pengguna">
             <div style="font-weight:600;">${UI.esc(u.nama_lengkap || u.username)}</div>
             <div class="text-muted mono-num" style="font-size:0.78rem;">@${UI.esc(u.username)}</div>
           </td>
-          <td>
+          <td class="usr-role" data-label="Peran">
             <span class="status-badge ${u.role === 'admin' ? 'status-hadir' : 'status-izin'}">
               ${u.role === 'admin' ? 'Kepala Madrasah / Admin' : 'Guru'}
             </span>
           </td>
-          <td>
+          <td class="usr-status" data-label="Status">
             <span class="status-badge ${u.status_aktif === 'aktif' ? 'status-hadir' : 'status-sakit'}">
               ${u.status_aktif === 'aktif' ? 'Aktif' : 'Nonaktif'}
             </span>
           </td>
-          <td>
+          <td class="usr-actions" data-label="Aksi">
             <div class="table-actions-cell">
               <button type="button" class="btn btn-secondary btn-icon-sm" data-edit-user="${UI.esc(u.id_user || u.username)}" aria-label="Edit pengguna ${UI.esc(u.nama_lengkap || u.username)}">
                 <i data-lucide="pencil" aria-hidden="true"></i>
+                <span class="mobile-only-btn-label">Edit</span>
               </button>
               <button type="button" class="btn btn-danger btn-icon-sm" data-delete-user="${UI.esc(u.id_user || u.username)}" data-user-label="${UI.esc(u.nama_lengkap || u.username)}" aria-label="Hapus pengguna ${UI.esc(u.nama_lengkap || u.username)}">
                 <i data-lucide="trash-2" aria-hidden="true"></i>
+                <span class="mobile-only-btn-label">Hapus</span>
               </button>
             </div>
           </td>
@@ -606,7 +685,7 @@
     } catch (err) {
       renderDashboardStats({ Hadir: null, Sakit: null, Izin: null, Alpa: null }, 0);
       if (riwayatTbody) {
-        riwayatTbody.innerHTML = `<tr><td colspan="6">${UI.renderStateBox({
+        riwayatTbody.innerHTML = `<tr class="table-state-row"><td colspan="6">${UI.renderStateBox({
           type: 'error',
           title: 'Gagal memuat laporan',
           message: err.message,
@@ -623,7 +702,20 @@
     }
   }
 
+  function closeUserModal() {
+    localState.editingUserId = null;
+    localState.editingUserOriginalUsername = '';
+    const form = document.getElementById('form-user');
+    if (form) form.reset();
+    const idField = document.getElementById('user-id');
+    if (idField) idField.value = '';
+    UI.closeModal('modal-user');
+  }
+
   function openUserModal(user) {
+    const form = document.getElementById('form-user');
+    if (form) form.reset();
+
     const title = document.getElementById('user-modal-title');
     const idField = document.getElementById('user-id');
     const namaField = document.getElementById('user-nama');
@@ -633,9 +725,23 @@
     const roleField = document.getElementById('user-role');
     const statusField = document.getElementById('user-status');
 
+    localState.editingUserId = null;
+    localState.editingUserOriginalUsername = '';
+    if (idField) idField.value = '';
+    if (namaField) namaField.value = '';
+    if (usernameField) usernameField.value = '';
+    if (passField) {
+      passField.value = '';
+      passField.required = true;
+    }
+    if (roleField) roleField.value = 'guru';
+    if (statusField) statusField.value = 'aktif';
+
     if (user) {
+      localState.editingUserId = user.id_user || user.username || '';
+      localState.editingUserOriginalUsername = user.username || '';
       if (title) title.textContent = 'Edit Pengguna / Guru';
-      if (idField) idField.value = user.id_user || '';
+      if (idField) idField.value = localState.editingUserId;
       if (namaField) namaField.value = user.nama_lengkap || '';
       if (usernameField) usernameField.value = user.username || '';
       if (passField) {
@@ -647,16 +753,7 @@
       if (statusField) statusField.value = user.status_aktif || 'aktif';
     } else {
       if (title) title.textContent = 'Tambah Pengguna / Guru';
-      if (idField) idField.value = '';
-      if (namaField) namaField.value = '';
-      if (usernameField) usernameField.value = '';
-      if (passField) {
-        passField.value = '';
-        passField.required = true;
-      }
       if (passHint) passHint.textContent = 'Wajib diisi untuk akun baru.';
-      if (roleField) roleField.value = 'guru';
-      if (statusField) statusField.value = 'aktif';
     }
 
     UI.openModal('modal-user');
@@ -710,13 +807,14 @@
     });
 
     if (addUserBtn) addUserBtn.addEventListener('click', () => openUserModal(null));
-    if (closeUserBtn) closeUserBtn.addEventListener('click', () => UI.closeModal('modal-user'));
-    if (cancelUserBtn) cancelUserBtn.addEventListener('click', () => UI.closeModal('modal-user'));
+    if (closeUserBtn) closeUserBtn.addEventListener('click', closeUserModal);
+    if (cancelUserBtn) cancelUserBtn.addEventListener('click', closeUserModal);
 
     if (userForm) {
       userForm.addEventListener('submit', async (e) => {
         e.preventDefault();
-        const idUser = document.getElementById('user-id').value.trim();
+        const isEdit = Boolean(localState.editingUserId);
+        const idUser = isEdit ? localState.editingUserId : generateNextLocalId(STATE.users || [], 'id_user', 'USR-', 3);
         const namaLengkap = document.getElementById('user-nama').value.trim();
         const username = document.getElementById('user-username').value.trim();
         const password = document.getElementById('user-password').value;
@@ -727,24 +825,39 @@
           UI.toast('Nama lengkap dan username wajib diisi.', 'error');
           return;
         }
-        if (!idUser && !password) {
+        if (!isEdit && !password) {
           UI.toast('Kata sandi wajib diisi untuk pengguna baru.', 'error');
           return;
         }
 
+        const dupUser = (STATE.users || []).find((u) => {
+          const sameUsername = String(u.username || '').trim().toLowerCase() === username.toLowerCase();
+          if (!sameUsername) return false;
+          if (!isEdit) return true;
+          return (u.id_user || u.username) !== localState.editingUserId;
+        });
+        if (dupUser) {
+          UI.toast(`Username "${username}" sudah digunakan oleh akun lain.`, 'error');
+          return;
+        }
+
         const payload = {
+          isEdit,
           id_user: idUser,
           username,
           nama_lengkap: namaLengkap,
           role,
           status_aktif: statusAktif,
         };
+        if (isEdit && localState.editingUserOriginalUsername) {
+          payload.original_username = localState.editingUserOriginalUsername;
+        }
         if (password) payload.password = password;
 
         UI.setButtonLoading(saveUserBtn, true, 'Menyimpan...');
         try {
           await API.saveUser(payload);
-          UI.closeModal('modal-user');
+          closeUserModal();
           UI.toast(`Akun "${namaLengkap}" berhasil disimpan.`, 'success');
           await loadDashboard(false);
         } catch (err) {
@@ -814,7 +927,7 @@
 
     if (filtered.length === 0) {
       tbody.innerHTML = `
-        <tr>
+        <tr class="table-state-row">
           <td colspan="7">
             ${UI.renderStateBox({
               type: 'empty',
@@ -835,17 +948,17 @@
       .map(
         (s) => `
         <tr>
-          <td class="mono-num">${UI.esc(s.id_santri || '-')}</td>
-          <td><strong>${UI.esc(s.nama_lengkap)}</strong></td>
-          <td>${UI.esc(s.kelas || '-')}</td>
-          <td class="mono-num">${UI.esc(s.no_wa_ortu || '-')}</td>
-          <td><code class="mono-num" style="font-size:0.78rem;">${UI.esc(s.qr_token || '-')}</code></td>
-          <td>
+          <td class="mono-num snt-id" data-label="ID Santri">${UI.esc(s.id_santri || '-')}</td>
+          <td class="snt-nama" data-label="Nama Santri"><strong>${UI.esc(s.nama_lengkap)}</strong></td>
+          <td class="snt-kelas" data-label="Kelas">${UI.esc(s.kelas || '-')}</td>
+          <td class="mono-num snt-wa" data-label="No. WA Ortu">${UI.esc(s.no_wa_ortu || '-')}</td>
+          <td class="snt-token" data-label="Token QR"><code class="mono-num" style="font-size:0.78rem;">${UI.esc(s.qr_token || '-')}</code></td>
+          <td class="snt-status" data-label="Status">
             <span class="status-badge ${s.status === 'aktif' ? 'status-hadir' : 'status-sakit'}">
               ${s.status === 'aktif' ? 'Aktif' : UI.esc(s.status)}
             </span>
           </td>
-          <td>
+          <td class="snt-actions" data-label="Aksi">
             <div class="table-actions-cell">
               <button type="button" class="btn btn-secondary btn-sm" data-qr-santri="${UI.esc(s.id_santri || s.qr_token)}">
                 <i data-lucide="qr-code" aria-hidden="true"></i>
@@ -853,9 +966,11 @@
               </button>
               <button type="button" class="btn btn-secondary btn-icon-sm" data-edit-santri="${UI.esc(s.id_santri || s.qr_token)}" aria-label="Edit santri ${UI.esc(s.nama_lengkap)}">
                 <i data-lucide="pencil" aria-hidden="true"></i>
+                <span class="mobile-only-btn-label">Edit</span>
               </button>
               <button type="button" class="btn btn-danger btn-icon-sm" data-delete-santri="${UI.esc(s.id_santri || s.qr_token)}" aria-label="Hapus santri ${UI.esc(s.nama_lengkap)}">
                 <i data-lucide="trash-2" aria-hidden="true"></i>
+                <span class="mobile-only-btn-label">Hapus</span>
               </button>
             </div>
           </td>
@@ -921,7 +1036,7 @@
       if (showToast) UI.toast(`${STATE.santri.length} data santri dimuat.`, 'success');
     } catch (err) {
       if (tbody) {
-        tbody.innerHTML = `<tr><td colspan="7">${UI.renderStateBox({
+        tbody.innerHTML = `<tr class="table-state-row"><td colspan="7">${UI.renderStateBox({
           type: 'error',
           title: 'Gagal memuat database santri',
           message: err.message,
@@ -938,15 +1053,29 @@
     }
   }
 
+  function closeSantriModal() {
+    localState.editingSantriId = null;
+    const form = document.getElementById('form-santri');
+    if (form) form.reset();
+    const idEl = document.getElementById('santri-id');
+    if (idEl) idEl.value = '';
+    UI.closeModal('modal-santri');
+  }
+
   function openSantriModal(santri) {
+    const form = document.getElementById('form-santri');
+    if (form) form.reset();
+
     const title = document.getElementById('santri-modal-title');
-    document.getElementById('santri-id').value = santri ? santri.id_santri : '';
-    document.getElementById('santri-nama').value = santri ? santri.nama_lengkap : '';
-    document.getElementById('santri-kelas').value = santri ? santri.kelas : '';
-    document.getElementById('santri-hp').value = santri ? santri.no_wa_ortu : '';
+    localState.editingSantriId = santri ? (santri.id_santri || '') : null;
+
+    document.getElementById('santri-id').value = santri ? (santri.id_santri || '') : '';
+    document.getElementById('santri-nama').value = santri ? (santri.nama_lengkap || '') : '';
+    document.getElementById('santri-kelas').value = santri ? (santri.kelas || '') : '';
+    document.getElementById('santri-hp').value = santri ? (santri.no_wa_ortu || '') : '';
     document.getElementById('santri-qr-token').value =
       santri && santri.qr_token ? santri.qr_token : '';
-    document.getElementById('santri-status').value = santri ? santri.status : 'aktif';
+    document.getElementById('santri-status').value = santri ? (santri.status || 'aktif') : 'aktif';
 
     if (title) title.textContent = santri ? `Edit Santri (${santri.id_santri})` : 'Tambah Santri Baru';
     UI.openModal('modal-santri');
@@ -1073,11 +1202,11 @@
     }
     if (refreshBtn) refreshBtn.addEventListener('click', () => loadSantri(true));
     if (addBtn) addBtn.addEventListener('click', () => openSantriModal(null));
-    if (closeSantriBtn) closeSantriBtn.addEventListener('click', () => UI.closeModal('modal-santri'));
-    if (cancelSantriBtn) cancelSantriBtn.addEventListener('click', () => UI.closeModal('modal-santri'));
+    if (closeSantriBtn) closeSantriBtn.addEventListener('click', closeSantriModal);
+    if (cancelSantriBtn) cancelSantriBtn.addEventListener('click', closeSantriModal);
     if (genTokenBtn) {
       genTokenBtn.addEventListener('click', () => {
-        const idHint = document.getElementById('santri-id').value.trim();
+        const idHint = localState.editingSantriId || document.getElementById('santri-id').value.trim();
         document.getElementById('santri-qr-token').value = generateQRToken(idHint);
       });
     }
@@ -1085,7 +1214,8 @@
     if (santriForm) {
       santriForm.addEventListener('submit', async (e) => {
         e.preventDefault();
-        const idSantri = document.getElementById('santri-id').value.trim();
+        const isEdit = Boolean(localState.editingSantriId);
+        const idSantri = isEdit ? localState.editingSantriId : generateNextLocalId(STATE.santri || [], 'id_santri', 'S-', 3);
         const namaLengkap = document.getElementById('santri-nama').value.trim();
         const kelas = document.getElementById('santri-kelas').value.trim();
         const noWaOrtu = document.getElementById('santri-hp').value.trim();
@@ -1098,6 +1228,7 @@
         }
 
         const payload = {
+          isEdit,
           id_santri: idSantri,
           nama_lengkap: namaLengkap,
           kelas,
@@ -1109,7 +1240,7 @@
         UI.setButtonLoading(saveSantriBtn, true, 'Menyimpan...');
         try {
           await API.saveSantri(payload);
-          UI.closeModal('modal-santri');
+          closeSantriModal();
           UI.toast(`Data santri "${namaLengkap}" berhasil disimpan.`, 'success');
           await loadSantri(false);
         } catch (err) {
@@ -1155,7 +1286,7 @@
 
     if (rows.length === 0) {
       tbody.innerHTML = `
-        <tr>
+        <tr class="table-state-row">
           <td colspan="9">
             ${UI.renderStateBox({
               type: 'empty',
@@ -1173,15 +1304,15 @@
       .map(
         (r, idx) => `
         <tr>
-          <td class="mono-num">${idx + 1}</td>
-          <td class="mono-num">${UI.esc(r.id_santri || '-')}</td>
-          <td><strong>${UI.esc(r.nama_lengkap)}</strong></td>
-          <td>${UI.esc(r.kelas)}</td>
-          <td class="mono-num">${r.hadir}</td>
-          <td class="mono-num">${r.sakit}</td>
-          <td class="mono-num">${r.izin}</td>
-          <td class="mono-num">${r.alpa}</td>
-          <td>
+          <td class="mono-num rkp-no" data-label="No">${idx + 1}</td>
+          <td class="mono-num rkp-id" data-label="ID Santri">${UI.esc(r.id_santri || '-')}</td>
+          <td class="rkp-nama" data-label="Nama Santri"><strong>${UI.esc(r.nama_lengkap)}</strong></td>
+          <td class="rkp-kelas" data-label="Kelas">${UI.esc(r.kelas)}</td>
+          <td class="mono-num rkp-h" data-label="Hadir">${r.hadir}</td>
+          <td class="mono-num rkp-s" data-label="Sakit">${r.sakit}</td>
+          <td class="mono-num rkp-i" data-label="Izin">${r.izin}</td>
+          <td class="mono-num rkp-a" data-label="Alpa">${r.alpa}</td>
+          <td class="rkp-pct" data-label="Kehadiran">
             <span class="status-badge mono-num ${r.persentase >= 80 ? 'status-hadir' : r.persentase >= 60 ? 'status-sakit' : 'status-alpa'}">
               ${r.persentase}%
             </span>
@@ -1210,7 +1341,7 @@
     } catch (err) {
       STATE.rekap = [];
       if (tbody) {
-        tbody.innerHTML = `<tr><td colspan="9">${UI.renderStateBox({
+        tbody.innerHTML = `<tr class="table-state-row"><td colspan="9">${UI.renderStateBox({
           type: 'error',
           title: 'Gagal memuat rekap laporan',
           message: err.message,

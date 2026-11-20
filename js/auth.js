@@ -191,7 +191,16 @@
     UI.refreshIcons(container);
   }
 
+  function isAdminSession(session) {
+    return Boolean(session && String(session.role || '').trim().toLowerCase() === 'admin');
+  }
+
   async function loadDokumenArsip() {
+    if (!isAdminSession(currentSession || getSession())) {
+      UI.closeModal('modal-arsip-drive');
+      UI.toast('Arsip Dokumen Drive hanya tersedia pada halaman Administrator.', 'warn');
+      return;
+    }
     const container = document.getElementById('arsip-drive-list');
     const folderLink = document.getElementById('arsip-drive-root-link');
     if (folderLink) {
@@ -237,6 +246,11 @@
 
     if (openBtn) {
       openBtn.addEventListener('click', () => {
+        if (!isAdminSession(currentSession || getSession())) {
+          UI.closeModal('modal-arsip-drive');
+          UI.toast('Arsip Dokumen Drive hanya tersedia pada halaman Administrator.', 'warn');
+          return;
+        }
         arsipState.query = '';
         arsipState.category = 'Semua';
         if (searchInput) searchInput.value = '';
@@ -308,6 +322,13 @@
     const nameEl = document.getElementById('header-user-name');
     const roleEl = document.getElementById('header-user-role');
     const logoutBtn = document.getElementById('btn-logout');
+    const arsipBtn = document.getElementById('btn-arsip-drive');
+    const adminAllowed = isAdminSession(session);
+
+    if (arsipBtn) arsipBtn.hidden = !adminAllowed;
+    if (!adminAllowed) {
+      UI.closeModal('modal-arsip-drive');
+    }
 
     if (session) {
       if (chip) chip.hidden = false;

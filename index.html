@@ -2,7 +2,7 @@
 <html lang="id" class="light">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
   <title>MDTA ASY SYIFA AL MUSRI': Portal Digital Madrasah &amp; Penilaian Raport</title>
   <meta name="description" content="Portal Digital MDTA ASY SYIFA AL MUSRI' (Bojongsoang, Kab. Bandung): Presensi Santri QR, Pelaporan Guru ke Kepala Madrasah, Database Santri, Rekap Laporan, Kalkulator UAS, dan Penilaian Raport." />
   <link rel="icon" type="image/png" href="./assets/logo-mdta-asy-syifa.png" />
@@ -23,20 +23,20 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@500;600;700&family=Montserrat:wght@700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
 
-  <link rel="stylesheet" href="./css/tokens.css" />
-  <link rel="stylesheet" href="./css/style.css" />
+  <link rel="stylesheet" href="./css/tokens.css?v=20261120-3" />
+  <link rel="stylesheet" href="./css/style.css?v=20261120-3" />
 
   <script defer src="https://unpkg.com/lucide@0.468.0/dist/umd/lucide.min.js"></script>
   <script defer src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
   <script defer src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
   <script defer src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 
-  <script defer src="./js/config.js"></script>
-  <script defer src="./js/api.js"></script>
-  <script defer src="./js/calculators.js"></script>
-  <script defer src="./js/admin.js"></script>
-  <script defer src="./js/guru.js"></script>
-  <script defer src="./js/auth.js"></script>
+  <script defer src="./js/config.js?v=20261120-3"></script>
+  <script defer src="./js/api.js?v=20261120-3"></script>
+  <script defer src="./js/calculators.js?v=20261120-3"></script>
+  <script defer src="./js/admin.js?v=20261120-3"></script>
+  <script defer src="./js/guru.js?v=20261120-3"></script>
+  <script defer src="./js/auth.js?v=20261120-3"></script>
 </head>
 <body>
   <a href="#main-content" class="skip-link">Langsung ke konten utama</a>
@@ -67,7 +67,7 @@
       </div>
 
       <div class="header-actions">
-        <button id="btn-arsip-drive" type="button" class="btn btn-secondary" aria-haspopup="dialog" aria-controls="modal-arsip-drive">
+        <button id="btn-arsip-drive" type="button" class="btn btn-secondary" aria-haspopup="dialog" aria-controls="modal-arsip-drive" aria-label="Arsip Dokumen Drive" hidden>
           <i data-lucide="folder-archive" aria-hidden="true"></i>
           <span>Arsip Dokumen Drive</span>
         </button>
@@ -85,7 +85,7 @@
           <span id="header-user-role" class="user-role-tag">-</span>
         </div>
 
-        <button id="btn-logout" type="button" class="btn btn-danger" hidden>
+        <button id="btn-logout" type="button" class="btn btn-danger" aria-label="Keluar dari akun" hidden>
           <i data-lucide="log-out" aria-hidden="true"></i>
           <span>Keluar</span>
         </button>
@@ -194,23 +194,28 @@
           <span class="tab-sliding-indicator" aria-hidden="true"></span>
           <button type="button" role="tab" id="admin-tab-dashboard" class="tab-btn" data-tab="dashboard" aria-selected="true" aria-controls="admin-panel-dashboard" tabindex="0">
             <i data-lucide="layout-dashboard" aria-hidden="true"></i>
-            <span>Beranda Laporan</span>
+            <span class="tab-label-desktop">Beranda Laporan</span>
+            <span class="tab-label-mobile">Laporan</span>
           </button>
           <button type="button" role="tab" id="admin-tab-santri" class="tab-btn" data-tab="santri" aria-selected="false" aria-controls="admin-panel-santri" tabindex="-1">
             <i data-lucide="users" aria-hidden="true"></i>
-            <span>Data Santri</span>
+            <span class="tab-label-desktop">Data Santri</span>
+            <span class="tab-label-mobile">Santri</span>
           </button>
           <button type="button" role="tab" id="admin-tab-rekap" class="tab-btn" data-tab="rekap" aria-selected="false" aria-controls="admin-panel-rekap" tabindex="-1">
             <i data-lucide="file-bar-chart-2" aria-hidden="true"></i>
-            <span>Rekap Bulanan</span>
+            <span class="tab-label-desktop">Rekap Bulanan</span>
+            <span class="tab-label-mobile">Rekap</span>
           </button>
           <button type="button" role="tab" id="admin-tab-uas" class="tab-btn" data-tab="uas" aria-selected="false" aria-controls="admin-panel-uas" tabindex="-1">
             <i data-lucide="calculator" aria-hidden="true"></i>
-            <span>Kalkulator UAS</span>
+            <span class="tab-label-desktop">Kalkulator UAS</span>
+            <span class="tab-label-mobile">UAS</span>
           </button>
           <button type="button" role="tab" id="admin-tab-raport" class="tab-btn" data-tab="raport" aria-selected="false" aria-controls="admin-panel-raport" tabindex="-1">
             <i data-lucide="clipboard-list" aria-hidden="true"></i>
-            <span>Kalkulator Raport</span>
+            <span class="tab-label-desktop">Kalkulator Raport</span>
+            <span class="tab-label-mobile">Raport</span>
           </button>
         </div>
       </div>
@@ -396,8 +401,8 @@
               <input id="admin-riwayat-search" type="search" class="input-control" placeholder="Cari nama santri, kelas, atau guru piket..." />
             </div>
 
-            <div class="table-scroll">
-              <table class="data-table">
+            <div class="table-scroll mobile-cards-wrap">
+              <table class="data-table mobile-cards-table mobile-cards-generic">
                 <thead>
                   <tr>
                     <th>Tanggal &amp; Jam</th>
@@ -426,8 +431,8 @@
               </button>
             </div>
 
-            <div class="table-scroll">
-              <table class="data-table">
+            <div class="table-scroll mobile-cards-wrap">
+              <table class="data-table mobile-cards-table mobile-cards-users">
                 <thead>
                   <tr>
                     <th>Nama &amp; Username</th>
@@ -483,8 +488,8 @@
             </div>
           </div>
 
-          <div class="table-scroll">
-            <table class="data-table">
+          <div class="table-scroll mobile-cards-wrap">
+            <table class="data-table mobile-cards-table mobile-cards-santri">
               <thead>
                 <tr>
                   <th>ID Santri</th>
@@ -581,8 +586,8 @@
             </div>
           </div>
 
-          <div class="table-scroll">
-            <table class="data-table">
+          <div class="table-scroll mobile-cards-wrap">
+            <table class="data-table mobile-cards-table mobile-cards-rekap">
               <thead>
                 <tr>
                   <th style="width:48px;">No</th>
@@ -655,15 +660,18 @@
           <span class="tab-sliding-indicator" aria-hidden="true"></span>
           <button type="button" role="tab" id="guru-tab-presensi" class="tab-btn" data-tab="presensi" aria-selected="true" aria-controls="guru-panel-presensi" tabindex="0">
             <i data-lucide="qr-code" aria-hidden="true"></i>
-            <span>Presensi</span>
+            <span class="tab-label-desktop">Presensi</span>
+            <span class="tab-label-mobile">Presensi</span>
           </button>
           <button type="button" role="tab" id="guru-tab-uas" class="tab-btn" data-tab="uas" aria-selected="false" aria-controls="guru-panel-uas" tabindex="-1">
             <i data-lucide="calculator" aria-hidden="true"></i>
-            <span>Kalkulator UAS</span>
+            <span class="tab-label-desktop">Kalkulator UAS</span>
+            <span class="tab-label-mobile">UAS</span>
           </button>
           <button type="button" role="tab" id="guru-tab-raport" class="tab-btn" data-tab="raport" aria-selected="false" aria-controls="guru-panel-raport" tabindex="-1">
             <i data-lucide="clipboard-list" aria-hidden="true"></i>
-            <span>Kalkulator Raport</span>
+            <span class="tab-label-desktop">Kalkulator Raport</span>
+            <span class="tab-label-mobile">Raport</span>
           </button>
         </div>
       </div>
@@ -812,8 +820,8 @@
         <section class="surface-card stack-gap">
           <div class="card-spotlight-layer" aria-hidden="true"></div>
           <h3 class="heading-md">Daftar Presensi Santri Hari Ini</h3>
-          <div class="table-scroll">
-            <table class="data-table">
+          <div class="table-scroll mobile-cards-wrap">
+            <table class="data-table mobile-cards-table mobile-cards-generic">
               <thead>
                 <tr>
                   <th>Waktu</th>
@@ -916,8 +924,8 @@
         </button>
       </div>
       <div class="modal-body">
-        <div class="table-scroll">
-          <table class="data-table">
+        <div class="table-scroll mobile-cards-wrap">
+          <table class="data-table mobile-cards-table mobile-cards-detail-nilai">
             <thead>
               <tr>
                 <th style="width:44px;">No</th>
