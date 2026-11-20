@@ -1,0 +1,147 @@
+/* ==========================================================================
+   Sistem Madrasah (MDTA) - MDTA ASY SYIFA AL MUSRI'
+   Design Tokens: Nextra Monochrome Institutional + Emerald Operational Accent
+   Semua pasangan teks memenuhi WCAG AA >= 4.5:1 (termasuk Light & Dark Mode)
+   ========================================================================== */
+
+:root,
+html.light {
+  color-scheme: light;
+
+  /* Permukaan & Latar */
+  --bg-canvas: #fafafa;
+  --bg-band: #f4f4f5;
+  --bg-surface: #ffffff;
+  --bg-subsurface: #f4f4f5;
+  --bg-subsurface-hover: #e4e4e7;
+  --bg-header: rgba(250, 250, 250, 0.90);
+  --bg-hover: rgba(9, 9, 11, 0.05);
+
+  /* Teks & Kontras Tinggi (WCAG >= 4.5:1) */
+  --text-primary: #09090b;   /* 19.06:1 pada #fafafa */
+  --text-secondary: #27272a; /* 14.89:1 pada #ffffff */
+  --text-muted: #52525b;     /* 7.73:1 pada #ffffff, 7.03:1 pada #f4f4f5 */
+
+  /* Garis & Batas Kontrol (>= 3:1 non-teks) */
+  --border-subtle: rgba(9, 9, 11, 0.10);
+  --border-strong: rgba(9, 9, 11, 0.20);
+  --border-control: #71717a; /* 4.83:1 pada #ffffff */
+  --border-hover: rgba(9, 9, 11, 0.42);
+
+  /* Tombol Utama & Aksen Kelembagaan */
+  --btn-primary-bg: #09090b;
+  --btn-primary-text: #ffffff; /* 19.90:1 */
+  --btn-primary-hover: #27272a;
+
+  --accent-brand: #047857;
+  --accent-brand-hover: #065f46;
+  --accent-brand-text: #ffffff; /* 5.48:1 pada #047857 */
+  --accent-brand-soft: #ecfdf5;
+  --accent-brand-ink: #065f46;  /* 7.29:1 pada #ecfdf5 */
+  --accent-brand-border: #a7f3d0;
+
+  --focus-ring: #09090b;
+
+  /* Status Presensi & Penilaian Semantik */
+  --status-hadir-fg: #065f46;
+  --status-hadir-bg: #ecfdf5;
+  --status-hadir-bd: #a7f3d0;
+
+  --status-izin-fg: #1e40af;
+  --status-izin-bg: #eff6ff;
+  --status-izin-bd: #bfdbfe;
+
+  --status-sakit-fg: #92400e;
+  --status-sakit-bg: #fffbeb;
+  --status-sakit-bd: #fde68a;
+
+  --status-alpa-fg: #991b1b;
+  --status-alpa-bg: #fef2f2;
+  --status-alpa-bd: #fecaca;
+
+  /* Modal, Sorot & Bayangan */
+  --modal-backdrop: rgba(9, 9, 11, 0.80);
+  --shadow-card:
+    0 8px 24px rgba(0, 0, 0, 0.05),
+    0 1px 3px rgba(0, 0, 0, 0.04);
+  --shadow-card-hover:
+    0 14px 32px rgba(0, 0, 0, 0.09),
+    0 2px 6px rgba(0, 0, 0, 0.04);
+  --shadow-modal: 0 24px 64px rgba(0, 0, 0, 0.30);
+  --spotlight-color: rgba(9, 9, 11, 0.045);
+
+  /* Skala Font, Radius & Spasi */
+  --font-sans: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-display: 'Montserrat', 'Plus Jakarta Sans', sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;
+
+  --radius-sm: 8px;
+  --radius-md: 10px;
+  --radius-lg: 16px;
+  --radius-xl: 20px;
+
+  --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-smooth: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+html.dark {
+  color-scheme: dark;
+
+  /* Permukaan & Latar Gelap */
+  --bg-canvas: #09090b;
+  --bg-band: #0f0f12;
+  --bg-surface: #141417;
+  --bg-subsurface: #1c1c21;
+  --bg-subsurface-hover: #26262d;
+  --bg-header: rgba(9, 9, 11, 0.90);
+  --bg-hover: rgba(255, 255, 255, 0.08);
+
+  /* Teks & Kontras Tinggi Gelap (WCAG >= 4.5:1) */
+  --text-primary: #fafafa;   /* 19.06:1 pada #09090b */
+  --text-secondary: #d4d4d8; /* 12.44:1 pada #141417 */
+  --text-muted: #a1a1aa;     /* 7.17:1 pada #141417, 6.62:1 pada #1c1c21 */
+
+  /* Garis & Batas Kontrol Gelap (>= 3:1 non-teks) */
+  --border-subtle: rgba(255, 255, 255, 0.11);
+  --border-strong: rgba(255, 255, 255, 0.22);
+  --border-control: #82828c; /* 4.64:1 pada #141417 */
+  --border-hover: rgba(255, 255, 255, 0.42);
+
+  /* Tombol Utama & Aksen Kelembagaan Gelap */
+  --btn-primary-bg: #ffffff;
+  --btn-primary-text: #09090b; /* 19.90:1 */
+  --btn-primary-hover: #e4e4e7;
+
+  --accent-brand: #34d399;
+  --accent-brand-hover: #6ee7b7;
+  --accent-brand-text: #052e16; /* 7.75:1 pada #34d399 */
+  --accent-brand-soft: #052e22;
+  --accent-brand-ink: #6ee7b7;  /* 9.70:1 pada #052e22 */
+  --accent-brand-border: #065f46;
+
+  --focus-ring: #ffffff;
+
+  /* Status Presensi & Penilaian Semantik Gelap */
+  --status-hadir-fg: #6ee7b7;
+  --status-hadir-bg: #052e22;
+  --status-hadir-bd: #065f46;
+
+  --status-izin-fg: #93c5fd;
+  --status-izin-bg: #102347;
+  --status-izin-bd: #1e3a8a;
+
+  --status-sakit-fg: #fcd34d;
+  --status-sakit-bg: #332005;
+  --status-sakit-bd: #78350f;
+
+  --status-alpa-fg: #fca5a5;
+  --status-alpa-bg: #351014;
+  --status-alpa-bd: #7f1d1d;
+
+  /* Modal, Sorot & Bayangan Gelap */
+  --modal-backdrop: rgba(0, 0, 0, 0.86);
+  --shadow-card: 0 10px 28px rgba(0, 0, 0, 0.55);
+  --shadow-card-hover: 0 16px 36px rgba(0, 0, 0, 0.72);
+  --shadow-modal: 0 28px 72px rgba(0, 0, 0, 0.88);
+  --spotlight-color: rgba(255, 255, 255, 0.06);
+}

@@ -1,0 +1,1264 @@
+<!DOCTYPE html>
+<html lang="id" class="light">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MDTA ASY SYIFA AL MUSRI': Portal Digital Madrasah &amp; Penilaian Raport</title>
+  <meta name="description" content="Portal Digital MDTA ASY SYIFA AL MUSRI' (Bojongsoang, Kab. Bandung): Presensi Santri QR, Pelaporan Guru ke Kepala Madrasah, Database Santri, Rekap Laporan, Kalkulator UAS, dan Penilaian Raport." />
+  <link rel="icon" type="image/png" href="./assets/logo-mdta-asy-syifa.png" />
+
+  <script>
+    (function () {
+      try {
+        var saved = localStorage.getItem('mdta_theme');
+        if (saved === 'dark') {
+          document.documentElement.classList.remove('light');
+          document.documentElement.classList.add('dark');
+        }
+      } catch (e) {}
+    })();
+  </script>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@500;600;700&family=Montserrat:wght@700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
+
+  <link rel="stylesheet" href="./css/tokens.css" />
+  <link rel="stylesheet" href="./css/style.css" />
+
+  <script defer src="https://unpkg.com/lucide@0.468.0/dist/umd/lucide.min.js"></script>
+  <script defer src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+  <script defer src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+  <script defer src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+
+  <script defer src="./js/config.js"></script>
+  <script defer src="./js/api.js"></script>
+  <script defer src="./js/calculators.js"></script>
+  <script defer src="./js/admin.js"></script>
+  <script defer src="./js/guru.js"></script>
+  <script defer src="./js/auth.js"></script>
+</head>
+<body>
+  <a href="#main-content" class="skip-link">Langsung ke konten utama</a>
+
+  <!-- ===================================================================
+       STICKY HEADER + INDIKATOR PROGRESS BAR GULIR DI ATAS HEADER
+       =================================================================== -->
+  <header class="site-header">
+    <div class="scroll-progress-track" aria-hidden="true">
+      <div id="scroll-progress-bar"></div>
+    </div>
+
+    <div class="header-inner">
+      <div class="brand-group">
+        <div class="header-logo-frame">
+          <img
+            src="./assets/logo-mdta-asy-syifa.png"
+            alt="Logo MDTA ASY SYIFA AL MUSRI'"
+            width="375"
+            height="375"
+            class="header-logo-img"
+          />
+        </div>
+        <div class="brand-text">
+          <span class="brand-title">MDTA ASY SYIFA AL MUSRI'</span>
+          <span class="brand-subtitle">Portal Digital Madrasah &amp; Penilaian Raport</span>
+        </div>
+      </div>
+
+      <div class="header-actions">
+        <button id="btn-arsip-drive" type="button" class="btn btn-secondary" aria-haspopup="dialog" aria-controls="modal-arsip-drive">
+          <i data-lucide="folder-archive" aria-hidden="true"></i>
+          <span>Arsip Dokumen Drive</span>
+        </button>
+
+        <button id="btn-theme-toggle" type="button" class="btn btn-secondary" aria-pressed="false" aria-label="Aktifkan mode gelap">
+          <span id="theme-toggle-icon-wrap" style="display:inline-flex;align-items:center;">
+            <i data-lucide="moon" aria-hidden="true"></i>
+          </span>
+          <span id="theme-toggle-label">Gelap</span>
+        </button>
+
+        <div id="header-user-chip" class="user-session-chip" hidden>
+          <i data-lucide="user-check" aria-hidden="true" style="width:16px;height:16px;"></i>
+          <span id="header-user-name" style="font-weight:600;">-</span>
+          <span id="header-user-role" class="user-role-tag">-</span>
+        </div>
+
+        <button id="btn-logout" type="button" class="btn btn-danger" hidden>
+          <i data-lucide="log-out" aria-hidden="true"></i>
+          <span>Keluar</span>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <main id="main-content" class="main-shell" tabindex="-1">
+    <!-- =================================================================
+         HALAMAN LOGIN
+         ================================================================= -->
+    <section id="view-login" class="view-panel login-shell" aria-labelledby="login-heading">
+      <div class="surface-card login-card">
+        <div class="card-spotlight-layer" aria-hidden="true"></div>
+
+        <div class="login-header">
+          <img
+            src="./assets/logo-mdta-asy-syifa.png"
+            alt="Lambang MDTA ASY SYIFA AL MUSRI'"
+            width="375"
+            height="375"
+            class="login-emblem"
+          />
+          <div>
+            <span class="eyebrow-label">MDTA ASY SYIFA AL MUSRI' · Bojongsoang, Kab. Bandung</span>
+            <h1 id="login-heading" class="heading-xl" style="font-size:1.55rem;">Masuk Portal MDTA</h1>
+            <p class="text-muted" style="margin:6px 0 0;font-size:0.875rem;">
+              Gunakan akun Kepala Madrasah / Admin atau Guru untuk mengakses presensi santri, pelaporan harian, dan penilaian raport.
+            </p>
+          </div>
+        </div>
+
+        <div id="api-status-banner" class="inline-alert inline-alert-info" role="status" style="margin-bottom:16px;flex-direction:column;gap:8px;" hidden>
+          <div style="display:flex;align-items:flex-start;gap:10px;width:100%;">
+            <span id="api-status-icon" style="display:inline-flex;flex-shrink:0;margin-top:2px;"></span>
+            <span id="api-status-text" style="font-size:0.8125rem;line-height:1.45;"></span>
+          </div>
+          <button id="btn-recheck-api" type="button" class="btn btn-secondary btn-sm" style="align-self:flex-start;" hidden>
+            <i data-lucide="refresh-cw" aria-hidden="true"></i>
+            <span>Cek Ulang Koneksi Sistem</span>
+          </button>
+        </div>
+
+        <div id="login-error-box" class="inline-alert inline-alert-error" role="alert" style="margin-bottom:16px;" hidden>
+          <i data-lucide="alert-circle" aria-hidden="true" style="width:18px;height:18px;flex-shrink:0;margin-top:2px;"></i>
+          <span id="login-error-msg"></span>
+        </div>
+
+        <form id="form-login" class="login-form" novalidate>
+          <div class="field-group">
+            <label class="field-label" for="login-username">Username</label>
+            <input
+              id="login-username"
+              name="username"
+              type="text"
+              autocomplete="username"
+              class="input-control"
+              placeholder="Masukkan username akun"
+              required
+            />
+          </div>
+
+          <div class="field-group">
+            <label class="field-label" for="login-password">Kata Sandi</label>
+            <div class="input-with-action">
+              <input
+                id="login-password"
+                name="password"
+                type="password"
+                autocomplete="current-password"
+                class="input-control"
+                placeholder="Masukkan kata sandi"
+                required
+              />
+              <button
+                id="btn-toggle-password"
+                type="button"
+                class="input-action-btn"
+                aria-pressed="false"
+                aria-label="Tampilkan kata sandi"
+              >
+                <i data-lucide="eye" aria-hidden="true"></i>
+              </button>
+            </div>
+          </div>
+
+          <button id="btn-login-submit" type="submit" class="btn btn-primary" style="width:100%;margin-top:4px;">
+            <i data-lucide="log-in" aria-hidden="true"></i>
+            <span>Masuk ke Sistem</span>
+          </button>
+        </form>
+      </div>
+    </section>
+
+    <!-- =================================================================
+         PORTAL KEPALA MADRASAH / ADMIN (5 TAB)
+         ================================================================= -->
+    <section id="view-admin" class="view-panel" aria-labelledby="admin-portal-heading" hidden>
+      <div class="page-header no-print">
+        <span class="eyebrow-label">Kepala Madrasah &amp; Tata Usaha</span>
+        <h1 id="admin-portal-heading" class="heading-xl">Portal Kepala Madrasah MDTA</h1>
+      </div>
+
+      <div class="portal-tablist-wrap no-print">
+        <div id="admin-tablist" class="portal-tablist" role="tablist" aria-label="Menu Portal Kepala Madrasah">
+          <span class="tab-sliding-indicator" aria-hidden="true"></span>
+          <button type="button" role="tab" id="admin-tab-dashboard" class="tab-btn" data-tab="dashboard" aria-selected="true" aria-controls="admin-panel-dashboard" tabindex="0">
+            <i data-lucide="layout-dashboard" aria-hidden="true"></i>
+            <span>Beranda Laporan</span>
+          </button>
+          <button type="button" role="tab" id="admin-tab-santri" class="tab-btn" data-tab="santri" aria-selected="false" aria-controls="admin-panel-santri" tabindex="-1">
+            <i data-lucide="users" aria-hidden="true"></i>
+            <span>Data Santri</span>
+          </button>
+          <button type="button" role="tab" id="admin-tab-rekap" class="tab-btn" data-tab="rekap" aria-selected="false" aria-controls="admin-panel-rekap" tabindex="-1">
+            <i data-lucide="file-bar-chart-2" aria-hidden="true"></i>
+            <span>Rekap Bulanan</span>
+          </button>
+          <button type="button" role="tab" id="admin-tab-uas" class="tab-btn" data-tab="uas" aria-selected="false" aria-controls="admin-panel-uas" tabindex="-1">
+            <i data-lucide="calculator" aria-hidden="true"></i>
+            <span>Kalkulator UAS</span>
+          </button>
+          <button type="button" role="tab" id="admin-tab-raport" class="tab-btn" data-tab="raport" aria-selected="false" aria-controls="admin-panel-raport" tabindex="-1">
+            <i data-lucide="clipboard-list" aria-hidden="true"></i>
+            <span>Kalkulator Raport</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- TAB 1: BERANDA KEPALA MADRASAH -->
+      <div id="admin-panel-dashboard" class="tab-panel stack-gap" role="tabpanel" aria-labelledby="admin-tab-dashboard">
+        <!-- Bar Kontrol Tanggal & Kelas -->
+        <section class="surface-card no-print">
+          <div class="card-spotlight-layer" aria-hidden="true"></div>
+          <div class="section-toolbar" style="margin-bottom:14px;">
+            <div>
+              <h2 class="heading-lg">Rekapan &amp; Pelaporan Guru</h2>
+              <p id="dashboard-last-updated" class="text-muted" style="margin:4px 0 0;font-size:0.8125rem;">Menunggu pembaruan laporan...</p>
+            </div>
+            <button id="btn-refresh-dashboard" type="button" class="btn btn-primary">
+              <i data-lucide="refresh-cw" aria-hidden="true"></i>
+              <span>Perbarui Laporan</span>
+            </button>
+          </div>
+          <div class="form-grid">
+            <div class="field-group">
+              <label class="field-label" for="kepsek-filter-tanggal">Pilih Tanggal Laporan</label>
+              <input id="kepsek-filter-tanggal" type="date" class="input-control" />
+            </div>
+            <div class="field-group">
+              <label class="field-label" for="kepsek-filter-kelas">Pilih Kelas</label>
+              <select id="kepsek-filter-kelas" class="select-control">
+                <option value="">Semua Kelas</option>
+              </select>
+            </div>
+          </div>
+        </section>
+
+        <div id="kepsek-backend-notice" class="inline-alert inline-alert-warn no-print" role="status" hidden>
+          <i data-lucide="info" aria-hidden="true" style="width:18px;height:18px;flex-shrink:0;margin-top:2px;"></i>
+          <span id="kepsek-backend-notice-msg"></span>
+        </div>
+
+        <!-- A. KARTU STATUS SETORAN HARI INI -->
+        <section class="surface-card stack-gap no-print">
+          <div class="card-spotlight-layer" aria-hidden="true"></div>
+          <div class="section-toolbar" style="margin-bottom:0;">
+            <div>
+              <h3 class="heading-md">Status Setoran Absensi Guru</h3>
+              <p class="text-muted" style="margin:4px 0 0;font-size:0.8125rem;">Pantau kelas mana saja yang sudah dan belum menyetor laporan absensi pada tanggal terpilih.</p>
+            </div>
+            <span id="kepsek-setoran-summary" class="status-badge status-izin">-</span>
+          </div>
+          <div id="kepsek-setoran-grid" class="setoran-status-grid"></div>
+        </section>
+
+        <!-- B. PANEL REKAP ABSENSI HARIAN & SANTRI TIDAK HADIR -->
+        <section class="surface-card stack-gap no-print">
+          <div class="card-spotlight-layer" aria-hidden="true"></div>
+          <div class="section-toolbar" style="margin-bottom:0;">
+            <div>
+              <h3 class="heading-md">Rekap Absensi Harian</h3>
+              <p class="text-muted" style="margin:4px 0 0;font-size:0.8125rem;">Ringkasan jumlah kehadiran serta daftar santri yang membutuhkan tindak lanjut.</p>
+            </div>
+            <span id="kepsek-absensi-penyetor" class="status-badge status-izin">Menunggu data...</span>
+          </div>
+
+          <div class="stats-grid" style="margin-bottom:0;" aria-label="Ringkasan absensi harian">
+            <article class="sub-surface stat-card">
+              <div class="stat-card-top">
+                <span class="stat-label">Hadir</span>
+                <span class="stat-icon-pill status-hadir">
+                  <i data-lucide="check-circle-2" aria-hidden="true" style="width:18px;height:18px;"></i>
+                </span>
+              </div>
+              <div id="stat-hadir" class="stat-value">-</div>
+              <div id="stat-hadir-foot" class="stat-foot">Santri hadir</div>
+            </article>
+
+            <article class="sub-surface stat-card">
+              <div class="stat-card-top">
+                <span class="stat-label">Sakit</span>
+                <span class="stat-icon-pill status-sakit">
+                  <i data-lucide="thermometer" aria-hidden="true" style="width:18px;height:18px;"></i>
+                </span>
+              </div>
+              <div id="stat-sakit" class="stat-value">-</div>
+              <div id="stat-sakit-foot" class="stat-foot">Keterangan sakit</div>
+            </article>
+
+            <article class="sub-surface stat-card">
+              <div class="stat-card-top">
+                <span class="stat-label">Izin</span>
+                <span class="stat-icon-pill status-izin">
+                  <i data-lucide="file-check-2" aria-hidden="true" style="width:18px;height:18px;"></i>
+                </span>
+              </div>
+              <div id="stat-izin" class="stat-value">-</div>
+              <div id="stat-izin-foot" class="stat-foot">Izin resmi</div>
+            </article>
+
+            <article class="sub-surface stat-card">
+              <div class="stat-card-top">
+                <span class="stat-label">Alpa</span>
+                <span class="stat-icon-pill status-alpa">
+                  <i data-lucide="x-circle" aria-hidden="true" style="width:18px;height:18px;"></i>
+                </span>
+              </div>
+              <div id="stat-alpa" class="stat-value">-</div>
+              <div id="stat-alpa-foot" class="stat-foot">Tanpa keterangan</div>
+            </article>
+          </div>
+
+          <div>
+            <h4 class="heading-md" style="font-size:0.98rem;margin-bottom:10px;">Santri Tidak Hadir Hari Ini (Sakit, Izin, Alpa)</h4>
+            <div id="kepsek-tidak-hadir-list"></div>
+          </div>
+        </section>
+
+        <!-- C. PANEL REKAP NILAI DISETOR GURU -->
+        <section id="kepsek-nilai-print-area" class="surface-card stack-gap">
+          <div class="card-spotlight-layer" aria-hidden="true"></div>
+
+          <div class="no-print">
+            <h3 class="heading-md">Rekap Nilai Disetor Guru</h3>
+            <p class="text-muted" style="margin:4px 0 0;font-size:0.8125rem;">Ringkasan nilai raport per kelas beserta jumlah santri tuntas dan santri yang perlu bimbingan.</p>
+          </div>
+
+          <div id="kepsek-rekap-nilai-grid" class="nilai-rekap-grid no-print"></div>
+
+          <!-- Area Cetak PDF Rekap Nilai Kepala Madrasah -->
+          <div class="print-only-block">
+            <div class="print-kop">
+              <div>
+                <h2 class="print-kop-title">MDTA ASY SYIFA AL MUSRI'</h2>
+                <p class="print-kop-sub">Laporan Rekapitulasi Nilai Santri (Bojongsoang, Kab. Bandung)</p>
+                <p id="kepsek-nilai-print-meta" class="print-kop-sub"></p>
+              </div>
+            </div>
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>No</th>
+                  <th>Nama Santri</th>
+                  <th>Harian</th>
+                  <th>UAS</th>
+                  <th>Kehadiran</th>
+                  <th>Nilai Akhir</th>
+                  <th>Predikat</th>
+                </tr>
+              </thead>
+              <tbody id="kepsek-nilai-print-tbody"></tbody>
+            </table>
+            <div class="print-signatures">
+              <div class="print-sign-box">
+                <div>Mengetahui,</div>
+                <div>Kepala Madrasah MDTA</div>
+                <div class="print-sign-space"></div>
+                <div><strong>( ____________________ )</strong></div>
+              </div>
+              <div class="print-sign-box">
+                <div>Bojongsoang, Kab. Bandung</div>
+                <div>Guru Pengampu / Wali Kelas</div>
+                <div class="print-sign-space"></div>
+                <div><strong>( ____________________ )</strong></div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- D. RIWAYAT ABSENSI LENGKAP & KELOLA AKUN GURU -->
+        <div class="dashboard-split no-print">
+          <section class="surface-card stack-gap">
+            <div class="card-spotlight-layer" aria-hidden="true"></div>
+            <div class="section-toolbar" style="margin-bottom:0;">
+              <h3 class="heading-md">Riwayat Lengkap Absensi</h3>
+              <div id="admin-riwayat-status-filters" class="filter-chip-row" role="group" aria-label="Filter status absensi">
+                <button type="button" class="filter-chip" data-status-filter="Semua" aria-pressed="true">Semua</button>
+                <button type="button" class="filter-chip" data-status-filter="Hadir" aria-pressed="false">Hadir</button>
+                <button type="button" class="filter-chip" data-status-filter="Sakit" aria-pressed="false">Sakit</button>
+                <button type="button" class="filter-chip" data-status-filter="Izin" aria-pressed="false">Izin</button>
+                <button type="button" class="filter-chip" data-status-filter="Alpa" aria-pressed="false">Alpa</button>
+              </div>
+            </div>
+
+            <div class="field-group">
+              <label class="field-label sr-only" for="admin-riwayat-search">Cari riwayat absensi</label>
+              <input id="admin-riwayat-search" type="search" class="input-control" placeholder="Cari nama santri, kelas, atau guru piket..." />
+            </div>
+
+            <div class="table-scroll">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>Tanggal &amp; Jam</th>
+                    <th>Nama Santri</th>
+                    <th>Kelas</th>
+                    <th>Status</th>
+                    <th>Metode</th>
+                    <th>Guru Piket</th>
+                  </tr>
+                </thead>
+                <tbody id="admin-riwayat-tbody"></tbody>
+              </table>
+            </div>
+          </section>
+
+          <section class="surface-card stack-gap">
+            <div class="card-spotlight-layer" aria-hidden="true"></div>
+            <div class="section-toolbar" style="margin-bottom:0;">
+              <div>
+                <h3 class="heading-md">Kelola Akun Guru &amp; Admin</h3>
+                <p class="text-muted" style="margin:4px 0 0;font-size:0.8125rem;">Atur akun masuk untuk Kepala Madrasah dan Guru.</p>
+              </div>
+              <button id="btn-add-user" type="button" class="btn btn-primary btn-sm">
+                <i data-lucide="user-plus" aria-hidden="true"></i>
+                <span>Tambah Pengguna</span>
+              </button>
+            </div>
+
+            <div class="table-scroll">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>Nama &amp; Username</th>
+                    <th>Peran</th>
+                    <th>Status</th>
+                    <th style="width:96px;">Aksi</th>
+                  </tr>
+                </thead>
+                <tbody id="admin-users-tbody"></tbody>
+              </table>
+            </div>
+          </section>
+        </div>
+      </div>
+
+      <!-- TAB 2: DATABASE SANTRI -->
+      <div id="admin-panel-santri" class="tab-panel" role="tabpanel" aria-labelledby="admin-tab-santri" hidden>
+        <section class="surface-card stack-gap">
+          <div class="card-spotlight-layer" aria-hidden="true"></div>
+          <div class="section-toolbar" style="margin-bottom:0;">
+            <div>
+              <h2 class="heading-lg">Database Santri MDTA</h2>
+              <p id="santri-count-label" class="text-muted" style="margin:4px 0 0;font-size:0.8125rem;">Memuat data santri...</p>
+            </div>
+            <div class="toolbar-actions">
+              <button id="btn-refresh-santri" type="button" class="btn btn-secondary">
+                <i data-lucide="refresh-cw" aria-hidden="true"></i>
+                <span>Muat Ulang</span>
+              </button>
+              <button id="btn-add-santri" type="button" class="btn btn-accent">
+                <i data-lucide="plus" aria-hidden="true"></i>
+                <span>Tambah Santri</span>
+              </button>
+            </div>
+          </div>
+
+          <div class="form-grid">
+            <div class="field-group">
+              <label class="field-label" for="santri-search-input">Pencarian Real-Time</label>
+              <input id="santri-search-input" type="search" class="input-control" placeholder="Ketik nama, ID santri, kelas, no WA, atau QR token..." />
+            </div>
+            <div class="field-group">
+              <label class="field-label" for="santri-kelas-filter">Filter Kelas</label>
+              <select id="santri-kelas-filter" class="select-control">
+                <option value="">Semua Kelas</option>
+                <option value="Kelas 7A">Kelas 7A</option>
+                <option value="Kelas 7B">Kelas 7B</option>
+                <option value="Kelas 8A">Kelas 8A</option>
+                <option value="Kelas 8B">Kelas 8B</option>
+                <option value="Kelas 9A">Kelas 9A</option>
+                <option value="Kelas 9B">Kelas 9B</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="table-scroll">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>ID Santri</th>
+                  <th>Nama Lengkap</th>
+                  <th>Kelas</th>
+                  <th>No. WA Orang Tua</th>
+                  <th>Token QR</th>
+                  <th>Status</th>
+                  <th style="width:190px;">Aksi</th>
+                </tr>
+              </thead>
+              <tbody id="admin-santri-tbody"></tbody>
+            </table>
+          </div>
+        </section>
+      </div>
+
+      <!-- TAB 3: REKAP LAPORAN -->
+      <div id="admin-panel-rekap" class="tab-panel" role="tabpanel" aria-labelledby="admin-tab-rekap" hidden>
+        <section class="surface-card stack-gap">
+          <div class="card-spotlight-layer" aria-hidden="true"></div>
+
+          <!-- Kop Cetak PDF Khusus Rekap -->
+          <div class="print-only-block">
+            <div class="print-kop">
+              <div>
+                <h2 class="print-kop-title">MDTA ASY SYIFA AL MUSRI'</h2>
+                <p class="print-kop-sub">Rekapitulasi Laporan Kehadiran Santri Madrasah Diniyah Takmiliyah Awaliyah (Bojongsoang, Kab. Bandung)</p>
+                <p id="rekap-print-meta" class="print-kop-sub"></p>
+              </div>
+            </div>
+          </div>
+
+          <div class="section-toolbar no-print" style="margin-bottom:0;">
+            <div>
+              <h2 class="heading-lg">Rekap Laporan Presensi Bulanan</h2>
+              <p id="rekap-period-label" class="text-muted" style="margin:4px 0 0;font-size:0.8125rem;">Pilih bulan dan tahun lalu tampilkan laporan.</p>
+            </div>
+            <div class="toolbar-actions">
+              <button id="btn-export-rekap-csv" type="button" class="btn btn-secondary">
+                <i data-lucide="file-spreadsheet" aria-hidden="true"></i>
+                <span>Ekspor CSV</span>
+              </button>
+              <button id="btn-print-rekap-pdf" type="button" class="btn btn-secondary">
+                <i data-lucide="printer" aria-hidden="true"></i>
+                <span>Cetak PDF</span>
+              </button>
+              <button id="btn-open-upload-pdf" type="button" class="btn btn-accent">
+                <i data-lucide="upload-cloud" aria-hidden="true"></i>
+                <span>Unggah PDF ke Drive</span>
+              </button>
+            </div>
+          </div>
+
+          <div class="sub-surface form-grid no-print">
+            <div class="field-group">
+              <label class="field-label" for="rekap-bulan">Bulan</label>
+              <select id="rekap-bulan" class="select-control">
+                <option value="1">Januari</option>
+                <option value="2">Februari</option>
+                <option value="3">Maret</option>
+                <option value="4">April</option>
+                <option value="5">Mei</option>
+                <option value="6">Juni</option>
+                <option value="7">Juli</option>
+                <option value="8">Agustus</option>
+                <option value="9">September</option>
+                <option value="10">Oktober</option>
+                <option value="11">November</option>
+                <option value="12">Desember</option>
+              </select>
+            </div>
+            <div class="field-group">
+              <label class="field-label" for="rekap-tahun">Tahun</label>
+              <input id="rekap-tahun" type="number" min="2020" max="2099" class="input-control mono-num" />
+            </div>
+            <div class="field-group">
+              <label class="field-label" for="rekap-kelas-filter">Kelas (Opsional)</label>
+              <select id="rekap-kelas-filter" class="select-control">
+                <option value="">Semua Kelas</option>
+                <option value="Kelas 7A">Kelas 7A</option>
+                <option value="Kelas 7B">Kelas 7B</option>
+                <option value="Kelas 8A">Kelas 8A</option>
+                <option value="Kelas 8B">Kelas 8B</option>
+                <option value="Kelas 9A">Kelas 9A</option>
+                <option value="Kelas 9B">Kelas 9B</option>
+              </select>
+            </div>
+            <div class="field-group" style="justify-content:flex-end;">
+              <button id="btn-fetch-rekap" type="button" class="btn btn-primary">
+                <i data-lucide="search" aria-hidden="true"></i>
+                <span>Tampilkan Rekap</span>
+              </button>
+            </div>
+          </div>
+
+          <div class="table-scroll">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th style="width:48px;">No</th>
+                  <th>ID Santri</th>
+                  <th>Nama Santri</th>
+                  <th>Kelas</th>
+                  <th>Hadir</th>
+                  <th>Sakit</th>
+                  <th>Izin</th>
+                  <th>Alpa</th>
+                  <th>Kehadiran</th>
+                </tr>
+              </thead>
+              <tbody id="admin-rekap-tbody"></tbody>
+            </table>
+          </div>
+
+          <div class="print-only-block">
+            <div class="print-signatures">
+              <div class="print-sign-box">
+                <div>Mengetahui,</div>
+                <div>Kepala Madrasah MDTA</div>
+                <div class="print-sign-space"></div>
+                <div><strong>( ____________________ )</strong></div>
+              </div>
+              <div class="print-sign-box">
+                <div>Tata Usaha / Admin MDTA</div>
+                <div class="print-sign-space"></div>
+                <div><strong>( ____________________ )</strong></div>
+              </div>
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <!-- TAB 4: KALKULATOR UAS -->
+      <div id="admin-panel-uas" class="tab-panel" role="tabpanel" aria-labelledby="admin-tab-uas" hidden>
+        <div id="admin-uas-mount"></div>
+      </div>
+
+      <!-- TAB 5: KALKULATOR RAPORT -->
+      <div id="admin-panel-raport" class="tab-panel" role="tabpanel" aria-labelledby="admin-tab-raport" hidden>
+        <div id="admin-raport-mount"></div>
+      </div>
+    </section>
+
+    <!-- =================================================================
+         PORTAL GURU (BANNER GURU PIKET + 3 TAB)
+         ================================================================= -->
+    <section id="view-guru" class="view-panel" aria-labelledby="guru-portal-heading" hidden>
+      <!-- Header Banner GURU PIKET -->
+      <div class="guru-banner no-print">
+        <div>
+          <span class="guru-banner-badge">
+            <i data-lucide="shield-check" aria-hidden="true" style="width:15px;height:15px;"></i>
+            <span>GURU PIKET</span>
+          </span>
+          <h1 id="guru-portal-heading" class="heading-xl" style="font-size:clamp(1.35rem,2.2vw,1.8rem);">
+            <span id="guru-piket-name">Nama Guru</span>
+          </h1>
+          <p id="guru-piket-date" class="text-muted" style="margin:4px 0 0;font-size:0.875rem;">-</p>
+        </div>
+        <div class="guru-banner-meta">
+          <span id="guru-piket-count" class="status-badge status-hadir mono-num">0 presensi tercatat hari ini</span>
+        </div>
+      </div>
+
+      <div class="portal-tablist-wrap no-print">
+        <div id="guru-tablist" class="portal-tablist" role="tablist" aria-label="Menu Portal Guru">
+          <span class="tab-sliding-indicator" aria-hidden="true"></span>
+          <button type="button" role="tab" id="guru-tab-presensi" class="tab-btn" data-tab="presensi" aria-selected="true" aria-controls="guru-panel-presensi" tabindex="0">
+            <i data-lucide="qr-code" aria-hidden="true"></i>
+            <span>Presensi</span>
+          </button>
+          <button type="button" role="tab" id="guru-tab-uas" class="tab-btn" data-tab="uas" aria-selected="false" aria-controls="guru-panel-uas" tabindex="-1">
+            <i data-lucide="calculator" aria-hidden="true"></i>
+            <span>Kalkulator UAS</span>
+          </button>
+          <button type="button" role="tab" id="guru-tab-raport" class="tab-btn" data-tab="raport" aria-selected="false" aria-controls="guru-panel-raport" tabindex="-1">
+            <i data-lucide="clipboard-list" aria-hidden="true"></i>
+            <span>Kalkulator Raport</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- TAB 1: PRESENSI (QR-CODE + INPUT MANUAL + KIRIM LAPORAN KE KEPALA MADRASAH) -->
+      <div id="guru-panel-presensi" class="tab-panel stack-gap" role="tabpanel" aria-labelledby="guru-tab-presensi">
+        <div class="presensi-grid">
+          <!-- Panel Pemindaian QR-Code -->
+          <section class="surface-card stack-gap">
+            <div class="card-spotlight-layer" aria-hidden="true"></div>
+            <div class="section-toolbar" style="margin-bottom:0;">
+              <div>
+                <h2 class="heading-lg">Pemindaian QR-Code</h2>
+                <p class="text-muted" style="margin:4px 0 0;font-size:0.8125rem;">Arahkan kartu QR santri ke kamera untuk presensi otomatis.</p>
+              </div>
+              <button id="btn-show-token-fallback" type="button" class="btn btn-secondary btn-sm">
+                <i data-lucide="keyboard" aria-hidden="true"></i>
+                <span>Token Manual</span>
+              </button>
+            </div>
+
+            <div class="toolbar-actions">
+              <button id="btn-qr-start" type="button" class="btn btn-accent">
+                <i data-lucide="camera" aria-hidden="true"></i>
+                <span>Mulai Kamera</span>
+              </button>
+              <button id="btn-qr-stop" type="button" class="btn btn-danger" hidden>
+                <i data-lucide="camera-off" aria-hidden="true"></i>
+                <span>Hentikan Kamera</span>
+              </button>
+              <select id="qr-camera-select" class="select-control" aria-label="Pilih perangkat kamera" style="flex:1;min-width:170px;" hidden></select>
+            </div>
+
+            <div class="qr-viewport-shell">
+              <div id="qr-reader" class="qr-reader-box"></div>
+
+              <div id="qr-camera-idle" style="display:flex;flex-direction:column;align-items:center;gap:8px;max-width:340px;">
+                <i data-lucide="scan-line" aria-hidden="true" style="width:32px;height:32px;color:var(--text-muted);"></i>
+                <strong style="font-size:0.95rem;">Kamera Pemindai Siap</strong>
+                <p class="text-muted" style="margin:0;font-size:0.84rem;">Klik "Mulai Kamera" untuk mengaktifkan pemindaian QR-Code kartu santri.</p>
+              </div>
+
+              <!-- Fallback jika izin kamera ditolak / tidak tersedia -->
+              <div id="qr-camera-fallback" style="width:100%;text-align:left;" hidden>
+                <div class="inline-alert inline-alert-warn" role="alert" style="margin-bottom:12px;">
+                  <i data-lucide="video-off" aria-hidden="true" style="width:18px;height:18px;flex-shrink:0;margin-top:2px;"></i>
+                  <div>
+                    <strong style="display:block;margin-bottom:2px;">Kamera Tidak Dapat Digunakan</strong>
+                    <span id="qr-fallback-reason">Izin kamera ditolak atau perangkat kamera tidak tersedia.</span>
+                  </div>
+                </div>
+                <form id="form-qr-token-fallback" class="stack-gap" style="gap:10px;">
+                  <div class="field-group">
+                    <label class="field-label" for="qr-token-manual-input">Input Token QR / ID Santri Secara Manual</label>
+                    <input id="qr-token-manual-input" type="text" class="input-control mono-num" placeholder="Contoh: QR-MDTA-S001" />
+                  </div>
+                  <div class="toolbar-actions">
+                    <button type="submit" class="btn btn-primary btn-sm">
+                      <i data-lucide="check" aria-hidden="true"></i>
+                      <span>Catat Hadir via Token</span>
+                    </button>
+                    <button id="btn-focus-manual-presensi" type="button" class="btn btn-secondary btn-sm">
+                      <span>Buka Panel Input Manual</span>
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>
+
+            <div id="qr-last-scan-result" class="inline-alert inline-alert-info" hidden></div>
+          </section>
+
+          <!-- Panel Input Manual -->
+          <section class="surface-card stack-gap">
+            <div class="card-spotlight-layer" aria-hidden="true"></div>
+            <div>
+              <h2 class="heading-lg">Input Presensi Manual</h2>
+              <p id="guru-santri-sync-status" class="text-muted" style="margin:4px 0 0;font-size:0.8125rem;">Menyiapkan daftar santri...</p>
+            </div>
+
+            <form id="form-presensi-manual" class="stack-gap" style="gap:14px;" novalidate>
+              <div class="field-group">
+                <span class="field-label" id="label-status-presensi">Status Kehadiran</span>
+                <div id="guru-status-choices" class="status-choice-grid" role="group" aria-labelledby="label-status-presensi">
+                  <button type="button" class="status-choice-btn" data-status="Hadir" aria-pressed="true">
+                    <i data-lucide="check-circle-2" aria-hidden="true"></i>
+                    <span>Hadir</span>
+                  </button>
+                  <button type="button" class="status-choice-btn" data-status="Izin" aria-pressed="false">
+                    <i data-lucide="file-check-2" aria-hidden="true"></i>
+                    <span>Izin</span>
+                  </button>
+                  <button type="button" class="status-choice-btn" data-status="Sakit" aria-pressed="false">
+                    <i data-lucide="thermometer" aria-hidden="true"></i>
+                    <span>Sakit</span>
+                  </button>
+                  <button type="button" class="status-choice-btn" data-status="Alpa" aria-pressed="false">
+                    <i data-lucide="x-circle" aria-hidden="true"></i>
+                    <span>Alpa</span>
+                  </button>
+                </div>
+              </div>
+
+              <div class="field-group autocomplete-wrap">
+                <label class="field-label" for="manual-santri-input">Nama Santri (Autocomplete Database)</label>
+                <input
+                  id="manual-santri-input"
+                  type="text"
+                  class="input-control"
+                  autocomplete="off"
+                  role="combobox"
+                  aria-autocomplete="list"
+                  aria-expanded="false"
+                  aria-controls="manual-santri-autocomplete"
+                  placeholder="Ketik minimal 1 huruf nama atau ID santri..."
+                  required
+                />
+                <ul id="manual-santri-autocomplete" class="autocomplete-list" role="listbox" aria-label="Saran nama santri" hidden></ul>
+              </div>
+
+              <div class="form-grid-2">
+                <div class="field-group">
+                  <label class="field-label" for="manual-santri-kelas">Kelas</label>
+                  <input id="manual-santri-kelas" type="text" class="input-control" placeholder="Otomatis terisi atau ketik kelas" />
+                </div>
+                <div class="field-group">
+                  <label class="field-label" for="manual-presensi-tanggal">Tanggal</label>
+                  <input id="manual-presensi-tanggal" type="date" class="input-control" />
+                </div>
+              </div>
+
+              <div class="field-group">
+                <label class="field-label" for="manual-presensi-ket">Catatan / Keterangan (Opsional)</label>
+                <input id="manual-presensi-ket" type="text" class="input-control" placeholder="Contoh: Surat izin orang tua" />
+              </div>
+
+              <button id="btn-submit-presensi-manual" type="submit" class="btn btn-primary" style="width:100%;">
+                <i data-lucide="send" aria-hidden="true"></i>
+                <span>Simpan Presensi</span>
+              </button>
+            </form>
+          </section>
+        </div>
+
+        <!-- Daftar Presensi Hari Ini -->
+        <section class="surface-card stack-gap">
+          <div class="card-spotlight-layer" aria-hidden="true"></div>
+          <h3 class="heading-md">Daftar Presensi Santri Hari Ini</h3>
+          <div class="table-scroll">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Waktu</th>
+                  <th>Nama Santri</th>
+                  <th>Kelas</th>
+                  <th>Status</th>
+                  <th>Metode &amp; Catatan</th>
+                </tr>
+              </thead>
+              <tbody id="guru-session-log-tbody"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <!-- Ringkasan Otomatis & Tombol Kirim ke Kepala Madrasah -->
+        <section class="surface-card stack-gap guru-submit-strip">
+          <div class="card-spotlight-layer" aria-hidden="true"></div>
+          <div class="section-toolbar" style="margin-bottom:0;">
+            <div>
+              <span class="eyebrow-label">Pelaporan Harian</span>
+              <h3 class="heading-lg">Kirim Laporan Absensi ke Kepala Madrasah</h3>
+              <p id="guru-absensi-submit-info" class="text-muted" style="margin:4px 0 0;font-size:0.84rem;">
+                Klik tombol di bawah jika pencatatan absensi hari ini sudah selesai.
+              </p>
+            </div>
+            <span id="guru-absensi-submit-badge" class="status-badge status-sakit">Belum Dikirim</span>
+          </div>
+
+          <div class="stats-grid" style="margin-bottom:0;">
+            <div class="sub-surface" style="display:flex;align-items:center;justify-content:space-between;">
+              <span class="stat-label">Hadir</span>
+              <strong id="guru-sum-hadir" class="mono-num" style="font-size:1.35rem;color:var(--status-hadir-fg);">0</strong>
+            </div>
+            <div class="sub-surface" style="display:flex;align-items:center;justify-content:space-between;">
+              <span class="stat-label">Sakit</span>
+              <strong id="guru-sum-sakit" class="mono-num" style="font-size:1.35rem;color:var(--status-sakit-fg);">0</strong>
+            </div>
+            <div class="sub-surface" style="display:flex;align-items:center;justify-content:space-between;">
+              <span class="stat-label">Izin</span>
+              <strong id="guru-sum-izin" class="mono-num" style="font-size:1.35rem;color:var(--status-izin-fg);">0</strong>
+            </div>
+            <div class="sub-surface" style="display:flex;align-items:center;justify-content:space-between;">
+              <span class="stat-label">Alpa</span>
+              <strong id="guru-sum-alpa" class="mono-num" style="font-size:1.35rem;color:var(--status-alpa-fg);">0</strong>
+            </div>
+          </div>
+
+          <div class="form-grid">
+            <div class="field-group">
+              <label class="field-label" for="guru-laporan-kelas">Cakupan Kelas yang Dilaporkan</label>
+              <select id="guru-laporan-kelas" class="select-control">
+                <option value="Semua Kelas">Semua Kelas</option>
+              </select>
+            </div>
+            <div class="field-group">
+              <label class="field-label" for="guru-laporan-catatan">Catatan untuk Kepala Madrasah (Opsional)</label>
+              <input id="guru-laporan-catatan" type="text" class="input-control" placeholder="Contoh: Kegiatan belajar berjalan tertib" />
+            </div>
+          </div>
+
+          <button id="btn-submit-absensi-kepsek" type="button" class="btn btn-accent" style="width:100%;">
+            <i data-lucide="send" aria-hidden="true"></i>
+            <span>Kirim Laporan Absensi Hari Ini ke Kepala Madrasah</span>
+          </button>
+        </section>
+      </div>
+
+      <!-- TAB 2: KALKULATOR UAS -->
+      <div id="guru-panel-uas" class="tab-panel" role="tabpanel" aria-labelledby="guru-tab-uas" hidden>
+        <div id="guru-uas-mount"></div>
+      </div>
+
+      <!-- TAB 3: KALKULATOR RAPORT -->
+      <div id="guru-panel-raport" class="tab-panel" role="tabpanel" aria-labelledby="guru-tab-raport" hidden>
+        <div id="guru-raport-mount"></div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="footer-inner">
+      <span>&copy; <span id="footer-year">2026</span> MDTA ASY SYIFA AL MUSRI' (Bojongsoang, Kab. Bandung)</span>
+      <span>Portal Digital Madrasah &amp; Penilaian Raport</span>
+    </div>
+  </footer>
+
+  <!-- ===================================================================
+       MODAL DETAIL NILAI REKAP (KEPALA MADRASAH)
+       =================================================================== -->
+  <div id="modal-detail-nilai" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="detail-nilai-modal-title" hidden>
+    <div class="modal-panel modal-panel-lg">
+      <div class="modal-header">
+        <div>
+          <span class="eyebrow-label">Rincian Nilai Santri</span>
+          <h2 id="detail-nilai-modal-title" class="heading-md">Detail Nilai Kelas</h2>
+          <p id="detail-nilai-subtitle" class="text-muted" style="margin:4px 0 0;font-size:0.8125rem;"></p>
+        </div>
+        <button id="btn-close-detail-nilai" type="button" class="btn btn-secondary btn-icon" aria-label="Tutup detail nilai">
+          <i data-lucide="x" aria-hidden="true"></i>
+        </button>
+      </div>
+      <div class="modal-body">
+        <div class="table-scroll">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th style="width:44px;">No</th>
+                <th>Nama Santri</th>
+                <th>Harian</th>
+                <th>UAS</th>
+                <th>Kehadiran</th>
+                <th>Nilai Akhir</th>
+                <th>Predikat</th>
+              </tr>
+            </thead>
+            <tbody id="detail-nilai-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button id="btn-tutup-detail-nilai" type="button" class="btn btn-secondary">Tutup</button>
+        <button id="btn-print-detail-nilai" type="button" class="btn btn-primary">
+          <i data-lucide="printer" aria-hidden="true"></i>
+          <span>Cetak PDF Rekap</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================================================================
+       MODAL ARSIP DOKUMEN DRIVE (Dokumen_Arsip)
+       =================================================================== -->
+  <div id="modal-arsip-drive" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="arsip-modal-title" hidden>
+    <div class="modal-panel modal-panel-lg">
+      <div class="modal-header">
+        <div>
+          <span class="eyebrow-label">Google Drive MDTA ASY SYIFA AL MUSRI'</span>
+          <h2 id="arsip-modal-title" class="heading-md">Arsip Dokumen Drive</h2>
+        </div>
+        <button id="btn-close-arsip-modal" type="button" class="btn btn-secondary btn-icon" aria-label="Tutup modal Arsip Dokumen Drive">
+          <i data-lucide="x" aria-hidden="true"></i>
+        </button>
+      </div>
+      <div class="modal-body">
+        <div class="toolbar-actions" style="justify-content:space-between;">
+          <div id="arsip-category-filters" class="filter-chip-row" role="group" aria-label="Filter kategori dokumen">
+            <button type="button" class="filter-chip" data-arsip-cat="Semua" aria-pressed="true">Semua</button>
+            <button type="button" class="filter-chip" data-arsip-cat="Arsip Resmi" aria-pressed="false">Arsip Resmi</button>
+            <button type="button" class="filter-chip" data-arsip-cat="Impor AI" aria-pressed="false">Impor AI</button>
+            <button type="button" class="filter-chip" data-arsip-cat="Laporan PDF" aria-pressed="false">Laporan PDF</button>
+          </div>
+          <button id="btn-refresh-arsip" type="button" class="btn btn-secondary btn-sm">
+            <i data-lucide="refresh-cw" aria-hidden="true"></i>
+            <span>Muat Ulang</span>
+          </button>
+        </div>
+        <div class="field-group">
+          <label class="field-label sr-only" for="arsip-search-input">Cari dokumen atau folder</label>
+          <input id="arsip-search-input" type="search" class="input-control" placeholder="Cari judul dokumen, kategori, atau pengunggah..." />
+        </div>
+        <div id="arsip-drive-list" class="stack-gap" style="gap:10px;"></div>
+      </div>
+      <div class="modal-footer">
+        <a id="arsip-drive-root-link" href="https://drive.google.com/drive/folders/1mgtcD4ipQjBjiqL6omZjBnJyuz3QAT_6" target="_blank" rel="noopener" class="btn btn-primary">
+          <i data-lucide="external-link" aria-hidden="true"></i>
+          <span>Buka Folder Utama Drive</span>
+        </a>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================================================================
+       MODAL MANAJEMEN PENGGUNA / GURU
+       =================================================================== -->
+  <div id="modal-user" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="user-modal-title" hidden>
+    <div class="modal-panel">
+      <div class="modal-header">
+        <div>
+          <span class="eyebrow-label">Kelola Akun Pengguna</span>
+          <h2 id="user-modal-title" class="heading-md">Tambah Pengguna / Guru</h2>
+        </div>
+        <button id="btn-close-user-modal" type="button" class="btn btn-secondary btn-icon" aria-label="Tutup modal pengguna">
+          <i data-lucide="x" aria-hidden="true"></i>
+        </button>
+      </div>
+      <form id="form-user" class="modal-body">
+        <input id="user-id" type="hidden" />
+        <div class="field-group">
+          <label class="field-label" for="user-nama">Nama Lengkap</label>
+          <input id="user-nama" type="text" class="input-control" placeholder="Contoh: Ustadz Ahmad Fauzi" required />
+        </div>
+        <div class="form-grid-2">
+          <div class="field-group">
+            <label class="field-label" for="user-username">Username Login</label>
+            <input id="user-username" type="text" class="input-control" placeholder="Contoh: guru1" required />
+          </div>
+          <div class="field-group">
+            <label class="field-label" for="user-role">Peran (Role)</label>
+            <select id="user-role" class="select-control">
+              <option value="guru">Guru</option>
+              <option value="admin">Kepala Madrasah / Admin</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-grid-2">
+          <div class="field-group">
+            <label class="field-label" for="user-password">Kata Sandi</label>
+            <input id="user-password" type="password" class="input-control" placeholder="Masukkan kata sandi" />
+            <span id="user-password-hint" class="text-muted" style="font-size:0.78rem;"></span>
+          </div>
+          <div class="field-group">
+            <label class="field-label" for="user-status">Status Akun</label>
+            <select id="user-status" class="select-control">
+              <option value="aktif">Aktif</option>
+              <option value="nonaktif">Nonaktif</option>
+            </select>
+          </div>
+        </div>
+        <div class="modal-footer" style="padding:12px 0 0;border-top:none;">
+          <button id="btn-cancel-user-modal" type="button" class="btn btn-secondary">Batal</button>
+          <button id="btn-save-user" type="submit" class="btn btn-primary">
+            <i data-lucide="save" aria-hidden="true"></i>
+            <span>Simpan Pengguna</span>
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- ===================================================================
+       MODAL TAMBAH / EDIT SANTRI
+       =================================================================== -->
+  <div id="modal-santri" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="santri-modal-title" hidden>
+    <div class="modal-panel">
+      <div class="modal-header">
+        <div>
+          <span class="eyebrow-label">Data Santri Madrasah</span>
+          <h2 id="santri-modal-title" class="heading-md">Tambah Santri Baru</h2>
+        </div>
+        <button id="btn-close-santri-modal" type="button" class="btn btn-secondary btn-icon" aria-label="Tutup modal santri">
+          <i data-lucide="x" aria-hidden="true"></i>
+        </button>
+      </div>
+      <form id="form-santri" class="modal-body">
+        <input id="santri-id" type="hidden" />
+        <div class="field-group">
+          <label class="field-label" for="santri-nama">Nama Lengkap Santri</label>
+          <input id="santri-nama" type="text" class="input-control" placeholder="Nama lengkap santri" required />
+        </div>
+        <div class="form-grid-2">
+          <div class="field-group">
+            <label class="field-label" for="santri-kelas">Kelas</label>
+            <input id="santri-kelas" list="modal-santri-kelas-list" type="text" class="input-control" placeholder="Contoh: Kelas 7A" />
+            <datalist id="modal-santri-kelas-list">
+              <option value="Kelas 7A"></option>
+              <option value="Kelas 7B"></option>
+              <option value="Kelas 8A"></option>
+              <option value="Kelas 8B"></option>
+              <option value="Kelas 9A"></option>
+              <option value="Kelas 9B"></option>
+            </datalist>
+          </div>
+          <div class="field-group">
+            <label class="field-label" for="santri-hp">No. WhatsApp Orang Tua</label>
+            <input id="santri-hp" type="tel" class="input-control mono-num" placeholder="6281234567890" />
+          </div>
+        </div>
+        <div class="form-grid-2">
+          <div class="field-group">
+            <label class="field-label" for="santri-qr-token">Token Kartu QR (Opsional)</label>
+            <div style="display:flex;gap:8px;">
+              <input id="santri-qr-token" type="text" class="input-control mono-num" placeholder="Otomatis dari ID jika kosong" />
+              <button id="btn-regen-qr-token" type="button" class="btn btn-secondary" aria-label="Buat token QR baru">
+                <i data-lucide="refresh-cw" aria-hidden="true"></i>
+              </button>
+            </div>
+          </div>
+          <div class="field-group">
+            <label class="field-label" for="santri-status">Status Santri</label>
+            <select id="santri-status" class="select-control">
+              <option value="aktif">Aktif</option>
+              <option value="nonaktif">Nonaktif</option>
+            </select>
+          </div>
+        </div>
+        <div class="modal-footer" style="padding:12px 0 0;border-top:none;">
+          <button id="btn-cancel-santri-modal" type="button" class="btn btn-secondary">Batal</button>
+          <button id="btn-save-santri" type="submit" class="btn btn-accent">
+            <i data-lucide="save" aria-hidden="true"></i>
+            <span>Simpan Data Santri</span>
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- ===================================================================
+       MODAL LIHAT / UNDUH / CETAK KARTU QR SANTRI
+       =================================================================== -->
+  <div id="modal-qr" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="qr-modal-title" hidden>
+    <div class="modal-panel modal-panel-sm">
+      <div class="modal-header">
+        <div>
+          <span class="eyebrow-label">Kartu Presensi Digital</span>
+          <h2 id="qr-modal-title" class="heading-md">Kartu QR Santri</h2>
+        </div>
+        <button id="btn-close-qr-modal" type="button" class="btn btn-secondary btn-icon" aria-label="Tutup modal kartu QR">
+          <i data-lucide="x" aria-hidden="true"></i>
+        </button>
+      </div>
+      <div class="modal-body">
+        <div class="qr-card-sheet">
+          <div style="font-size:0.75rem;font-weight:700;letter-spacing:0.04em;">KARTU PRESENSI SANTRI MDTA ASY SYIFA AL MUSRI'</div>
+          <div id="qr-render-target" class="qr-card-code-box"></div>
+          <div>
+            <div id="qr-card-nama" style="font-size:1.1rem;font-weight:800;">-</div>
+            <div id="qr-card-meta" style="font-size:0.84rem;color:#52525b;">-</div>
+            <code id="qr-card-token" class="mono-num" style="display:inline-block;margin-top:6px;font-size:0.8rem;padding:4px 8px;background:#f4f4f5;border-radius:6px;">-</code>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button id="btn-download-qr-png" type="button" class="btn btn-secondary">
+          <i data-lucide="download" aria-hidden="true"></i>
+          <span>Unduh PNG</span>
+        </button>
+        <button id="btn-print-qr-card" type="button" class="btn btn-primary">
+          <i data-lucide="printer" aria-hidden="true"></i>
+          <span>Cetak Kartu QR</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================================================================
+       MODAL UNGGAH PDF REKAP KE DRIVE
+       =================================================================== -->
+  <div id="modal-upload-pdf" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="upload-pdf-modal-title" hidden>
+    <div class="modal-panel">
+      <div class="modal-header">
+        <div>
+          <span class="eyebrow-label">Arsip Laporan PDF</span>
+          <h2 id="upload-pdf-modal-title" class="heading-md">Unggah Laporan PDF ke Drive</h2>
+        </div>
+        <button id="btn-close-upload-pdf-modal" type="button" class="btn btn-secondary btn-icon" aria-label="Tutup modal unggah PDF">
+          <i data-lucide="x" aria-hidden="true"></i>
+        </button>
+      </div>
+      <form id="form-upload-pdf" class="modal-body">
+        <div class="field-group">
+          <label class="field-label" for="upload-pdf-filename">Nama Berkas di Google Drive</label>
+          <input id="upload-pdf-filename" type="text" class="input-control" required />
+        </div>
+        <div class="field-group">
+          <span class="field-label">Sumber Laporan PDF</span>
+          <label style="display:flex;align-items:center;gap:8px;font-size:0.875rem;">
+            <input type="radio" name="uploadPdfMode" value="snapshot" checked />
+            <span>Buat PDF langsung dari tabel rekap aktif &amp; unggah ke Drive</span>
+          </label>
+          <label style="display:flex;align-items:center;gap:8px;font-size:0.875rem;">
+            <input type="radio" name="uploadPdfMode" value="file" />
+            <span>Unggah berkas PDF hasil cetak dari perangkat Anda</span>
+          </label>
+        </div>
+        <div class="field-group">
+          <label class="field-label" for="upload-pdf-file">Pilih Berkas PDF (jika memilih unggah berkas)</label>
+          <input id="upload-pdf-file" type="file" accept=".pdf,application/pdf" class="input-control" />
+        </div>
+        <div class="modal-footer" style="padding:12px 0 0;border-top:none;">
+          <button id="btn-cancel-upload-pdf" type="button" class="btn btn-secondary">Batal</button>
+          <button id="btn-submit-upload-pdf" type="submit" class="btn btn-accent">
+            <i data-lucide="upload-cloud" aria-hidden="true"></i>
+            <span>Unggah ke Drive</span>
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- ===================================================================
+       MODAL ASISTEN IMPOR NILAI AI (Gemini 2.5 Flash)
+       =================================================================== -->
+  <div id="modal-import-ai" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="import-ai-modal-title" hidden>
+    <div class="modal-panel">
+      <div class="modal-header">
+        <div>
+          <span class="eyebrow-label">Ekstraksi Daftar Nilai Otomatis</span>
+          <h2 id="import-ai-modal-title" class="heading-md">Asisten Impor Nilai AI</h2>
+        </div>
+        <button id="btn-close-import-ai-modal" type="button" class="btn btn-secondary btn-icon" aria-label="Tutup modal Asisten Impor Nilai AI">
+          <i data-lucide="x" aria-hidden="true"></i>
+        </button>
+      </div>
+      <form id="form-import-ai" class="modal-body">
+        <p class="text-muted" style="margin:0;font-size:0.875rem;">
+          Unggah berkas PDF atau foto daftar nilai santri, atau tempel teks mentah nilai harian, UAS, dan kehadiran.
+        </p>
+        <div id="import-ai-error" class="inline-alert inline-alert-error" role="alert" hidden></div>
+        <div class="field-group">
+          <label class="field-label" for="import-ai-file">Unggah PDF atau Foto Daftar Nilai (Maks 6 MB)</label>
+          <input id="import-ai-file" type="file" accept=".pdf,image/*" class="input-control" />
+          <span id="import-ai-file-status" class="text-muted" style="font-size:0.78rem;">Belum ada berkas dipilih.</span>
+        </div>
+        <div class="field-group">
+          <label class="field-label" for="import-ai-text">Atau Tempel Teks Daftar Nilai</label>
+          <textarea id="import-ai-text" class="textarea-control" placeholder="Contoh per baris:&#10;Muhammad Al-Fatih, 90, 88.6, 100&#10;Aisyah Humaira, 85, 81, 90"></textarea>
+        </div>
+        <div class="modal-footer" style="padding:12px 0 0;border-top:none;justify-content:space-between;">
+          <button id="btn-import-ai-local" type="button" class="btn btn-secondary btn-sm">
+            <i data-lucide="table" aria-hidden="true"></i>
+            <span>Urai Teks CSV Lokal</span>
+          </button>
+          <div class="toolbar-actions">
+            <button id="btn-cancel-import-ai" type="button" class="btn btn-secondary">Batal</button>
+            <button id="btn-import-ai-submit" type="submit" class="btn btn-accent">
+              <i data-lucide="file-up" aria-hidden="true"></i>
+              <span>Proses &amp; Isi Tabel</span>
+            </button>
+          </div>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- ===================================================================
+       MODAL KONFIRMASI AKSI
+       =================================================================== -->
+  <div id="modal-confirm" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="confirm-modal-title" hidden>
+    <div class="modal-panel modal-panel-sm">
+      <div class="modal-header">
+        <h2 id="confirm-modal-title" class="heading-md">Konfirmasi</h2>
+        <button id="btn-close-confirm-modal" type="button" class="btn btn-secondary btn-icon" aria-label="Tutup dialog konfirmasi">
+          <i data-lucide="x" aria-hidden="true"></i>
+        </button>
+      </div>
+      <div class="modal-body">
+        <p id="confirm-modal-message" style="margin:0;font-size:0.9375rem;"></p>
+      </div>
+      <div class="modal-footer">
+        <button id="btn-confirm-cancel" type="button" class="btn btn-secondary">Batal</button>
+        <button id="btn-confirm-ok" type="button" class="btn btn-danger">Hapus</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="toast-container" class="toast-container" aria-live="polite" aria-atomic="true"></div>
+</body>
+</html>
