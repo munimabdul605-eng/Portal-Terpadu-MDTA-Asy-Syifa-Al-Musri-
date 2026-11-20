@@ -1199,11 +1199,12 @@
           };
         }
 
-        const [rkRes, dRes, sRes, rptRes, docRes, logRes, kRes] = await Promise.allSettled([
+        const [rkRes, dRes, sRes, rptRes, uasRes, docRes, logRes, kRes] = await Promise.allSettled([
           root.MDTA_API.getRekapKepsek(tanggal, kelas),
           root.MDTA_API.getDashboard(),
           root.MDTA_API.getSantri(),
           root.MDTA_API.getNilaiRaport(),
+          root.MDTA_API.getNilaiUAS(),
           root.MDTA_API.getDokumenArsip(),
           root.MDTA_API.getLogSetoran({}),
           root.MDTA_API.getKelas(),
@@ -1219,6 +1220,7 @@
           santri: santriRaw,
           users: dashData && Array.isArray(dashData.daftar_pengguna) ? dashData.daftar_pengguna : [],
           nilai_raport: rptRes.status === 'fulfilled' ? extractArray(rptRes.value, ['raport']) : [],
+          nilai_uas: uasRes.status === 'fulfilled' ? extractArray(uasRes.value, ['nilai_uas']) : [],
           dokumen_arsip: docRes.status === 'fulfilled' ? extractArray(docRes.value, ['dokumen']) : [],
           log_setoran: logRes.status === 'fulfilled' ? extractArray(logRes.value, ['log_setoran']) : [],
           presensi_hari_ini: [],

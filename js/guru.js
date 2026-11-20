@@ -2,9 +2,9 @@
  * Portal Guru (3 Tab) - Terhubung ke Code.gs & Database Sistem MDTA
  * Header Banner "GURU PIKET" dengan nama guru yang login.
  * 1. Tab Presensi: Pemindaian QR-Code (html5-qrcode + fallback) + Panel Input Manual
- *    + Ringkasan otomatis & Tombol "Kirim Laporan Absensi Hari Ini ke Kepala Madrasah".
- * 2. Tab Kalkulator UAS (berbagi modul MDTA_CALC + tombol Submit Rekap Nilai).
- * 3. Tab Kalkulator Raport (berbagi modul MDTA_CALC + tombol Submit Rekap Nilai).
+ *    yang otomatis tersinkron ke Beranda Laporan Admin.
+ * 2. Tab Kalkulator UAS (berbagi modul MDTA_CALC, otomatis tampil di Beranda Laporan).
+ * 3. Tab Kalkulator Raport (berbagi modul MDTA_CALC, otomatis tampil di Beranda Laporan).
  */
 (function (root) {
   'use strict';
@@ -29,7 +29,16 @@
   let activeAcIndex = -1;
   const sessionPresensiLogs = [];
   let serverTodayPresensi = [];
-  let todaySetoranLogs = [];
+
+  function invalidateAdminReportCache() {
+    STATE.rekapKepsek = null;
+    STATE.rekapKepsekKey = '';
+    STATE.loaded.bootstrap = false;
+    if (root.MDTA_CACHE) {
+      root.MDTA_CACHE.remove('rekapKepsek');
+      root.MDTA_CACHE.remove('dashboard');
+    }
+  }
 
   function getGuruKelasAmpu() {
     return API.parseKelasAmpu(guruSession && guruSession.kelas_ampu);
@@ -41,34 +50,6 @@
     if (s.includes('sakit')) return 'status-sakit';
     if (s.includes('izin')) return 'status-izin';
     return 'status-alpa';
-  }
-
-  function toISODateWIB(val) {
-    if (!val) return '';
-    const s = String(val).trim();
-    if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
-    const d = new Date(s);
-    if (!Number.isNaN(d.getTime())) {
-      const parts = new Intl.DateTimeFormat('en-CA', {
-        timeZone: 'Asia/Jakarta',
-        year: 'numeric',
-        month: '2-digit',
-        day: '2-digit',
-      }).formatToParts(d);
-      const y = parts.find((p) => p.type === 'year')?.value;
-      const m = parts.find((p) => p.type === 'month')?.value;
-      const day = parts.find((p) => p.type === 'day')?.value;
-      if (y && m && day) return `${y}-${m}-${day}`;
-    }
-    return s;
-  }
-
-  function formatJamWIB(waktuStr) {
-    if (!waktuStr) return '';
-    const s = String(waktuStr).trim();
-    const m = s.match(/(\d{1,2}):(\d{2})/);
-    if (m) return `${m[1].padStart(2, '0')}.${m[2]} WIB`;
-    return s;
   }
 
   function updateBanner(session) {
@@ -146,52 +127,8 @@
     }
   }
 
-  function populateLaporanKelasOptions() {
-    const sel = document.getElementById('guru-laporan-kelas');
-    if (!sel) return;
-    const prev = sel.value;
-    const kelasAmpu = getGuruKelasAmpu();
-
-    if (kelasAmpu.length === 0) {
-      sel.innerHTML = '<option value="">Belum ada kelas ampu</option>';
-      sel.disabled = true;
-    } else {
-      sel.disabled = false;
-      sel.innerHTML = kelasAmpu
-        .map((k) => `<option value="${UI.esc(k)}">${UI.esc(k)}</option>`)
-        .join('');
-      if (prev && kelasAmpu.some((k) => k.toLowerCase() === prev.toLowerCase())) {
-        const exact = kelasAmpu.find((k) => k.toLowerCase() === prev.toLowerCase());
-        if (exact) sel.value = exact;
-      } else {
-        sel.value = kelasAmpu[0];
-      }
-    }
-
-    const submitBtnSpan = document.querySelector('#btn-submit-absensi-kepsek span');
-    if (submitBtnSpan) {
-      submitBtnSpan.textContent = sel.value
-        ? `Kirim Laporan Absensi ${sel.value} ke Kepala Madrasah`
-        : 'Kirim Laporan Absensi ke Kepala Madrasah';
-    }
-  }
-
-  function updateAbsensiReportSummaryUI() {
-    const kelasSel = document.getElementById('guru-laporan-kelas');
-    const targetKelas = kelasSel ? kelasSel.value : '';
-    const submitBtnSpan = document.querySelector('#btn-submit-absensi-kepsek span');
-    if (submitBtnSpan) {
-      submitBtnSpan.textContent = targetKelas
-        ? `Kirim Laporan Absensi ${targetKelas} ke Kepala Madrasah`
-        : 'Kirim Laporan Absensi ke Kepala Madrasah';
-    }
-
-    const list = targetKelas
-      ? getCombinedTodayPresensi().filter(
-          (item) => String(item.kelas || '').trim().toLowerCase() === targetKelas.trim().toLowerCase()
-        )
-      : [];
-
+  function updateAbsensiCountsUI() {
+    const list = getCombinedTodayPresensi();
     const counts = { Hadir: 0, Sakit: 0, Izin: 0, Alpa: 0 };
     list.forEach((item) => {
       const st = String(item.status || 'Hadir');
@@ -207,41 +144,13 @@
     if (elI) elI.textContent = String(counts.Izin);
     if (elA) elA.textContent = String(counts.Alpa);
 
-    const badge = document.getElementById('guru-absensi-submit-badge');
-    const infoEl = document.getElementById('guru-absensi-submit-info');
-    if (badge) {
-      const matched = targetKelas
-        ? todaySetoranLogs.find(
-            (log) =>
-              String(log.kelas || '').trim().toLowerCase() === targetKelas.trim().toLowerCase() ||
-              String(log.kelas || '').trim().toLowerCase() === 'semua kelas'
-          )
-        : null;
-      if (matched) {
-        const jam = formatJamWIB(matched.waktu_submit);
-        badge.className = 'status-badge status-hadir';
-        badge.textContent = jam ? `Sudah Dikirim · ${jam}` : 'Sudah Dikirim';
-        if (infoEl) {
-          infoEl.textContent = `Disetor oleh ${matched.nama_guru} (${matched.kelas}).`;
-        }
-      } else {
-        badge.className = 'status-badge status-sakit';
-        badge.textContent = 'Belum Dikirim';
-        if (infoEl) {
-          infoEl.textContent = targetKelas
-            ? `Klik tombol di bawah jika pencatatan absensi ${targetKelas} hari ini sudah selesai.`
-            : 'Hubungi Admin untuk memetakan kelas ampu Anda terlebih dahulu.';
-        }
-      }
-    }
-
     return counts;
   }
 
   function renderSessionLogs() {
     const tbody = document.getElementById('guru-session-log-tbody');
     updateBanner(guruSession || {});
-    updateAbsensiReportSummaryUI();
+    updateAbsensiCountsUI();
     if (!tbody) return;
 
     const combined = getCombinedTodayPresensi();
@@ -300,7 +209,6 @@
 
     const prevSantri = STATE.santri || [];
     const prevPresensi = serverTodayPresensi;
-    const prevLogs = todaySetoranLogs;
 
     if (Array.isArray(bundle.santri)) {
       STATE.santri = API.filterByGuruScope(bundle.santri.map(API.normalizeSantri), guruSession, 'kelas');
@@ -333,18 +241,6 @@
       STATE.loaded.uas = true;
       if (CACHE) CACHE.write('nilaiUAS', STATE.nilaiUAS);
     }
-    if (Array.isArray(bundle.log_setoran)) {
-      const allLogs = API.filterByGuruScope(
-        bundle.log_setoran.map(API.normalizeLogSetoran),
-        guruSession,
-        'kelas'
-      );
-      STATE.logSetoran = allLogs;
-      if (CACHE) CACHE.write('logSetoran', allLogs);
-      todaySetoranLogs = allLogs.filter(
-        (l) => l.tanggal === today && String(l.jenis_laporan || '').toLowerCase() === 'absensi harian'
-      );
-    }
 
     STATE.loaded.guruPresensi = true;
 
@@ -363,11 +259,9 @@
     const santriChanged = !CACHE || CACHE.hasChanged(prevSantri, STATE.santri);
     const dataChanged =
       santriChanged ||
-      CACHE.hasChanged(prevPresensi, serverTodayPresensi) ||
-      CACHE.hasChanged(prevLogs, todaySetoranLogs);
+      CACHE.hasChanged(prevPresensi, serverTodayPresensi);
 
     populateManualKelasSelect();
-    populateLaporanKelasOptions();
     if (dataChanged || Array.isArray(bundle.kelas_ampu)) {
       renderSessionLogs();
     }
@@ -388,17 +282,7 @@
         'kelas'
       );
     }
-    if (Array.isArray(STATE.logSetoran) && STATE.logSetoran.length > 0) {
-      todaySetoranLogs = API.filterByGuruScope(
-        STATE.logSetoran.filter(
-          (l) => l.tanggal === today && String(l.jenis_laporan || '').toLowerCase() === 'absensi harian'
-        ),
-        guruSession,
-        'kelas'
-      );
-    }
     populateManualKelasSelect();
-    populateLaporanKelasOptions();
     renderSessionLogs();
 
     const kelasAmpu = getGuruKelasAmpu();
@@ -560,6 +444,7 @@
           optimisticEntry.nama_santri = resolvedNama;
           optimisticEntry.status = d.status || 'Hadir';
           if (root.MDTA_CACHE) root.MDTA_CACHE.write('presensiToday', getCombinedTodayPresensi());
+          invalidateAdminReportCache();
           if (resolvedNama !== initialNama) {
             renderSessionLogs();
             if (lastBox) {
@@ -598,6 +483,7 @@
         catatan: payload.catatan,
       });
       if (root.MDTA_CACHE) root.MDTA_CACHE.write('presensiToday', getCombinedTodayPresensi());
+      invalidateAdminReportCache();
       renderSessionLogs();
       if (lastBox) {
         lastBox.hidden = false;
@@ -714,11 +600,6 @@
     const tanggalInput = document.getElementById('manual-presensi-tanggal');
     const ketInput = document.getElementById('manual-presensi-ket');
     const form = document.getElementById('form-presensi-manual');
-    const submitBtn = document.getElementById('btn-submit-presensi-manual');
-
-    const laporanKelasSel = document.getElementById('guru-laporan-kelas');
-    const laporanCatatanInp = document.getElementById('guru-laporan-catatan');
-    const submitKepsekBtn = document.getElementById('btn-submit-absensi-kepsek');
 
     if (tanggalInput && !tanggalInput.value) {
       tanggalInput.value = UI.todayISO();
@@ -921,6 +802,7 @@
             optimisticEntry.nama_santri = resolvedNama;
             optimisticEntry.status = d.status || statusChoice;
             if (root.MDTA_CACHE) root.MDTA_CACHE.write('presensiToday', getCombinedTodayPresensi());
+            invalidateAdminReportCache();
             if (resolvedNama !== payload.nama_santri || optimisticEntry.status !== statusChoice) {
               renderSessionLogs();
             }
@@ -936,46 +818,6 @@
             selectedSantri = prevInputs.santriObj;
             UI.toast(`Gagal menyinkronkan presensi "${payload.nama_santri}": ${err.message}`, 'error');
           });
-      });
-    }
-
-    if (laporanKelasSel) {
-      laporanKelasSel.addEventListener('change', updateAbsensiReportSummaryUI);
-    }
-
-    if (submitKepsekBtn) {
-      submitKepsekBtn.addEventListener('click', async () => {
-        const kelasAmpu = getGuruKelasAmpu();
-        const kelas = laporanKelasSel ? laporanKelasSel.value : '';
-        if (kelasAmpu.length === 0 || !kelas) {
-          UI.toast('Tidak ada kelas ampu yang dapat dilaporkan. Hubungi Admin untuk pemetaan kelas.', 'error');
-          return;
-        }
-        const counts = updateAbsensiReportSummaryUI();
-        const catatan = laporanCatatanInp ? laporanCatatanInp.value.trim() : '';
-        const summaryText = `Hadir ${counts.Hadir}, Sakit ${counts.Sakit}, Izin ${counts.Izin}, Alpa ${counts.Alpa}${catatan ? ` | Catatan: ${catatan}` : ''}`;
-
-        UI.setButtonLoading(submitKepsekBtn, true, 'Mengirim ke Kepala Madrasah...');
-        try {
-          const res = await API.submitLaporanGuru({
-            tanggal: UI.todayISO(),
-            jenis_laporan: 'Absensi Harian',
-            kelas,
-            periode: '',
-            id_guru: (guruSession && guruSession.id_user) || '',
-            nama_guru: (guruSession && (guruSession.nama_lengkap || guruSession.username)) || 'Guru Piket',
-            ringkasan: summaryText,
-          });
-          const saved = API.normalizeLogSetoran(res.data || res);
-          todaySetoranLogs.unshift(saved);
-          if (laporanCatatanInp) laporanCatatanInp.value = '';
-          updateAbsensiReportSummaryUI();
-          UI.toast(`Laporan Absensi Harian (${kelas}) berhasil dikirim ke Kepala Madrasah.`, 'success');
-        } catch (err) {
-          UI.toast(err.message, 'error');
-        } finally {
-          UI.setButtonLoading(submitKepsekBtn, false);
-        }
       });
     }
   }
@@ -1044,14 +886,12 @@
       lastGuruKey = nextKey;
       sessionPresensiLogs.length = 0;
       serverTodayPresensi = [];
-      todaySetoranLogs = [];
       lastScanToken = '';
       selectedSantri = null;
     }
 
     updateBanner(guruSession);
     populateManualKelasSelect();
-    populateLaporanKelasOptions();
     const tablist = document.getElementById('guru-tablist');
 
     if (!initialized) {

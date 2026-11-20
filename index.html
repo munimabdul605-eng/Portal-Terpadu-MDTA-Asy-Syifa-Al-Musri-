@@ -21,22 +21,22 @@
 
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@500;600;700&family=Montserrat:wght@700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
 
-  <link rel="stylesheet" href="./css/tokens.css?v=20261120-7" />
-  <link rel="stylesheet" href="./css/style.css?v=20261120-7" />
+  <link rel="stylesheet" href="./css/tokens.css?v=20261120-10" />
+  <link rel="stylesheet" href="./css/style.css?v=20261120-10" />
 
   <script defer src="https://unpkg.com/lucide@0.468.0/dist/umd/lucide.min.js"></script>
   <script defer src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
   <script defer src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
   <script defer src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 
-  <script defer src="./js/config.js?v=20261120-7"></script>
-  <script defer src="./js/api.js?v=20261120-7"></script>
-  <script defer src="./js/calculators.js?v=20261120-7"></script>
-  <script defer src="./js/admin.js?v=20261120-7"></script>
-  <script defer src="./js/guru.js?v=20261120-7"></script>
-  <script defer src="./js/auth.js?v=20261120-7"></script>
+  <script defer src="./js/config.js?v=20261120-10"></script>
+  <script defer src="./js/api.js?v=20261120-10"></script>
+  <script defer src="./js/calculators.js?v=20261120-10"></script>
+  <script defer src="./js/admin.js?v=20261120-10"></script>
+  <script defer src="./js/guru.js?v=20261120-10"></script>
+  <script defer src="./js/auth.js?v=20261120-10"></script>
 </head>
 <body>
   <a href="#main-content" class="skip-link">Langsung ke konten utama</a>
@@ -234,38 +234,49 @@
 
       <!-- TAB 1: BERANDA KEPALA MADRASAH -->
       <div id="admin-panel-dashboard" class="tab-panel stack-gap" role="tabpanel" aria-labelledby="admin-tab-dashboard">
-        <!-- Bar Kontrol Tanggal, Kelas & Sub-Tab -->
-        <section class="surface-card stack-gap no-print">
+        <!-- Bar Kontrol Tanggal, Kelas & Mode Laporan -->
+        <section class="surface-card stack-gap kepsek-control-card no-print">
           <div class="card-spotlight-layer" aria-hidden="true"></div>
           <div class="section-toolbar" style="margin-bottom:0;">
             <div>
-              <h2 class="heading-lg">Rekapan &amp; Pelaporan Guru</h2>
-              <p id="dashboard-last-updated" class="text-muted" style="margin:4px 0 0;font-size:0.8125rem;">Menunggu pembaruan laporan...</p>
+              <h2 class="heading-lg">Beranda Laporan</h2>
+              <p id="dashboard-last-updated" class="text-muted kepsek-subtitle"></p>
             </div>
             <div class="toolbar-actions">
-              <button id="btn-print-all-kelas-laporan" type="button" class="btn btn-secondary">
-                <i data-lucide="printer" aria-hidden="true"></i>
-                <span>Cetak Semua Kelas (Per Halaman)</span>
-              </button>
-              <button id="btn-refresh-dashboard" type="button" class="btn btn-primary">
+              <button id="btn-refresh-dashboard" type="button" class="btn btn-primary btn-sm">
                 <i data-lucide="refresh-cw" aria-hidden="true"></i>
-                <span>Perbarui Laporan</span>
+                <span>Perbarui</span>
               </button>
             </div>
           </div>
+
           <div class="form-grid">
             <div class="field-group">
-              <label class="field-label" for="kepsek-filter-tanggal">Pilih Tanggal Laporan</label>
+              <label class="field-label" for="kepsek-filter-tanggal">Tanggal</label>
               <input id="kepsek-filter-tanggal" type="date" class="input-control" />
             </div>
             <div class="field-group">
-              <label class="field-label" for="kepsek-filter-kelas">Pilih Kelas</label>
+              <label class="field-label" for="kepsek-filter-kelas">Kelas</label>
               <select id="kepsek-filter-kelas" class="select-control">
                 <option value="">Semua Kelas</option>
               </select>
             </div>
           </div>
-          <div id="kepsek-kelas-subtabs" class="kelas-subtabs-bar" role="group" aria-label="Pilih laporan per kelas"></div>
+
+          <div id="kepsek-report-tabs" class="report-mode-tabs" role="group" aria-label="Jenis laporan harian">
+            <button id="btn-kepsek-mode-absensi" type="button" class="report-mode-btn" data-kepsek-mode="absensi" aria-pressed="true">
+              <i data-lucide="calendar-check-2" aria-hidden="true"></i>
+              <span>Laporan Absensi</span>
+              <span id="kepsek-absensi-count" class="mode-count-pill mono-num">0</span>
+            </button>
+            <button id="btn-kepsek-mode-nilai" type="button" class="report-mode-btn" data-kepsek-mode="nilai" aria-pressed="false">
+              <i data-lucide="award" aria-hidden="true"></i>
+              <span>Laporan Nilai</span>
+              <span id="kepsek-nilai-count" class="mode-count-pill mono-num">0</span>
+            </button>
+          </div>
+
+          <div id="kepsek-kelas-subtabs" class="kelas-subtabs-bar" role="group" aria-label="Filter cepat kelas" hidden></div>
         </section>
 
         <div id="kepsek-backend-notice" class="inline-alert inline-alert-warn no-print" role="status" hidden>
@@ -273,161 +284,115 @@
           <span id="kepsek-backend-notice-msg"></span>
         </div>
 
-        <!-- A. RINGKASAN UMUM HARI INI (2x2 di Mobile) -->
-        <section id="kepsek-overview-section" class="surface-card stack-gap no-print">
-          <div class="card-spotlight-layer" aria-hidden="true"></div>
-          <div class="section-toolbar" style="margin-bottom:0;">
-            <div>
-              <h3 class="heading-md">Ringkasan Umum Kehadiran</h3>
-              <p class="text-muted" style="margin:4px 0 0;font-size:0.8125rem;">Rekap agregat kehadiran seluruh santri sesuai filter tanggal &amp; kelas aktif.</p>
+        <!-- A. PANEL TERPISAH: LAPORAN ABSENSI HARIAN -->
+        <div id="kepsek-absensi-panel" class="stack-gap no-print">
+          <section id="kepsek-overview-section" class="surface-card stack-gap" hidden>
+            <div class="card-spotlight-layer" aria-hidden="true"></div>
+            <div class="section-toolbar" style="margin-bottom:0;">
+              <h3 class="heading-md">Ringkasan Kehadiran</h3>
             </div>
-            <div class="toolbar-actions">
-              <span id="kepsek-setoran-summary" class="status-badge status-izin">-</span>
-              <span id="kepsek-absensi-penyetor" class="status-badge status-izin">Menunggu data...</span>
+
+            <div class="stats-grid" style="margin-bottom:0;" aria-label="Ringkasan absensi harian">
+              <article class="sub-surface stat-card">
+                <div class="stat-card-top">
+                  <span class="stat-label">Hadir</span>
+                  <span class="stat-icon-pill status-hadir">
+                    <i data-lucide="check-circle-2" aria-hidden="true" style="width:18px;height:18px;"></i>
+                  </span>
+                </div>
+                <div id="stat-hadir" class="stat-value">-</div>
+                <div id="stat-hadir-foot" class="stat-foot"></div>
+              </article>
+
+              <article class="sub-surface stat-card">
+                <div class="stat-card-top">
+                  <span class="stat-label">Sakit</span>
+                  <span class="stat-icon-pill status-sakit">
+                    <i data-lucide="thermometer" aria-hidden="true" style="width:18px;height:18px;"></i>
+                  </span>
+                </div>
+                <div id="stat-sakit" class="stat-value">-</div>
+                <div id="stat-sakit-foot" class="stat-foot"></div>
+              </article>
+
+              <article class="sub-surface stat-card">
+                <div class="stat-card-top">
+                  <span class="stat-label">Izin</span>
+                  <span class="stat-icon-pill status-izin">
+                    <i data-lucide="file-check-2" aria-hidden="true" style="width:18px;height:18px;"></i>
+                  </span>
+                </div>
+                <div id="stat-izin" class="stat-value">-</div>
+                <div id="stat-izin-foot" class="stat-foot"></div>
+              </article>
+
+              <article class="sub-surface stat-card">
+                <div class="stat-card-top">
+                  <span class="stat-label">Alpa</span>
+                  <span class="stat-icon-pill status-alpa">
+                    <i data-lucide="x-circle" aria-hidden="true" style="width:18px;height:18px;"></i>
+                  </span>
+                </div>
+                <div id="stat-alpa" class="stat-value">-</div>
+                <div id="stat-alpa-foot" class="stat-foot"></div>
+              </article>
             </div>
-          </div>
+          </section>
 
-          <div class="stats-grid" style="margin-bottom:0;" aria-label="Ringkasan absensi harian">
-            <article class="sub-surface stat-card">
-              <div class="stat-card-top">
-                <span class="stat-label">Hadir</span>
-                <span class="stat-icon-pill status-hadir">
-                  <i data-lucide="check-circle-2" aria-hidden="true" style="width:18px;height:18px;"></i>
-                </span>
-              </div>
-              <div id="stat-hadir" class="stat-value">-</div>
-              <div id="stat-hadir-foot" class="stat-foot">Santri hadir</div>
-            </article>
-
-            <article class="sub-surface stat-card">
-              <div class="stat-card-top">
-                <span class="stat-label">Sakit</span>
-                <span class="stat-icon-pill status-sakit">
-                  <i data-lucide="thermometer" aria-hidden="true" style="width:18px;height:18px;"></i>
-                </span>
-              </div>
-              <div id="stat-sakit" class="stat-value">-</div>
-              <div id="stat-sakit-foot" class="stat-foot">Keterangan sakit</div>
-            </article>
-
-            <article class="sub-surface stat-card">
-              <div class="stat-card-top">
-                <span class="stat-label">Izin</span>
-                <span class="stat-icon-pill status-izin">
-                  <i data-lucide="file-check-2" aria-hidden="true" style="width:18px;height:18px;"></i>
-                </span>
-              </div>
-              <div id="stat-izin" class="stat-value">-</div>
-              <div id="stat-izin-foot" class="stat-foot">Izin resmi</div>
-            </article>
-
-            <article class="sub-surface stat-card">
-              <div class="stat-card-top">
-                <span class="stat-label">Alpa</span>
-                <span class="stat-icon-pill status-alpa">
-                  <i data-lucide="x-circle" aria-hidden="true" style="width:18px;height:18px;"></i>
-                </span>
-              </div>
-              <div id="stat-alpa" class="stat-value">-</div>
-              <div id="stat-alpa-foot" class="stat-foot">Tanpa keterangan</div>
-            </article>
-          </div>
-        </section>
-
-        <!-- B. LAPORAN TERPISAH PER KELAS (Absensi, Santri Tidak Hadir, Nilai, & Pengampu) -->
-        <section id="kepsek-per-kelas-section" class="surface-card stack-gap no-print">
-          <div class="card-spotlight-layer" aria-hidden="true"></div>
-          <div class="section-toolbar" style="margin-bottom:0;">
-            <div>
-              <h3 class="heading-md">Laporan Terpisah Per Kelas</h3>
-              <p class="text-muted" style="margin:4px 0 0;font-size:0.8125rem;">Setiap kartu menampilkan kelas, guru pengampu, status setoran harian, absensi, santri tidak hadir, dan rekap nilai.</p>
+          <section id="kepsek-absensi-section" class="surface-card stack-gap">
+            <div class="card-spotlight-layer" aria-hidden="true"></div>
+            <div class="section-toolbar" style="margin-bottom:0;">
+              <h3 class="heading-md">Laporan Absensi Per Kelas</h3>
             </div>
-          </div>
-          <div id="kepsek-per-kelas-container" class="stack-gap"></div>
-        </section>
+            <div id="kepsek-absensi-container" class="stack-gap"></div>
+          </section>
 
-        <!-- Area Cetak PDF Terpisah Per Halaman Kelas -->
-        <section id="kepsek-laporan-print-area" class="print-only-block"></section>
-
-        <!-- Area Cetak PDF Modal Detail Nilai Kepala Madrasah -->
-        <section id="kepsek-nilai-print-area" class="surface-card stack-gap print-only-block">
-          <div class="print-only-block">
-            <div class="print-kop">
-              <div>
-                <h2 class="print-kop-title">MDTA ASY SYIFA AL MUSRI'</h2>
-                <p class="print-kop-sub">Laporan Rekapitulasi Nilai Santri (Bojongsoang, Kab. Bandung)</p>
-                <p id="kepsek-nilai-print-meta" class="print-kop-sub"></p>
+          <section id="kepsek-riwayat-section" class="surface-card stack-gap" hidden>
+            <div class="card-spotlight-layer" aria-hidden="true"></div>
+            <div class="section-toolbar" style="margin-bottom:0;">
+              <h3 class="heading-md">Riwayat Absensi</h3>
+              <div id="admin-riwayat-status-filters" class="filter-chip-row" role="group" aria-label="Filter status absensi">
+                <button type="button" class="filter-chip" data-status-filter="Semua" aria-pressed="true">Semua</button>
+                <button type="button" class="filter-chip" data-status-filter="Hadir" aria-pressed="false">Hadir</button>
+                <button type="button" class="filter-chip" data-status-filter="Sakit" aria-pressed="false">Sakit</button>
+                <button type="button" class="filter-chip" data-status-filter="Izin" aria-pressed="false">Izin</button>
+                <button type="button" class="filter-chip" data-status-filter="Alpa" aria-pressed="false">Alpa</button>
               </div>
             </div>
-            <table class="data-table">
-              <thead>
-                <tr>
-                  <th>No</th>
-                  <th>Nama Santri</th>
-                  <th>Harian</th>
-                  <th>UAS</th>
-                  <th>Kehadiran</th>
-                  <th>Nilai Akhir</th>
-                  <th>Predikat</th>
-                </tr>
-              </thead>
-              <tbody id="kepsek-nilai-print-tbody"></tbody>
-            </table>
-            <div class="print-signatures">
-              <div class="print-sign-box">
-                <div>Mengetahui,</div>
-                <div>Kepala Madrasah MDTA</div>
-                <div class="print-sign-space"></div>
-                <div><strong>( ____________________ )</strong></div>
-              </div>
-              <div class="print-sign-box">
-                <div>Bojongsoang, Kab. Bandung</div>
-                <div>Guru Pengampu / Wali Kelas</div>
-                <div class="print-sign-space"></div>
-                <div><strong>( ____________________ )</strong></div>
-              </div>
-            </div>
-          </div>
-        </section>
 
-        <!-- C. RIWAYAT ABSENSI LENGKAP (FULL-WIDTH) -->
-        <section class="surface-card stack-gap no-print">
-          <div class="card-spotlight-layer" aria-hidden="true"></div>
-          <div class="section-toolbar" style="margin-bottom:0;">
-            <div>
-              <h3 class="heading-md">Riwayat Lengkap Absensi</h3>
-              <p class="text-muted" style="margin:4px 0 0;font-size:0.8125rem;">Untuk mengatur daftar kelas &amp; guru pengampu buka tab <strong>Kelas &amp; Guru</strong>, atau tab <strong>Akun Guru</strong> untuk mengelola akun.</p>
+            <div class="field-group">
+              <label class="field-label sr-only" for="admin-riwayat-search">Cari riwayat absensi</label>
+              <input id="admin-riwayat-search" type="search" class="input-control" placeholder="Cari nama santri, kelas, atau guru..." />
             </div>
-            <div id="admin-riwayat-status-filters" class="filter-chip-row" role="group" aria-label="Filter status absensi">
-              <button type="button" class="filter-chip" data-status-filter="Semua" aria-pressed="true">Semua</button>
-              <button type="button" class="filter-chip" data-status-filter="Hadir" aria-pressed="false">Hadir</button>
-              <button type="button" class="filter-chip" data-status-filter="Sakit" aria-pressed="false">Sakit</button>
-              <button type="button" class="filter-chip" data-status-filter="Izin" aria-pressed="false">Izin</button>
-              <button type="button" class="filter-chip" data-status-filter="Alpa" aria-pressed="false">Alpa</button>
+
+            <div class="table-scroll mobile-cards-wrap">
+              <table class="data-table mobile-cards-table mobile-cards-generic">
+                <thead>
+                  <tr>
+                    <th>Tanggal &amp; Jam</th>
+                    <th>Nama Santri</th>
+                    <th>Kelas</th>
+                    <th>Status</th>
+                    <th>Metode</th>
+                    <th>Guru Piket</th>
+                  </tr>
+                </thead>
+                <tbody id="admin-riwayat-tbody"></tbody>
+              </table>
             </div>
-          </div>
+          </section>
+        </div>
 
-          <div class="field-group">
-            <label class="field-label sr-only" for="admin-riwayat-search">Cari riwayat absensi</label>
-            <input id="admin-riwayat-search" type="search" class="input-control" placeholder="Cari nama santri, kelas, atau guru piket..." />
-          </div>
-
-          <div class="table-scroll mobile-cards-wrap">
-            <table class="data-table mobile-cards-table mobile-cards-generic">
-              <thead>
-                <tr>
-                  <th>Tanggal &amp; Jam</th>
-                  <th>Nama Santri</th>
-                  <th>Kelas</th>
-                  <th>Status</th>
-                  <th>Metode</th>
-                  <th>Guru Piket</th>
-                </tr>
-              </thead>
-              <tbody id="admin-riwayat-tbody"></tbody>
-            </table>
-          </div>
-        </section>
+        <!-- B. PANEL TERPISAH: LAPORAN NILAI HARIAN -->
+        <div id="kepsek-nilai-panel" class="stack-gap no-print" hidden>
+          <section id="kepsek-nilai-section" class="surface-card stack-gap">
+            <div class="card-spotlight-layer" aria-hidden="true"></div>
+            <div class="section-toolbar" style="margin-bottom:0;">
+              <h3 class="heading-md">Laporan Nilai Per Kelas</h3>
+            </div>
+            <div id="kepsek-nilai-container" class="stack-gap"></div>
+          </section>
+        </div>
       </div>
 
       <!-- TAB 2: DATABASE SANTRI -->
@@ -510,9 +475,9 @@
           <div class="section-toolbar no-print" style="margin-bottom:0;">
             <div>
               <h2 class="heading-lg">Rekap Laporan Presensi Bulanan</h2>
-              <p id="rekap-period-label" class="text-muted" style="margin:4px 0 0;font-size:0.8125rem;">Pilih bulan dan tahun lalu tampilkan laporan.</p>
+              <p id="rekap-period-label" class="text-muted" style="margin:4px 0 0;font-size:0.8125rem;">Gunakan pencarian atau filter untuk menampilkan rekap presensi bulanan.</p>
             </div>
-            <div class="toolbar-actions">
+            <div id="rekap-toolbar-actions" class="toolbar-actions" hidden>
               <button id="btn-export-rekap-csv" type="button" class="btn btn-secondary">
                 <i data-lucide="file-spreadsheet" aria-hidden="true"></i>
                 <span>Ekspor CSV</span>
@@ -528,35 +493,45 @@
             </div>
           </div>
 
-          <div class="sub-surface form-grid no-print">
-            <div class="field-group">
-              <label class="field-label" for="rekap-bulan">Bulan</label>
-              <select id="rekap-bulan" class="select-control">
-                <option value="1">Januari</option>
-                <option value="2">Februari</option>
-                <option value="3">Maret</option>
-                <option value="4">April</option>
-                <option value="5">Mei</option>
-                <option value="6">Juni</option>
-                <option value="7">Juli</option>
-                <option value="8">Agustus</option>
-                <option value="9">September</option>
-                <option value="10">Oktober</option>
-                <option value="11">November</option>
-                <option value="12">Desember</option>
-              </select>
+          <div class="sub-surface stack-gap no-print" style="gap:12px;">
+            <div class="form-grid">
+              <div class="field-group">
+                <label class="field-label" for="rekap-bulan">Bulan</label>
+                <select id="rekap-bulan" class="select-control">
+                  <option value="1">Januari</option>
+                  <option value="2">Februari</option>
+                  <option value="3">Maret</option>
+                  <option value="4">April</option>
+                  <option value="5">Mei</option>
+                  <option value="6">Juni</option>
+                  <option value="7">Juli</option>
+                  <option value="8">Agustus</option>
+                  <option value="9">September</option>
+                  <option value="10">Oktober</option>
+                  <option value="11">November</option>
+                  <option value="12">Desember</option>
+                </select>
+              </div>
+              <div class="field-group">
+                <label class="field-label" for="rekap-tahun">Tahun</label>
+                <input id="rekap-tahun" type="number" min="2020" max="2099" class="input-control mono-num" />
+              </div>
+              <div class="field-group">
+                <label class="field-label" for="rekap-kelas-filter">Kelas</label>
+                <select id="rekap-kelas-filter" class="select-control">
+                  <option value="">Semua Kelas</option>
+                </select>
+              </div>
+              <div class="field-group">
+                <label class="field-label" for="rekap-search-input">Cari Santri</label>
+                <input id="rekap-search-input" type="search" class="input-control" placeholder="Ketik nama atau ID santri..." />
+              </div>
             </div>
-            <div class="field-group">
-              <label class="field-label" for="rekap-tahun">Tahun</label>
-              <input id="rekap-tahun" type="number" min="2020" max="2099" class="input-control mono-num" />
-            </div>
-            <div class="field-group">
-              <label class="field-label" for="rekap-kelas-filter">Kelas (Opsional)</label>
-              <select id="rekap-kelas-filter" class="select-control">
-                <option value="">Semua Kelas</option>
-              </select>
-            </div>
-            <div class="field-group" style="justify-content:flex-end;">
+            <div class="toolbar-actions" style="justify-content:flex-end;">
+              <button id="btn-reset-rekap" type="button" class="btn btn-secondary" hidden>
+                <i data-lucide="rotate-ccw" aria-hidden="true"></i>
+                <span>Reset Filter</span>
+              </button>
               <button id="btn-fetch-rekap" type="button" class="btn btn-primary">
                 <i data-lucide="search" aria-hidden="true"></i>
                 <span>Tampilkan Rekap</span>
@@ -564,7 +539,7 @@
             </div>
           </div>
 
-          <div id="rekap-kelas-subtabs" class="kelas-subtabs-bar no-print" role="group" aria-label="Filter sub-tab kelas rekap bulanan"></div>
+          <div id="rekap-kelas-subtabs" class="kelas-subtabs-bar no-print" role="group" aria-label="Filter sub-tab kelas rekap bulanan" hidden></div>
 
           <div id="admin-rekap-grouped-container" class="stack-gap no-print"></div>
 
@@ -764,7 +739,7 @@
         </div>
       </div>
 
-      <!-- TAB 1: PRESENSI (QR-CODE + INPUT MANUAL + KIRIM LAPORAN KE KEPALA MADRASAH) -->
+      <!-- TAB 1: PRESENSI (QR-CODE + INPUT MANUAL OTOMATIS TERSINKRON KE ADMIN) -->
       <div id="guru-panel-presensi" class="tab-panel stack-gap" role="tabpanel" aria-labelledby="guru-tab-presensi">
         <div class="presensi-grid">
           <!-- Panel Pemindaian QR-Code -->
@@ -907,7 +882,28 @@
         <!-- Daftar Presensi Hari Ini -->
         <section class="surface-card stack-gap">
           <div class="card-spotlight-layer" aria-hidden="true"></div>
-          <h3 class="heading-md">Daftar Presensi Santri Hari Ini</h3>
+          <div>
+            <h3 class="heading-md">Daftar Presensi Santri Hari Ini</h3>
+            <p class="text-muted" style="margin:4px 0 0;font-size:0.8125rem;">Hasil scan QR dan input manual otomatis tampil di Beranda Laporan Admin.</p>
+          </div>
+          <div class="guru-presensi-counts">
+            <div class="sub-surface" style="display:flex;align-items:center;justify-content:space-between;">
+              <span class="stat-label">Hadir</span>
+              <strong id="guru-sum-hadir" class="mono-num" style="font-size:1.25rem;color:var(--status-hadir-fg);">0</strong>
+            </div>
+            <div class="sub-surface" style="display:flex;align-items:center;justify-content:space-between;">
+              <span class="stat-label">Sakit</span>
+              <strong id="guru-sum-sakit" class="mono-num" style="font-size:1.25rem;color:var(--status-sakit-fg);">0</strong>
+            </div>
+            <div class="sub-surface" style="display:flex;align-items:center;justify-content:space-between;">
+              <span class="stat-label">Izin</span>
+              <strong id="guru-sum-izin" class="mono-num" style="font-size:1.25rem;color:var(--status-izin-fg);">0</strong>
+            </div>
+            <div class="sub-surface" style="display:flex;align-items:center;justify-content:space-between;">
+              <span class="stat-label">Alpa</span>
+              <strong id="guru-sum-alpa" class="mono-num" style="font-size:1.25rem;color:var(--status-alpa-fg);">0</strong>
+            </div>
+          </div>
           <div class="table-scroll mobile-cards-wrap">
             <table class="data-table mobile-cards-table mobile-cards-generic">
               <thead>
@@ -922,56 +918,6 @@
               <tbody id="guru-session-log-tbody"></tbody>
             </table>
           </div>
-        </section>
-
-        <!-- Ringkasan Otomatis & Tombol Kirim ke Kepala Madrasah -->
-        <section class="surface-card stack-gap guru-submit-strip">
-          <div class="card-spotlight-layer" aria-hidden="true"></div>
-          <div class="section-toolbar" style="margin-bottom:0;">
-            <div>
-              <span class="eyebrow-label">Pelaporan Harian</span>
-              <h3 class="heading-lg">Kirim Laporan Absensi ke Kepala Madrasah</h3>
-              <p id="guru-absensi-submit-info" class="text-muted" style="margin:4px 0 0;font-size:0.84rem;">
-                Klik tombol di bawah jika pencatatan absensi hari ini sudah selesai.
-              </p>
-            </div>
-            <span id="guru-absensi-submit-badge" class="status-badge status-sakit">Belum Dikirim</span>
-          </div>
-
-          <div class="stats-grid" style="margin-bottom:0;">
-            <div class="sub-surface" style="display:flex;align-items:center;justify-content:space-between;">
-              <span class="stat-label">Hadir</span>
-              <strong id="guru-sum-hadir" class="mono-num" style="font-size:1.35rem;color:var(--status-hadir-fg);">0</strong>
-            </div>
-            <div class="sub-surface" style="display:flex;align-items:center;justify-content:space-between;">
-              <span class="stat-label">Sakit</span>
-              <strong id="guru-sum-sakit" class="mono-num" style="font-size:1.35rem;color:var(--status-sakit-fg);">0</strong>
-            </div>
-            <div class="sub-surface" style="display:flex;align-items:center;justify-content:space-between;">
-              <span class="stat-label">Izin</span>
-              <strong id="guru-sum-izin" class="mono-num" style="font-size:1.35rem;color:var(--status-izin-fg);">0</strong>
-            </div>
-            <div class="sub-surface" style="display:flex;align-items:center;justify-content:space-between;">
-              <span class="stat-label">Alpa</span>
-              <strong id="guru-sum-alpa" class="mono-num" style="font-size:1.35rem;color:var(--status-alpa-fg);">0</strong>
-            </div>
-          </div>
-
-          <div class="form-grid">
-            <div class="field-group">
-              <label class="field-label" for="guru-laporan-kelas">Kelas yang Dilaporkan</label>
-              <select id="guru-laporan-kelas" class="select-control"></select>
-            </div>
-            <div class="field-group">
-              <label class="field-label" for="guru-laporan-catatan">Catatan untuk Kepala Madrasah (Opsional)</label>
-              <input id="guru-laporan-catatan" type="text" class="input-control" placeholder="Contoh: Kegiatan belajar berjalan tertib" />
-            </div>
-          </div>
-
-          <button id="btn-submit-absensi-kepsek" type="button" class="btn btn-accent" style="width:100%;">
-            <i data-lucide="send" aria-hidden="true"></i>
-            <span>Kirim Laporan Absensi Hari Ini ke Kepala Madrasah</span>
-          </button>
         </section>
       </div>
 
@@ -1013,7 +959,7 @@
         <div class="table-scroll mobile-cards-wrap">
           <table class="data-table mobile-cards-table mobile-cards-detail-nilai">
             <thead>
-              <tr>
+              <tr id="detail-nilai-thead-row">
                 <th style="width:44px;">No</th>
                 <th>Nama Santri</th>
                 <th>Harian</th>
@@ -1028,11 +974,7 @@
         </div>
       </div>
       <div class="modal-footer">
-        <button id="btn-tutup-detail-nilai" type="button" class="btn btn-secondary">Tutup</button>
-        <button id="btn-print-detail-nilai" type="button" class="btn btn-primary">
-          <i data-lucide="printer" aria-hidden="true"></i>
-          <span>Cetak PDF Rekap</span>
-        </button>
+        <button id="btn-tutup-detail-nilai" type="button" class="btn btn-primary">Tutup</button>
       </div>
     </div>
   </div>

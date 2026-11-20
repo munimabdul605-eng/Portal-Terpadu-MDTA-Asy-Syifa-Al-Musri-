@@ -1,6 +1,6 @@
 /**
- * Modul Bersama Kalkulator UAS & Kalkulator Raport (+ Asisten Impor Nilai AI & Setoran ke Kepala Madrasah)
- * Terhubung ke Code.gs, sheet Nilai_UAS, Nilai_Raport, dan Log_Setoran.
+ * Modul Bersama Kalkulator UAS & Kalkulator Raport (+ Asisten Impor Nilai AI)
+ * Terhubung ke Code.gs, sheet Nilai_UAS dan Nilai_Raport (otomatis tampil di Beranda Laporan Admin).
  */
 (function (root) {
   'use strict';
@@ -15,7 +15,16 @@
   const scopeSessions = new Map();
   let activeRaportScope = null;
   let aiModalInitialized = false;
-  let nilaiSetoranLogs = [];
+
+  function invalidateAdminReportCache() {
+    STATE.rekapKepsek = null;
+    STATE.rekapKepsekKey = '';
+    STATE.loaded.bootstrap = false;
+    if (root.MDTA_CACHE) {
+      root.MDTA_CACHE.remove('rekapKepsek');
+      root.MDTA_CACHE.remove('dashboard');
+    }
+  }
 
   function getScopeSession(scope) {
     return (
@@ -53,33 +62,8 @@
       .join('');
   }
 
-  function findNilaiSetoran(kelas, periode) {
-    const targetK = (kelas || 'Semua Kelas').trim();
-    const targetP = (periode || '').trim();
-    return nilaiSetoranLogs.find((log) => {
-      const matchK =
-        log.kelas === targetK ||
-        (targetK === 'Semua Kelas' && log.kelas === 'Semua Kelas') ||
-        (targetK !== 'Semua Kelas' && log.kelas === 'Semua Kelas');
-      const matchP = !targetP || !log.periode || log.periode === targetP;
-      return matchK && matchP;
-    });
-  }
-
-  async function refreshNilaiSetoranLogs() {
-    try {
-      const res = await API.getLogSetoran({ jenis_laporan: 'Nilai Raport' });
-      nilaiSetoranLogs = API.extractArray(res, ['log_setoran']).map(API.normalizeLogSetoran);
-    } catch (err) {
-      // Abaikan jika Log_Setoran belum tersedia pada deployment lama
-    }
-    raportInstances.forEach((inst) => {
-      if (typeof inst.updateSetoranBadge === 'function') inst.updateSetoranBadge();
-    });
-  }
-
   // =========================================================================
-  // KALKULATOR UAS (Selaras skemaUasData & Nilai_UAS + Submit ke Kepala Madrasah)
+  // KALKULATOR UAS (Selaras skemaUasData & Nilai_UAS, Otomatis Tampil di Admin)
   // =========================================================================
   function mountUAS(container, opts) {
     if (!container) return;
@@ -108,7 +92,6 @@
               <h2 class="heading-lg">Kalkulator Skor UAS</h2>
             </div>
             <div class="toolbar-actions">
-              <span id="${scope}-uas-setoran-badge" class="status-badge status-sakit">Draft</span>
               <button type="button" id="${scope}-uas-reset" class="btn btn-secondary btn-sm">
                 <i data-lucide="rotate-ccw" aria-hidden="true"></i>
                 <span>Reset</span>
@@ -188,10 +171,6 @@
               <button type="submit" id="${scope}-uas-save" class="btn btn-accent">
                 <i data-lucide="database" aria-hidden="true"></i>
                 <span>Simpan ke Database</span>
-              </button>
-              <button type="button" id="${scope}-uas-submit-kepsek" class="btn btn-primary">
-                <i data-lucide="send" aria-hidden="true"></i>
-                <span>Submit Rekap Nilai ke Kepala Madrasah</span>
               </button>
               <button type="button" id="${scope}-uas-send-raport" class="btn btn-secondary">
                 <i data-lucide="arrow-right-circle" aria-hidden="true"></i>
@@ -275,11 +254,9 @@
     const halfInput = document.getElementById(`${scope}-uas-half`);
     const validationEl = document.getElementById(`${scope}-uas-validation`);
     const saveBtn = document.getElementById(`${scope}-uas-save`);
-    const submitKepsekBtn = document.getElementById(`${scope}-uas-submit-kepsek`);
     const sendRaportBtn = document.getElementById(`${scope}-uas-send-raport`);
     const resetBtn = document.getElementById(`${scope}-uas-reset`);
     const refreshHistBtn = document.getElementById(`${scope}-uas-refresh-hist`);
-    const uasSetoranBadge = document.getElementById(`${scope}-uas-setoran-badge`);
 
     function syncUasClassSelect() {
       if (!kelasInput) return;
@@ -302,20 +279,6 @@
         if (exact) kelasInput.value = exact;
       } else if (scope === 'guru' && allowed.length > 0) {
         kelasInput.value = allowed[0];
-      }
-    }
-
-    function updateUasSetoranBadge() {
-      if (!uasSetoranBadge) return;
-      const kelas = kelasInput.value.trim() || (scope === 'guru' ? '' : 'Semua Kelas');
-      const periode = `${semSelect.value} ${tahunInput.value.trim()}`;
-      const matched = kelas ? findNilaiSetoran(kelas, periode) : null;
-      if (matched) {
-        uasSetoranBadge.className = 'status-badge status-hadir';
-        uasSetoranBadge.textContent = 'Sudah Disetor';
-      } else {
-        uasSetoranBadge.className = 'status-badge status-sakit';
-        uasSetoranBadge.textContent = 'Draft';
       }
     }
 
@@ -448,7 +411,6 @@
 
       if (STATE.nilaiUAS.length > 0) {
         renderUASHistory();
-        updateUasSetoranBadge();
       }
       if (!force && STATE.loaded.uas && STATE.nilaiUAS.length > 0) {
         return;
@@ -474,15 +436,6 @@
         if (CACHE) CACHE.write('nilaiUAS', freshUAS);
         if (changed || prevUAS.length === 0) {
           renderUASHistory();
-        }
-        if (Array.isArray(STATE.logSetoran) && STATE.logSetoran.length > 0 && !force) {
-          nilaiSetoranLogs = STATE.logSetoran.filter(
-            (l) => String(l.jenis_laporan || '').toLowerCase() === 'nilai raport'
-          );
-          updateUasSetoranBadge();
-        } else {
-          await refreshNilaiSetoranLogs();
-          updateUasSetoranBadge();
         }
       } catch (err) {
         if (!silent) UI.toast(err.message, 'error');
@@ -547,6 +500,7 @@
         })
       );
       if (root.MDTA_CACHE) root.MDTA_CACHE.write('nilaiUAS', STATE.nilaiUAS);
+      invalidateAdminReportCache();
       renderUASHistory();
       return payload;
     }
@@ -562,13 +516,8 @@
         );
         if (matchOpt) {
           kelasInput.value = matchOpt.value;
-          updateUasSetoranBadge();
         }
       }
-    });
-
-    [kelasInput, semSelect, tahunInput].forEach((el) => {
-      el.addEventListener('change', updateUasSetoranBadge);
     });
 
     [skemaSelect, cPgMax, cEsMax, cPgW, cEsW, pgInput, essayInput, halfInput].forEach((el) => {
@@ -613,7 +562,7 @@
       try {
         const saved = await saveUASRecord();
         if (saved) {
-          UI.toast(`Nilai UAS ${saved.nama_santri} (${saved.nilai_uas}) berhasil disimpan ke database.`, 'success');
+          UI.toast(`Nilai UAS ${saved.nama_santri} (${saved.nilai_uas}) tersimpan dan otomatis tampil di Beranda Laporan.`, 'success');
         }
       } catch (err) {
         UI.toast(err.message, 'error');
@@ -622,66 +571,6 @@
       }
     });
 
-    if (submitKepsekBtn) {
-      submitKepsekBtn.addEventListener('click', async () => {
-        const activeSess = getScopeSession(scope);
-        const allowedClasses = getAllowedClasses(scope, activeSess);
-        UI.setButtonLoading(submitKepsekBtn, true, 'Menyetor ke Kepala Madrasah...');
-        try {
-          let kelas = kelasInput.value.trim() || (scope === 'guru' ? (allowedClasses[0] || '') : 'Semua Kelas');
-          if (scope === 'guru' && (!kelas || !API.isKelasAllowed(kelas, allowedClasses))) {
-            UI.toast('Pilih kelas ampu Anda terlebih dahulu sebelum menyetor ke Kepala Madrasah.', 'error');
-            return;
-          }
-          let periode = `${semSelect.value} ${tahunInput.value.trim()}`;
-          let summaryText = '';
-
-          if (santriInput.value.trim()) {
-            const saved = await saveUASRecord();
-            if (!saved) return;
-            injectUASScoreToRaport({
-              nama_lengkap: saved.nama_santri,
-              kelas: saved.kelas,
-              uas: saved.nilai_uas,
-            });
-            kelas = saved.kelas || kelas;
-            periode = saved.periode || periode;
-            summaryText = `Setoran UAS: ${saved.nama_santri} (${saved.nilai_uas})`;
-          } else {
-            const scopedUas = scope === 'guru' ? API.filterByGuruScope(STATE.nilaiUAS, activeSess, 'kelas') : STATE.nilaiUAS;
-            const classItems = scopedUas.filter((n) => kelas === 'Semua Kelas' || n.kelas === kelas);
-            if (classItems.length === 0) {
-              UI.toast('Isi nilai santri terlebih dahulu atau pastikan riwayat UAS kelas sudah tersedia.', 'warn');
-              return;
-            }
-            const avg =
-              Math.round((classItems.reduce((s, x) => s + (Number(x.nilai_uas) || 0), 0) / classItems.length) * 10) / 10;
-            summaryText = `Rekap UAS ${classItems.length} santri, rata-rata ${avg}`;
-          }
-
-          const logRes = await API.submitLaporanGuru({
-            tanggal: UI.todayISO(),
-            jenis_laporan: 'Nilai Raport',
-            kelas,
-            periode,
-            id_guru: activeSess.id_user || '',
-            nama_guru: activeSess.nama_lengkap || activeSess.username || 'Guru',
-            ringkasan: summaryText,
-          });
-          nilaiSetoranLogs.unshift(API.normalizeLogSetoran(logRes.data || logRes));
-          updateUasSetoranBadge();
-          raportInstances.forEach((inst) => {
-            if (typeof inst.updateSetoranBadge === 'function') inst.updateSetoranBadge();
-          });
-          UI.toast(`Rekap nilai ${kelas} (${periode}) berhasil disetor ke Kepala Madrasah.`, 'success');
-        } catch (err) {
-          UI.toast(err.message, 'error');
-        } finally {
-          UI.setButtonLoading(submitKepsekBtn, false);
-        }
-      });
-    }
-
     function refreshScope(newSession) {
       if (newSession) scopeSessions.set(scope, newSession);
       const activeSess = getScopeSession(scope);
@@ -689,7 +578,6 @@
       if (dl) dl.innerHTML = buildSantriDatalistOptions(scope, activeSess);
       syncUasClassSelect();
       renderUASHistory();
-      updateUasSetoranBadge();
     }
 
     uasInstances.set(scope, { refreshScope });
@@ -959,10 +847,8 @@
         if (typeof inst.refreshScope === 'function') inst.refreshScope(session);
         else {
           inst.renderRows();
-          inst.updateSetoranBadge();
         }
       }
-      refreshNilaiSetoranLogs();
       return;
     }
 
@@ -997,7 +883,6 @@
             <span class="eyebrow-label">Rekapitulasi Penilaian Akhir</span>
             <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:2px;">
               <h2 class="heading-lg">Kalkulator Raport Terpadu</h2>
-              <span id="${scope}-raport-setoran-badge" class="status-badge status-sakit">Draft</span>
             </div>
           </div>
           <div class="toolbar-actions">
@@ -1086,10 +971,6 @@
               <i data-lucide="save" aria-hidden="true"></i>
               <span>Simpan ke Database</span>
             </button>
-            <button type="button" id="${scope}-raport-submit-kepsek" class="btn btn-primary">
-              <i data-lucide="send" aria-hidden="true"></i>
-              <span>Submit Rekap Nilai ke Kepala Madrasah</span>
-            </button>
           </div>
         </div>
 
@@ -1122,7 +1003,7 @@
             <div><span class="text-muted">Tuntas (A/B/C):</span> <strong id="${scope}-sum-tuntas" class="mono-num">-</strong></div>
             <div><span class="text-muted">Perlu Bimbingan (D):</span> <strong id="${scope}-sum-bimbingan" class="mono-num">-</strong></div>
           </div>
-          <span id="${scope}-raport-setoran-note" class="text-muted" style="font-size:0.8125rem;">Status: Draft (belum disetor ke Kepala Madrasah).</span>
+          <span class="text-muted" style="font-size:0.8125rem;">Nilai tersimpan otomatis tampil di Beranda Laporan Admin.</span>
         </div>
 
         <!-- Blok Tanda Tangan Cetak -->
@@ -1165,53 +1046,7 @@
     const copyWaBtn = document.getElementById(`${scope}-raport-copy-wa`);
     const printBtn = document.getElementById(`${scope}-raport-print`);
     const saveBtn = document.getElementById(`${scope}-raport-save-sheets`);
-    const submitKepsekBtn = document.getElementById(`${scope}-raport-submit-kepsek`);
-    const setoranBadge = document.getElementById(`${scope}-raport-setoran-badge`);
-    const setoranNote = document.getElementById(`${scope}-raport-setoran-note`);
     const tbody = document.getElementById(`${scope}-raport-tbody`);
-
-    function updateSetoranBadge() {
-      const sess = getScopeSession(scope);
-      const allowed = getAllowedClasses(scope, sess);
-      if (scope === 'guru' && allowed.length === 0) {
-        if (setoranBadge) {
-          setoranBadge.className = 'status-badge status-alpa';
-          setoranBadge.textContent = 'Belum Dipetakan';
-        }
-        if (setoranNote) {
-          setoranNote.textContent = 'Akun guru ini belum memiliki kelas ampu dari Admin.';
-        }
-        return;
-      }
-
-      const kelas = kelasFilter.value || (scope === 'guru' ? (allowed[0] || '') : 'Semua Kelas');
-      const periode = `${semSelect.value} ${tahunInput.value.trim()}`;
-      const matched =
-        scope === 'guru'
-          ? nilaiSetoranLogs.find((log) => {
-              const matchK = API.normalizeKelas(log.kelas) === API.normalizeKelas(kelas);
-              const matchP = !periode || !log.periode || log.periode === periode;
-              return matchK && matchP;
-            })
-          : findNilaiSetoran(kelas, periode);
-
-      if (setoranBadge) {
-        if (matched) {
-          setoranBadge.className = 'status-badge status-hadir';
-          setoranBadge.textContent = 'Sudah Disetor';
-        } else {
-          setoranBadge.className = 'status-badge status-sakit';
-          setoranBadge.textContent = 'Draft';
-        }
-      }
-      if (setoranNote) {
-        if (matched) {
-          setoranNote.textContent = `Sudah disetor oleh ${matched.nama_guru} pada ${matched.tanggal} (${matched.kelas}).`;
-        } else {
-          setoranNote.textContent = `Status ${kelas || '-'} (${periode}): Draft (belum disetor ke Kepala Madrasah).`;
-        }
-      }
-    }
 
     function syncRaportClassFilterOptions() {
       const sess = getScopeSession(scope);
@@ -1377,7 +1212,6 @@
         `;
         UI.refreshIcons(tbody);
         updateSummaryAndScores();
-        updateSetoranBadge();
         return;
       }
 
@@ -1475,7 +1309,6 @@
 
       UI.refreshIcons(tbody);
       updateSummaryAndScores();
-      updateSetoranBadge();
     }
 
     function mergeSantriAndRaportIntoRows(santriList, savedRaportList, rekapMap) {
@@ -1597,8 +1430,6 @@
           savedRaportList = API.filterByGuruScope(savedRaportList, sess, 'kelas');
         }
 
-        await refreshNilaiSetoranLogs();
-
         if (santriList.length === 0 && savedRaportList.length === 0) {
           if (!silent) UI.toast('Database santri dan raport saat ini kosong.', 'warn');
           renderRows();
@@ -1682,6 +1513,22 @@
 
       const res = await API.saveNilaiRaport(itemsArray);
       const d = res.data || res;
+      const todayIso = UI.todayISO();
+      const existingSaved = Array.isArray(STATE.nilaiRaportSaved) ? STATE.nilaiRaportSaved.slice() : [];
+      itemsArray.forEach((item) => {
+        const normItem = API.normalizeNilaiRaport(Object.assign({}, item, { updated_at: todayIso }));
+        const matchIdx = existingSaved.findIndex((s) =>
+          (normItem.id_raport && s.id_raport === normItem.id_raport) ||
+          (s.nama_santri.toLowerCase() === normItem.nama_santri.toLowerCase() &&
+            API.normalizeKelas(s.kelas) === API.normalizeKelas(normItem.kelas) &&
+            s.periode === normItem.periode)
+        );
+        if (matchIdx >= 0) existingSaved[matchIdx] = normItem;
+        else existingSaved.push(normItem);
+      });
+      STATE.nilaiRaportSaved = existingSaved;
+      if (root.MDTA_CACHE) root.MDTA_CACHE.write('nilaiRaportSaved', existingSaved);
+      invalidateAdminReportCache();
       return {
         count: d.savedCount || itemsArray.length,
         periode,
@@ -1703,9 +1550,7 @@
 
     kelasFilter.addEventListener('change', () => {
       renderRows();
-      updateSetoranBadge();
     });
-    [semSelect, tahunInput].forEach((el) => el.addEventListener('change', updateSetoranBadge));
 
     syncBtn.addEventListener('click', () => syncSantriAndKehadiran(false, { force: true }));
 
@@ -1790,7 +1635,7 @@
       try {
         const res = await saveRaportToSheets();
         if (res) {
-          UI.toast(`${res.count} baris nilai raport berhasil disimpan ke database.`, 'success');
+          UI.toast(`${res.count} baris nilai raport tersimpan dan otomatis tampil di Beranda Laporan.`, 'success');
         }
       } catch (err) {
         UI.toast(err.message, 'error');
@@ -1798,43 +1643,6 @@
         UI.setButtonLoading(saveBtn, false);
       }
     });
-
-    if (submitKepsekBtn) {
-      submitKepsekBtn.addEventListener('click', async () => {
-        const sess = getScopeSession(scope);
-        const allowed = getAllowedClasses(scope, sess);
-        if (scope === 'guru') {
-          if (allowed.length === 0 || !kelasFilter.value || !API.isKelasAllowed(kelasFilter.value, allowed)) {
-            UI.toast('Pilih kelas ampu Anda yang valid sebelum menyetor rekap nilai ke Kepala Madrasah.', 'error');
-            return;
-          }
-        }
-
-        UI.setButtonLoading(submitKepsekBtn, true, 'Menyetor ke Kepala Madrasah...');
-        try {
-          const saved = await saveRaportToSheets();
-          if (!saved) return;
-
-          const stats = updateSummaryAndScores();
-          const logRes = await API.submitLaporanGuru({
-            tanggal: UI.todayISO(),
-            jenis_laporan: 'Nilai Raport',
-            kelas: saved.filterK,
-            periode: saved.periode,
-            id_guru: sess.id_user || '',
-            nama_guru: sess.nama_lengkap || sess.username || 'Guru',
-            ringkasan: `${stats.count} santri, Rata-rata ${stats.avg.toFixed(2)}, Tuntas ${stats.tuntas}, Perlu Bimbingan ${stats.bimbingan}`,
-          });
-          nilaiSetoranLogs.unshift(API.normalizeLogSetoran(logRes.data || logRes));
-          updateSetoranBadge();
-          UI.toast(`Rekap Nilai ${saved.filterK} (${saved.periode}) berhasil disetor ke Kepala Madrasah.`, 'success');
-        } catch (err) {
-          UI.toast(err.message, 'error');
-        } finally {
-          UI.setButtonLoading(submitKepsekBtn, false);
-        }
-      });
-    }
 
     function refreshScope(newSession) {
       if (newSession) scopeSessions.set(scope, newSession);
@@ -1858,10 +1666,9 @@
       }
       syncRaportClassFilterOptions();
       renderRows();
-      updateSetoranBadge();
     }
 
-    raportInstances.set(scope, { renderRows, getWeights, updateSetoranBadge, refreshScope });
+    raportInstances.set(scope, { renderRows, getWeights, refreshScope });
 
     const CACHE = root.MDTA_CACHE;
     if (CACHE) CACHE.hydrateState();
@@ -1881,15 +1688,6 @@
     }
 
     renderRows();
-
-    if (Array.isArray(STATE.logSetoran) && STATE.logSetoran.length > 0) {
-      nilaiSetoranLogs = STATE.logSetoran.filter(
-        (l) => String(l.jenis_laporan || '').toLowerCase() === 'nilai raport'
-      );
-      updateSetoranBadge();
-    } else {
-      refreshNilaiSetoranLogs();
-    }
 
     if (STATE.raportRows.length === 0 && !STATE.loaded.raport && !STATE.loaded.bootstrap) {
       syncSantriAndKehadiran(true, { force: false });

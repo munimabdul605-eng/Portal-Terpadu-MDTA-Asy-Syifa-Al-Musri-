@@ -302,6 +302,13 @@ summary:focus-visible,
   font-variant-numeric: tabular-nums;
 }
 
+code,
+kbd,
+pre,
+samp {
+  font-family: var(--font-mono);
+}
+
 /* ==========================================================================
    CARDS & SURFACE SYSTEM (overflow: visible so titles & popovers never clip)
    ========================================================================== */
@@ -311,7 +318,7 @@ summary:focus-visible,
   background-color: var(--bg-surface);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-xl);
-  padding: 20px;
+  padding: 22px 24px;
   box-shadow: var(--shadow-card);
   transition:
     border-color 0.2s ease,
@@ -861,6 +868,7 @@ html.light .filter-chip[aria-pressed="true"] {
 
 .stat-value {
   font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
   font-size: clamp(1.65rem, 2.5vw, 2.15rem);
   font-weight: 700;
   line-height: 1.1;
@@ -891,7 +899,7 @@ html.light .filter-chip[aria-pressed="true"] {
 .stack-gap {
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: 18px;
 }
 
 .dashboard-split {
@@ -1048,6 +1056,7 @@ html.light .filter-chip[aria-pressed="true"] {
   width: 80px;
   text-align: center;
   font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
 }
 
 /* ==========================================================================
@@ -1220,6 +1229,7 @@ html.light .filter-chip[aria-pressed="true"] {
 
 .score-big-value {
   font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
   font-size: clamp(2.2rem, 4vw, 3rem);
   font-weight: 700;
   line-height: 1;
@@ -1815,11 +1825,9 @@ html.light .filter-chip[aria-pressed="true"] {
     min-height: 44px;
     padding: 8px 10px;
   }
-  #btn-submit-absensi-kepsek,
-  [id$="-raport-submit-kepsek"],
-  [id$="-uas-submit-kepsek"],
   #btn-submit-presensi-manual,
-  #btn-fetch-rekap {
+  #btn-fetch-rekap,
+  #btn-reset-rekap {
     width: 100%;
     flex-basis: 100%;
     min-height: 46px;
@@ -2400,6 +2408,18 @@ html.light .filter-chip[aria-pressed="true"] {
   .kelas-header-actions {
     width: 100%;
   }
+  .stack-gap {
+    gap: 14px;
+  }
+  .report-mode-btn {
+    font-size: 0.8125rem;
+    padding: 8px 8px;
+    gap: 6px;
+  }
+  .nilai-rekap-grid {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 12px;
+  }
 }
 
 @media (max-width: 420px) {
@@ -2574,13 +2594,6 @@ html.light .filter-chip[aria-pressed="true"] {
     margin: 20px auto !important;
   }
 
-  body.printing-kepsek-nilai main > section:not(#view-admin),
-  body.printing-kepsek-nilai #view-admin .tab-panel:not(#admin-panel-dashboard),
-  body.printing-kepsek-nilai #admin-panel-dashboard > :not(#kepsek-nilai-print-area),
-  body.printing-kepsek-nilai .modal-backdrop {
-    display: none !important;
-  }
-
   .print-class-page {
     page-break-after: always;
     break-after: page;
@@ -2592,12 +2605,6 @@ html.light .filter-chip[aria-pressed="true"] {
   body.printing-rekap #admin-panel-rekap .surface-card {
     border: none !important;
     padding: 0 !important;
-  }
-  body.printing-kepsek-laporan main > section:not(#view-admin),
-  body.printing-kepsek-laporan #view-admin .tab-panel:not(#admin-panel-dashboard),
-  body.printing-kepsek-laporan #admin-panel-dashboard > :not(#kepsek-laporan-print-area),
-  body.printing-kepsek-laporan .modal-backdrop {
-    display: none !important;
   }
 }
 
@@ -2680,6 +2687,7 @@ html.light .filter-chip[aria-pressed="true"] {
 
 .nilai-kpi-val {
   font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
   font-size: 1.25rem;
   font-weight: 700;
   color: var(--text-primary);
@@ -2692,8 +2700,25 @@ html.light .filter-chip[aria-pressed="true"] {
   margin-top: 2px;
 }
 
-.guru-submit-strip {
-  border: 1px solid var(--border-strong);
+.guru-presensi-counts {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.kelas-report-block .nilai-rekap-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 12px;
+}
+
+@media screen and (max-width: 768px) {
+  .guru-presensi-counts {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .kelas-report-block .nilai-rekap-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 @media (max-width: 639px) {
@@ -3010,6 +3035,116 @@ html.light .admin-calc-btn[aria-pressed="true"] svg {
   min-width: 0;
   max-width: 100%;
   overflow-wrap: break-word;
+}
+
+/* ==========================================================================
+   BERANDA LAPORAN TERPISAH (ABSENSI VS NILAI) & KESEIMBANGAN SPASI
+   ========================================================================== */
+.kepsek-subtitle {
+  margin: 4px 0 0;
+  font-size: 0.84rem;
+  line-height: 1.4;
+}
+
+.report-mode-tabs {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+  padding: 5px;
+  border-radius: 12px;
+  border: 1px solid var(--border-subtle);
+  background-color: var(--bg-subsurface);
+}
+
+.report-mode-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 8px 12px;
+  border-radius: 9px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-secondary);
+  font-family: inherit;
+  font-size: 0.875rem;
+  font-weight: 600;
+  transition: background-color 0.16s ease, color 0.16s ease, border-color 0.16s ease;
+}
+
+.report-mode-btn svg {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+}
+
+.report-mode-btn:hover:not([aria-pressed="true"]) {
+  background-color: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.report-mode-btn[aria-pressed="true"] {
+  background-color: var(--btn-primary-bg);
+  color: var(--btn-primary-text);
+  border-color: var(--btn-primary-bg);
+}
+
+:root:not(.dark) .report-mode-btn[aria-pressed="true"],
+:root:not(.dark) .report-mode-btn[aria-pressed="true"] span,
+:root:not(.dark) .report-mode-btn[aria-pressed="true"] svg,
+html.light .report-mode-btn[aria-pressed="true"],
+html.light .report-mode-btn[aria-pressed="true"] span,
+html.light .report-mode-btn[aria-pressed="true"] svg {
+  color: #ffffff;
+}
+
+.mode-count-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 24px;
+  height: 22px;
+  padding: 0 7px;
+  border-radius: 999px;
+  font-size: 0.74rem;
+  font-weight: 700;
+  line-height: 1;
+  background-color: var(--bg-surface);
+  color: var(--text-primary);
+  border: 1px solid var(--border-subtle);
+}
+
+.report-mode-btn[aria-pressed="true"] .mode-count-pill {
+  background-color: rgba(255, 255, 255, 0.22);
+  border-color: rgba(255, 255, 255, 0.34);
+  color: #ffffff;
+}
+
+html.dark .report-mode-btn[aria-pressed="true"] .mode-count-pill {
+  background-color: rgba(9, 9, 11, 0.14);
+  border-color: rgba(9, 9, 11, 0.22);
+  color: var(--btn-primary-text);
+}
+
+.absensi-all-hadir-note {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--accent-brand-border);
+  background-color: var(--accent-brand-soft);
+  color: var(--accent-brand-ink);
+  font-size: 0.82rem;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.absent-student-item,
+.kelas-report-block .text-secondary,
+.nilai-rekap-card .text-secondary {
+  line-height: 1.45;
 }
 
 /* ==========================================================================

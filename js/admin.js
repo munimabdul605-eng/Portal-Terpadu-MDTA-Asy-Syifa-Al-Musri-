@@ -1,14 +1,12 @@
 /**
  * Portal Kepala Madrasah / Administrator (5 Tab) - MDTA ASY SYIFA AL MUSRI'
  * 1. Beranda Laporan:
- *    - Kartu Status Setoran Hari Ini (per kelas: Sudah Setor / Belum Setor)
- *    - Panel Rekap Absensi Harian (Filter Tanggal & Kelas, Hadir/Sakit/Izin/Alpa, Santri Tidak Hadir + Hubungi WA Orang Tua)
- *    - Panel Rekap Nilai Disetor Guru (Kartu per kelas, Lihat Detail Nilai, Cetak PDF Rekap)
- *    - Riwayat Lengkap Absensi & Kelola Akun Guru/Admin
+ *    - Laporan Absensi Harian Otomatis (hasil QR Scan & Input Manual Guru, disusun per kelas)
+ *    - Laporan Nilai Otomatis (Nilai UAS & Nilai Raport Guru, disusun per kelas + Modal Detail Nilai)
  * 2. Database Santri (Pencarian real-time, Tambah/Edit/Hapus, Lihat/Unduh/Cetak Kartu QR)
- * 3. Rekap Laporan Bulanan (Filter Bulan/Tahun, Ekspor CSV, Cetak PDF, Unggah PDF ke Drive)
- * 4. Kalkulator UAS (modul bersama MDTA_CALC)
- * 5. Kalkulator Raport (modul bersama MDTA_CALC)
+ * 3. Rekap Laporan Bulanan (Filter-first + Pencarian Santri, Ekspor CSV, Cetak PDF, Unggah PDF ke Drive)
+ * 4. Kelola Kelas & Pemetaan Guru Pengampu
+ * 5. Kelola Akun Guru & Admin
  */
 (function (root) {
   'use strict';
@@ -34,6 +32,12 @@
     rekapNilaiList: [],
     selectedNilaiCard: null,
     laporanPerKelas: [],
+    absensiBlocksToday: [],
+    nilaiCardsToday: [],
+    kepsekReportMode: 'absensi',
+    kepsekModeLocked: false,
+    rekapHasSearched: false,
+    rekapSearchQuery: '',
     editingUserId: null,
     editingUserOriginalUsername: '',
     editingSantriId: null,
@@ -171,10 +175,10 @@
     const total = hasNumbers ? hadir + sakit + izin + alpa : (Number(totalCatatan) || 0);
 
     const map = [
-      { id: 'stat-hadir', val: summary.Hadir ?? summary.hadir, pctId: 'stat-hadir-foot', label: 'Santri hadir' },
-      { id: 'stat-sakit', val: summary.Sakit ?? summary.sakit, pctId: 'stat-sakit-foot', label: 'Keterangan sakit' },
-      { id: 'stat-izin', val: summary.Izin ?? summary.izin, pctId: 'stat-izin-foot', label: 'Izin resmi' },
-      { id: 'stat-alpa', val: summary.Alpa ?? summary.alpa, pctId: 'stat-alpa-foot', label: 'Tanpa keterangan' },
+      { id: 'stat-hadir', val: summary.Hadir ?? summary.hadir, pctId: 'stat-hadir-foot' },
+      { id: 'stat-sakit', val: summary.Sakit ?? summary.sakit, pctId: 'stat-sakit-foot' },
+      { id: 'stat-izin', val: summary.Izin ?? summary.izin, pctId: 'stat-izin-foot' },
+      { id: 'stat-alpa', val: summary.Alpa ?? summary.alpa, pctId: 'stat-alpa-foot' },
     ];
 
     map.forEach((item) => {
@@ -185,9 +189,9 @@
       if (footEl) {
         if (Number.isFinite(num) && total > 0) {
           const pct = Math.round((num / total) * 1000) / 10;
-          footEl.textContent = `${pct}% dari ${total} catatan`;
+          footEl.textContent = `${pct}%`;
         } else {
-          footEl.textContent = item.label;
+          footEl.textContent = '';
         }
       }
     });
@@ -238,9 +242,53 @@
       .join('')}</div>`;
   }
 
+  function compareClassOrder(a, b) {
+    const officialOrder = getOfficialClassNames(false);
+    const nameA = String(a || '');
+    const nameB = String(b || '');
+    const idxA = officialOrder.findIndex((k) => k.toLowerCase() === nameA.toLowerCase());
+    const idxB = officialOrder.findIndex((k) => k.toLowerCase() === nameB.toLowerCase());
+    if (idxA >= 0 && idxB >= 0) return idxA - idxB;
+    if (idxA >= 0) return -1;
+    if (idxB >= 0) return 1;
+    return nameA.localeCompare(nameB);
+  }
+
   function sanitizeRekapNilaiCard(card) {
+    const rawJenis = String((card && card.jenis_nilai) || '').trim();
+    const isUAS = /uas/i.test(rawJenis);
+    const jenisNilai = isUAS ? 'Nilai UAS' : 'Nilai Raport';
     const rawRows = Array.isArray(card && card.detail_nilai) ? card.detail_nilai : [];
+
     const detailRows = rawRows.map((r) => {
+      if (isUAS || /uas/i.test(String(r.jenis_nilai || ''))) {
+        const rawScore = r.n_uas !== undefined && r.n_uas !== null ? r.n_uas : (r.nilai_uas !== undefined ? r.nilai_uas : r.n_akhir);
+        const score = Math.round(API.parseLocaleNumber(rawScore, 0) * 100) / 100;
+        const pred = API.computeRaportGrade(score);
+        const rawGrade = !API.isSheetErrorValue(r.grade) ? String(r.grade).trim().toUpperCase() : '';
+        const grade = ['A', 'B', 'C', 'D'].includes(rawGrade) ? rawGrade : pred.grade;
+        const keterangan = !API.isSheetErrorValue(r.keterangan) ? String(r.keterangan).trim() : pred.keterangan;
+        return {
+          id_uas: String(r.id_uas || ''),
+          id_santri: String(r.id_santri || ''),
+          nama_santri: String(r.nama_santri || '-'),
+          kelas: String(r.kelas || (card && card.kelas) || ''),
+          periode: String(r.periode || (card && card.periode) || ''),
+          jenis_nilai: 'Nilai UAS',
+          skema_soal: String(r.skema_soal || '-'),
+          pg_benar: API.parseLocaleNumber(r.pg_benar, 0),
+          essay_benar: API.parseLocaleNumber(r.essay_benar, 0),
+          setengah_benar: API.parseLocaleNumber(r.setengah_benar, 0),
+          n_harian: null,
+          n_uas: score,
+          n_kehadiran: null,
+          n_akhir: score,
+          grade,
+          keterangan,
+          updated_at: String(r.updated_at || ''),
+        };
+      }
+
       const resolved = API.resolveRaportNilai(r);
       return {
         id_raport: String(r.id_raport || ''),
@@ -248,6 +296,7 @@
         nama_santri: String(r.nama_santri || '-'),
         kelas: String(r.kelas || (card && card.kelas) || ''),
         periode: String(r.periode || (card && card.periode) || ''),
+        jenis_nilai: 'Nilai Raport',
         n_harian: resolved.n_harian,
         n_uas: resolved.n_uas,
         n_kehadiran: resolved.n_kehadiran,
@@ -264,7 +313,7 @@
     const jumlahSantri = detailRows.length;
     const rataRata =
       jumlahSantri > 0
-        ? Math.round((detailRows.reduce((s, item) => s + item.n_akhir, 0) / jumlahSantri) * 100) / 100
+        ? Math.round((detailRows.reduce((s, item) => s + Number(item.n_akhir || 0), 0) / jumlahSantri) * 100) / 100
         : Number((card && card.rata_rata) || 0);
     const jumlahTuntas =
       jumlahSantri > 0
@@ -276,12 +325,85 @@
         : Number((card && card.jumlah_perlu_bimbingan) || 0);
 
     return Object.assign({}, card, {
+      jenis_nilai: jenisNilai,
       jumlah_santri: jumlahSantri > 0 ? jumlahSantri : Number((card && card.jumlah_santri) || 0),
       rata_rata: rataRata,
       jumlah_tuntas: jumlahTuntas,
       jumlah_perlu_bimbingan: jumlahPerluBimbingan,
       detail_nilai: detailRows,
     });
+  }
+
+  function synthesizeDailyNilaiCardsFromState(targetTanggal) {
+    const targetIso = API.normalizeISODate(targetTanggal);
+    if (!targetIso) return [];
+    const cards = [];
+
+    const raportGroups = new Map();
+    (STATE.nilaiRaportSaved || []).forEach((r) => {
+      const k = String(r.kelas || 'Tanpa Kelas').trim() || 'Tanpa Kelas';
+      const per = String(r.periode || 'Ganjil 2026/2027').trim();
+      const upd = API.normalizeISODate(r.updated_at);
+      if (upd !== targetIso) return;
+      const key = `${k.toLowerCase()}||${per}`;
+      if (!raportGroups.has(key)) raportGroups.set(key, { kelas: k, periode: per, rows: [] });
+      raportGroups.get(key).rows.push(Object.assign({}, r, { updated_at: upd }));
+    });
+    raportGroups.forEach((g) => {
+      const gurus = getGurusForClass(g.kelas);
+      cards.push(
+        sanitizeRekapNilaiCard({
+          jenis_nilai: 'Nilai Raport',
+          kelas: g.kelas,
+          periode: g.periode,
+          nama_guru: gurus.length > 0 ? gurus.map((x) => x.nama_lengkap || x.username).join(', ') : 'Guru Pengampu',
+          tanggal_setor: targetIso,
+          detail_nilai: g.rows,
+        })
+      );
+    });
+
+    const uasGroups = new Map();
+    (STATE.nilaiUAS || []).forEach((u) => {
+      const k = String(u.kelas || 'Tanpa Kelas').trim() || 'Tanpa Kelas';
+      const per = String(u.periode || 'Ganjil 2026/2027').trim();
+      const upd = API.normalizeISODate(u.updated_at);
+      if (upd !== targetIso) return;
+      const key = `${k.toLowerCase()}||${per}`;
+      if (!uasGroups.has(key)) {
+        uasGroups.set(key, { kelas: k, periode: per, bySantri: new Map(), idGuru: u.id_guru || '' });
+      }
+      const grp = uasGroups.get(key);
+      const dedupKey = String(u.id_santri || '').trim() || String(u.nama_santri || '').trim().toLowerCase();
+      if (!grp.bySantri.has(dedupKey)) {
+        grp.bySantri.set(dedupKey, Object.assign({}, u, { updated_at: upd }));
+      }
+      if (!grp.idGuru && u.id_guru) grp.idGuru = u.id_guru;
+    });
+    uasGroups.forEach((g) => {
+      const rows = Array.from(g.bySantri.values());
+      const userObj = g.idGuru
+        ? (STATE.users || []).find((u) => String(u.id_user || '').trim() === String(g.idGuru).trim())
+        : null;
+      const gurus = getGurusForClass(g.kelas);
+      const guruName = userObj
+        ? userObj.nama_lengkap || userObj.username
+        : gurus.length > 0
+        ? gurus.map((x) => x.nama_lengkap || x.username).join(', ')
+        : 'Guru Pengampu';
+      cards.push(
+        sanitizeRekapNilaiCard({
+          jenis_nilai: 'Nilai UAS',
+          kelas: g.kelas,
+          periode: g.periode,
+          nama_guru: guruName,
+          tanggal_setor: targetIso,
+          detail_nilai: rows,
+        })
+      );
+    });
+
+    return cards;
   }
 
   function buildLaporanPerKelas(rk, targetTanggal, targetKelas) {
@@ -381,28 +503,42 @@
     });
   }
 
-  function renderKepsekSubtabs(allClassNames, activeKelas, statusList) {
+  function isNilaiCardOnDate(card, targetTanggal) {
+    const target = API.normalizeISODate(targetTanggal);
+    if (!target || !card) return false;
+    if (API.normalizeISODate(card.tanggal_setor) === target) return true;
+    if (API.normalizeISODate(card.waktu_submit) === target) return true;
+    if (
+      Array.isArray(card.detail_nilai) &&
+      card.detail_nilai.some((r) => API.normalizeISODate(r.updated_at) === target)
+    ) {
+      return true;
+    }
+    return false;
+  }
+
+  function renderKepsekSubtabs(activeClasses, activeKelas) {
     const bar = document.getElementById('kepsek-kelas-subtabs');
     if (!bar) return;
 
-    const statusByKelas = new Map();
-    (Array.isArray(statusList) ? statusList : []).forEach((s) => {
-      if (s && s.kelas) statusByKelas.set(String(s.kelas).toLowerCase(), Boolean(s.sudah_setor));
-    });
+    const list = Array.isArray(activeClasses) ? activeClasses : [];
+    if (list.length < 2) {
+      bar.hidden = true;
+      bar.innerHTML = '';
+      return;
+    }
 
     const buttons = [
-      `<button type="button" class="kelas-subtab" data-kepsek-subtab="" aria-pressed="${!activeKelas ? 'true' : 'false'}">Semua Kelas (${allClassNames.length})</button>`,
+      `<button type="button" class="kelas-subtab" data-kepsek-subtab="" aria-pressed="${!activeKelas ? 'true' : 'false'}">Semua (${list.length})</button>`,
     ];
-    allClassNames.forEach((k) => {
+    list.forEach((k) => {
       const pressed = activeKelas && activeKelas.toLowerCase() === k.toLowerCase();
-      const done = statusByKelas.get(k.toLowerCase());
-      const dotHtml =
-        done === undefined ? '' : `<span class="subtab-dot ${done ? 'is-done' : 'is-pending'}" aria-hidden="true"></span>`;
       buttons.push(
-        `<button type="button" class="kelas-subtab" data-kepsek-subtab="${UI.esc(k)}" aria-pressed="${pressed ? 'true' : 'false'}">${dotHtml}<span>${UI.esc(k)}</span></button>`
+        `<button type="button" class="kelas-subtab" data-kepsek-subtab="${UI.esc(k)}" aria-pressed="${pressed ? 'true' : 'false'}"><span>${UI.esc(k)}</span></button>`
       );
     });
 
+    bar.hidden = false;
     bar.innerHTML = buttons.join('');
     bar.querySelectorAll('button[data-kepsek-subtab]').forEach((btn) => {
       btn.addEventListener('click', () => {
@@ -416,38 +552,94 @@
     });
   }
 
-  function renderLaporanPerKelas(blocks, targetTanggal) {
-    const container = document.getElementById('kepsek-per-kelas-container');
-    localState.laporanPerKelas = Array.isArray(blocks) ? blocks : [];
+  function applyKepsekReportMode(mode) {
+    const nextMode = mode === 'nilai' ? 'nilai' : 'absensi';
+    localState.kepsekReportMode = nextMode;
 
-    const allNilaiCards = [];
-    localState.laporanPerKelas.forEach((b) => {
-      (b.rekap_nilai || []).forEach((n) => allNilaiCards.push(n));
-    });
-    localState.rekapNilaiList = allNilaiCards;
+    const absPanel = document.getElementById('kepsek-absensi-panel');
+    const nilaiPanel = document.getElementById('kepsek-nilai-panel');
+    const absBtn = document.getElementById('btn-kepsek-mode-absensi');
+    const nilaiBtn = document.getElementById('btn-kepsek-mode-nilai');
+
+    if (absPanel) absPanel.hidden = nextMode !== 'absensi';
+    if (nilaiPanel) nilaiPanel.hidden = nextMode !== 'nilai';
+    if (absBtn) absBtn.setAttribute('aria-pressed', nextMode === 'absensi' ? 'true' : 'false');
+    if (nilaiBtn) nilaiBtn.setAttribute('aria-pressed', nextMode === 'nilai' ? 'true' : 'false');
+
+    const activeKelas = document.getElementById('kepsek-filter-kelas')?.value || '';
+    const classesForMode =
+      nextMode === 'nilai'
+        ? localState.allActiveNilaiClasses || []
+        : localState.allActiveAbsensiClasses || [];
+    renderKepsekSubtabs(classesForMode, activeKelas);
+  }
+
+  function resolveAbsensiPengampuAndMetode(blk) {
+    const riwayat = Array.isArray(blk.riwayat_absensi) ? blk.riwayat_absensi : [];
+    const mInfo = blk.metode_absensi;
+    let qrCount = mInfo ? Number(mInfo.qr || 0) : 0;
+    let manualCount = mInfo ? Number(mInfo.manual || 0) : 0;
+    if (!mInfo && riwayat.length > 0) {
+      riwayat.forEach((r) => {
+        if (String(r.metode || '').trim().toLowerCase() === 'qr') qrCount++;
+        else manualCount++;
+      });
+    }
+    const metodeParts = [];
+    if (qrCount > 0) metodeParts.push(`Scan QR: ${qrCount}`);
+    if (manualCount > 0) metodeParts.push(`Manual: ${manualCount}`);
+
+    let pengampu = String(blk.nama_guru_pengampu || '').trim();
+    if (!pengampu || pengampu === 'Belum dipetakan') {
+      const recorders = Array.from(
+        new Set(
+          riwayat
+            .map((r) => String(r.nama_guru_piket || '').trim())
+            .filter((n) => n && n !== '-')
+        )
+      );
+      if (recorders.length > 0) pengampu = recorders.join(', ');
+    }
+    if (!pengampu || pengampu === 'Belum dipetakan') {
+      const stNama = blk.status_setoran && String(blk.status_setoran.nama_guru || '').trim();
+      pengampu = stNama || 'Belum dipetakan';
+    }
+
+    return {
+      pengampu,
+      metodeText: metodeParts.join(' · '),
+    };
+  }
+
+  function renderAbsensiLaporan(absensiBlocks, targetTanggal) {
+    const container = document.getElementById('kepsek-absensi-container');
+    const overviewSec = document.getElementById('kepsek-overview-section');
+    const riwayatSec = document.getElementById('kepsek-riwayat-section');
+    localState.absensiBlocksToday = Array.isArray(absensiBlocks) ? absensiBlocks : [];
+
+    if (overviewSec) overviewSec.hidden = localState.absensiBlocksToday.length === 0;
+    if (localState.absensiBlocksToday.length === 0 && riwayatSec) {
+      riwayatSec.hidden = true;
+    }
 
     if (!container) return;
 
-    if (localState.laporanPerKelas.length === 0) {
+    if (localState.absensiBlocksToday.length === 0) {
       container.innerHTML = UI.renderStateBox({
         type: 'empty',
-        title: 'Belum ada data kelas terdaftar',
-        message: 'Tambahkan kelas di tab "Kelas & Guru" atau daftarkan santri di tab "Data Santri".',
+        title: 'Belum ada laporan absensi',
+        message: `Belum ada catatan absensi QR atau manual pada ${UI.formatDateShort(targetTanggal)}.`,
       });
       UI.refreshIcons(container);
       return;
     }
 
-    container.innerHTML = localState.laporanPerKelas
-      .map((blk, blkIdx) => {
-        const st = blk.status_setoran || {};
-        const jam = formatJamWIB(st.waktu_submit);
-        const abs = blk.agregat_absensi || { Hadir: 0, Sakit: 0, Izin: 0, Alpa: 0 };
-        const nilaiSum = blk.ringkasan_nilai || {};
-        const primaryNilai = (blk.rekap_nilai && blk.rekap_nilai[0]) || null;
-        const primaryNilaiIdx = primaryNilai ? localState.rekapNilaiList.indexOf(primaryNilai) : -1;
-        const hasNilai = Boolean(primaryNilai && Number(nilaiSum.jumlah_santri || 0) > 0);
-        const isNilaiSetor = nilaiSum.status_setoran === 'Sudah Disetor';
+    container.innerHTML = localState.absensiBlocksToday
+      .map((blk) => {
+        const abs = blk.agregat_absensi || { Hadir: 0, Sakit: 0, Izin: 0, Alpa: 0, total: 0 };
+        const totalCatatan = Number(abs.total || (Number(abs.Hadir || 0) + Number(abs.Sakit || 0) + Number(abs.Izin || 0) + Number(abs.Alpa || 0)));
+        const absentRows = Array.isArray(blk.santri_tidak_hadir) ? blk.santri_tidak_hadir : [];
+        const meta = resolveAbsensiPengampuAndMetode(blk);
 
         return `
           <article class="kelas-report-block">
@@ -455,22 +647,14 @@
               <div class="kelas-header-main">
                 <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
                   <h4 class="heading-md">${UI.esc(blk.kelas)}</h4>
-                  <span class="status-badge status-izin mono-num">${Number(blk.jumlah_santri || 0)} santri aktif</span>
-                  <span class="status-badge ${st.sudah_setor ? 'status-hadir' : 'status-sakit'}">
-                    <i data-lucide="${st.sudah_setor ? 'check-circle-2' : 'clock'}" aria-hidden="true" style="width:14px;height:14px;"></i>
-                    <span>${st.sudah_setor ? `Sudah Setor${jam ? ` · ${jam}` : ''}` : 'Belum Setor Absensi'}</span>
+                  <span class="status-badge status-hadir mono-num">
+                    <i data-lucide="clipboard-check" aria-hidden="true" style="width:14px;height:14px;"></i>
+                    <span>${totalCatatan} tercatat</span>
                   </span>
                 </div>
-                <div class="text-secondary" style="font-size:0.84rem;margin-top:6px;">
-                  Guru Pengampu: <strong>${UI.esc(blk.nama_guru_pengampu || 'Belum dipetakan')}</strong>
-                  ${st.sudah_setor && st.nama_guru ? ` · Penyetor hari ini: <strong>${UI.esc(st.nama_guru)}</strong>` : ''}
+                <div class="text-secondary" style="font-size:0.84rem;margin-top:4px;">
+                  Pengampu: <strong>${UI.esc(meta.pengampu)}</strong>${meta.metodeText ? ` · ${UI.esc(meta.metodeText)}` : ''}
                 </div>
-              </div>
-              <div class="toolbar-actions kelas-header-actions">
-                <button type="button" class="btn btn-secondary btn-sm" data-print-class-laporan="${blkIdx}">
-                  <i data-lucide="printer" aria-hidden="true"></i>
-                  <span>Cetak PDF Kelas</span>
-                </button>
               </div>
             </div>
 
@@ -493,58 +677,125 @@
               </div>
             </div>
 
-            <div class="kelas-report-split">
-              <div class="stack-gap" style="gap:8px;">
-                <div style="font-size:0.84rem;font-weight:700;color:var(--text-primary);">Santri Tidak Hadir (${(blk.santri_tidak_hadir || []).length})</div>
-                ${renderAbsentStudentListHtml(blk.santri_tidak_hadir || [], targetTanggal, true)}
-              </div>
-
-              <div class="stack-gap" style="gap:10px;">
-                <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;">
-                  <div style="font-size:0.84rem;font-weight:700;color:var(--text-primary);">Rekap Nilai &amp; Rata-Rata Kelas</div>
-                  <span class="status-badge ${isNilaiSetor ? 'status-hadir' : 'status-sakit'}">${UI.esc(nilaiSum.status_setoran || 'Belum Ada Nilai')}</span>
-                </div>
-                <div class="nilai-kpi-strip">
-                  <div class="nilai-kpi-box">
-                    <div class="nilai-kpi-val">${hasNilai ? Number(nilaiSum.rata_rata || 0).toFixed(1) : '-'}</div>
-                    <div class="nilai-kpi-lbl">Rata-rata</div>
-                  </div>
-                  <div class="nilai-kpi-box">
-                    <div class="nilai-kpi-val" style="color:var(--status-hadir-fg);">${hasNilai ? Number(nilaiSum.jumlah_tuntas || 0) : '-'}</div>
-                    <div class="nilai-kpi-lbl">Tuntas (A/B/C)</div>
-                  </div>
-                  <div class="nilai-kpi-box">
-                    <div class="nilai-kpi-val" style="color:var(--status-alpa-fg);">${hasNilai ? Number(nilaiSum.jumlah_perlu_bimbingan || 0) : '-'}</div>
-                    <div class="nilai-kpi-lbl">Bimbingan</div>
-                  </div>
-                </div>
-                <div class="toolbar-actions">
-                  ${
-                    primaryNilaiIdx >= 0
-                      ? `<button type="button" class="btn btn-secondary btn-sm" data-view-nilai-idx="${primaryNilaiIdx}">
-                           <i data-lucide="eye" aria-hidden="true"></i>
-                           <span>Detail Nilai</span>
-                         </button>
-                         <button type="button" class="btn btn-secondary btn-sm" data-print-nilai-idx="${primaryNilaiIdx}">
-                           <i data-lucide="file-text" aria-hidden="true"></i>
-                           <span>Cetak Nilai</span>
-                         </button>`
-                      : `<span class="text-muted" style="font-size:0.8rem;">Belum ada setoran nilai raport untuk kelas ini.</span>`
-                  }
-                </div>
-              </div>
-            </div>
+            ${
+              absentRows.length > 0
+                ? `<div class="stack-gap" style="gap:8px;">
+                     <div style="font-size:0.84rem;font-weight:700;color:var(--text-primary);">Tidak Hadir (${absentRows.length})</div>
+                     ${renderAbsentStudentListHtml(absentRows, targetTanggal, true)}
+                   </div>`
+                : `<div>
+                     <span class="absensi-all-hadir-note">
+                       <i data-lucide="check-circle-2" aria-hidden="true" style="width:15px;height:15px;"></i>
+                       <span>Semua santri tercatat hadir.</span>
+                     </span>
+                   </div>`
+            }
           </article>
         `;
       })
       .join('');
 
-    container.querySelectorAll('button[data-print-class-laporan]').forEach((btn) => {
-      btn.addEventListener('click', () => {
-        const blk = localState.laporanPerKelas[Number(btn.dataset.printClassLaporan)];
-        if (blk) printKepsekLaporan(blk.kelas, targetTanggal);
+    UI.refreshIcons(container);
+  }
+
+  function renderNilaiLaporan(nilaiCards, targetTanggal) {
+    const container = document.getElementById('kepsek-nilai-container');
+    localState.nilaiCardsToday = Array.isArray(nilaiCards) ? nilaiCards : [];
+    localState.rekapNilaiList = localState.nilaiCardsToday;
+
+    if (!container) return;
+
+    if (localState.nilaiCardsToday.length === 0) {
+      container.innerHTML = UI.renderStateBox({
+        type: 'empty',
+        title: 'Belum ada laporan nilai',
+        message: `Belum ada penilaian UAS atau Raport yang disimpan pada ${UI.formatDateShort(targetTanggal)}.`,
       });
+      UI.refreshIcons(container);
+      return;
+    }
+
+    const classGroupMap = new Map();
+    localState.nilaiCardsToday.forEach((card, flatIdx) => {
+      const k = String(card.kelas || 'Tanpa Kelas').trim() || 'Tanpa Kelas';
+      if (!classGroupMap.has(k)) classGroupMap.set(k, []);
+      classGroupMap.get(k).push({ card, flatIdx });
     });
+
+    const orderedClasses = Array.from(classGroupMap.keys()).sort(compareClassOrder);
+
+    container.innerHTML = orderedClasses
+      .map((kelasName) => {
+        const items = classGroupMap.get(kelasName) || [];
+        const gurus = getGurusForClass(kelasName);
+        const mappedGuru = gurus.length > 0 ? gurus.map((g) => g.nama_lengkap || g.username).join(', ') : '';
+        const cardGuruNames = Array.from(
+          new Set(
+            items
+              .map((it) => String(it.card.nama_guru || '').trim())
+              .filter((n) => n && n !== 'Guru Pengampu' && n !== 'Belum Disetor Guru')
+          )
+        ).join(', ');
+        const guruLabel = mappedGuru || cardGuruNames || 'Belum dipetakan';
+
+        const cardsHtml = items
+          .map(({ card, flatIdx }) => {
+            const isUAS = card.jenis_nilai === 'Nilai UAS';
+            return `
+              <article class="nilai-rekap-card">
+                <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px;flex-wrap:wrap;">
+                  <div style="min-width:0;flex:1 1 auto;">
+                    <span class="status-badge ${isUAS ? 'status-izin' : 'status-hadir'}">${UI.esc(card.jenis_nilai || 'Nilai Raport')}</span>
+                    <div class="text-muted" style="font-size:0.8rem;margin-top:6px;">
+                      ${UI.esc(card.periode || '-')} · ${Number(card.jumlah_santri || 0)} santri
+                    </div>
+                  </div>
+                </div>
+
+                <div class="nilai-kpi-strip">
+                  <div class="nilai-kpi-box">
+                    <div class="nilai-kpi-val">${Number(card.rata_rata || 0).toFixed(1)}</div>
+                    <div class="nilai-kpi-lbl">Rata-rata</div>
+                  </div>
+                  <div class="nilai-kpi-box">
+                    <div class="nilai-kpi-val" style="color:var(--status-hadir-fg);">${Number(card.jumlah_tuntas || 0)}</div>
+                    <div class="nilai-kpi-lbl">Tuntas</div>
+                  </div>
+                  <div class="nilai-kpi-box">
+                    <div class="nilai-kpi-val" style="color:var(--status-alpa-fg);">${Number(card.jumlah_perlu_bimbingan || 0)}</div>
+                    <div class="nilai-kpi-lbl">Bimbingan</div>
+                  </div>
+                </div>
+
+                <div class="toolbar-actions">
+                  <button type="button" class="btn btn-secondary btn-sm" data-view-nilai-idx="${flatIdx}">
+                    <i data-lucide="eye" aria-hidden="true"></i>
+                    <span>Detail Nilai</span>
+                  </button>
+                </div>
+              </article>
+            `;
+          })
+          .join('');
+
+        return `
+          <article class="kelas-report-block">
+            <div class="kelas-report-header">
+              <div class="kelas-header-main">
+                <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+                  <h4 class="heading-md">${UI.esc(kelasName)}</h4>
+                  <span class="status-badge status-izin mono-num">${items.length} penilaian</span>
+                </div>
+                <div class="text-secondary" style="font-size:0.84rem;margin-top:4px;">
+                  Pengampu: <strong>${UI.esc(guruLabel)}</strong>
+                </div>
+              </div>
+            </div>
+            <div class="nilai-rekap-grid">${cardsHtml}</div>
+          </article>
+        `;
+      })
+      .join('');
 
     container.querySelectorAll('button[data-view-nilai-idx]').forEach((btn) => {
       btn.addEventListener('click', () => {
@@ -553,132 +804,27 @@
       });
     });
 
-    container.querySelectorAll('button[data-print-nilai-idx]').forEach((btn) => {
-      btn.addEventListener('click', () => {
-        const card = localState.rekapNilaiList[Number(btn.dataset.printNilaiIdx)];
-        if (card) printKepsekNilaiCard(card);
-      });
-    });
-
     UI.refreshIcons(container);
-  }
-
-  function printKepsekLaporan(onlyKelas, targetTanggal) {
-    const printArea = document.getElementById('kepsek-laporan-print-area');
-    if (!printArea) return;
-
-    const blocks = (localState.laporanPerKelas || []).filter(
-      (b) => !onlyKelas || String(b.kelas || '').toLowerCase() === String(onlyKelas).toLowerCase()
-    );
-    if (blocks.length === 0) {
-      UI.toast('Belum ada laporan kelas yang siap dicetak.', 'warn');
-      return;
-    }
-
-    const tglLabel = UI.formatDateShort(targetTanggal || UI.todayISO());
-    printArea.innerHTML = blocks
-      .map((blk) => {
-        const st = blk.status_setoran || {};
-        const abs = blk.agregat_absensi || { Hadir: 0, Sakit: 0, Izin: 0, Alpa: 0 };
-        const absentRows = Array.isArray(blk.santri_tidak_hadir) ? blk.santri_tidak_hadir : [];
-        const nilaiCard = (blk.rekap_nilai && blk.rekap_nilai[0]) || null;
-        const nilaiRows = nilaiCard && Array.isArray(nilaiCard.detail_nilai) ? nilaiCard.detail_nilai : [];
-
-        return `
-          <div class="print-class-page">
-            <div class="print-kop">
-              <div>
-                <h2 class="print-kop-title">${UI.esc(CONFIG.INSTITUTION_NAME)}</h2>
-                <p class="print-kop-sub">Laporan Harian &amp; Akademik Kelas: <strong>${UI.esc(blk.kelas)}</strong> | Tanggal: ${UI.esc(tglLabel)}</p>
-                <p class="print-kop-sub">Guru Pengampu: <strong>${UI.esc(blk.nama_guru_pengampu || 'Belum dipetakan')}</strong> | Status Setoran: ${st.sudah_setor ? `Sudah Setor (${UI.esc(st.nama_guru || 'Guru')})` : 'Belum Setor'}</p>
-              </div>
-            </div>
-
-            <table class="data-table" style="margin-bottom:14px;">
-              <thead>
-                <tr>
-                  <th>Jumlah Santri Aktif</th>
-                  <th>Hadir</th>
-                  <th>Sakit</th>
-                  <th>Izin</th>
-                  <th>Alpa</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr>
-                  <td>${Number(blk.jumlah_santri || 0)}</td>
-                  <td>${Number(abs.Hadir || 0)}</td>
-                  <td>${Number(abs.Sakit || 0)}</td>
-                  <td>${Number(abs.Izin || 0)}</td>
-                  <td>${Number(abs.Alpa || 0)}</td>
-                </tr>
-              </tbody>
-            </table>
-
-            ${
-              absentRows.length > 0
-                ? `<h4 style="margin:0 0 6px;font-size:11pt;">Daftar Santri Tidak Hadir</h4>
-                   <table class="data-table" style="margin-bottom:14px;">
-                     <thead><tr><th>No</th><th>Nama Santri</th><th>Status</th><th>Keterangan</th></tr></thead>
-                     <tbody>${absentRows
-                       .map(
-                         (a, i) =>
-                           `<tr><td>${i + 1}</td><td>${UI.esc(a.nama_santri)}</td><td>${UI.esc(a.status)}</td><td>${UI.esc(a.catatan || '-')}</td></tr>`
-                       )
-                       .join('')}</tbody>
-                   </table>`
-                : ''
-            }
-
-            ${
-              nilaiRows.length > 0
-                ? `<h4 style="margin:0 0 6px;font-size:11pt;">Rekap Nilai (${UI.esc(nilaiCard.periode || '-')})</h4>
-                   <table class="data-table">
-                     <thead><tr><th>No</th><th>Nama Santri</th><th>Harian</th><th>UAS</th><th>Hadir</th><th>Nilai Akhir</th><th>Predikat</th></tr></thead>
-                     <tbody>${nilaiRows
-                       .map(
-                         (r, i) =>
-                           `<tr><td>${i + 1}</td><td>${UI.esc(r.nama_santri)}</td><td>${UI.esc(r.n_harian)}</td><td>${UI.esc(r.n_uas)}</td><td>${UI.esc(r.n_kehadiran)}%</td><td><strong>${Number(r.n_akhir || 0).toFixed(2)}</strong></td><td>${UI.esc(r.grade)} (${UI.esc(r.keterangan)})</td></tr>`
-                       )
-                       .join('')}</tbody>
-                   </table>`
-                : ''
-            }
-
-            <div class="print-signatures">
-              <div class="print-sign-box">
-                <div>Mengetahui,</div>
-                <div>Kepala Madrasah MDTA</div>
-                <div class="print-sign-space"></div>
-                <div><strong>( ____________________ )</strong></div>
-              </div>
-              <div class="print-sign-box">
-                <div>Bojongsoang, ${UI.esc(tglLabel)}</div>
-                <div>Guru Pengampu (${UI.esc(blk.kelas)})</div>
-                <div class="print-sign-space"></div>
-                <div><strong>${UI.esc(blk.nama_guru_pengampu && blk.nama_guru_pengampu !== 'Belum dipetakan' ? blk.nama_guru_pengampu : '( ____________________ )')}</strong></div>
-              </div>
-            </div>
-          </div>
-        `;
-      })
-      .join('');
-
-    document.body.classList.add('printing-kepsek-laporan');
-    window.print();
-    setTimeout(() => document.body.classList.remove('printing-kepsek-laporan'), 300);
   }
 
   function openDetailNilaiModal(rawCard) {
     const card = sanitizeRekapNilaiCard(rawCard || {});
     localState.selectedNilaiCard = card;
+    const isUAS = card.jenis_nilai === 'Nilai UAS';
     const title = document.getElementById('detail-nilai-modal-title');
     const sub = document.getElementById('detail-nilai-subtitle');
+    const theadRow = document.getElementById('detail-nilai-thead-row');
     const tbody = document.getElementById('detail-nilai-tbody');
 
-    if (title) title.textContent = `Detail Nilai ${card.kelas}`;
+    if (title) title.textContent = `Detail ${card.jenis_nilai || 'Nilai'} - ${card.kelas}`;
     if (sub) {
-      sub.textContent = `Periode ${card.periode} · Penyetor: ${card.nama_guru} · Rata-rata: ${Number(card.rata_rata || 0).toFixed(2)}`;
+      sub.textContent = `Periode ${card.periode} · Pengampu: ${card.nama_guru} · Rata-rata: ${Number(card.rata_rata || 0).toFixed(2)}`;
+    }
+
+    if (theadRow) {
+      theadRow.innerHTML = isUAS
+        ? '<th style="width:44px;">No</th><th>Nama Santri</th><th>PG Benar</th><th>Essay Benar</th><th>1/2 Benar</th><th>Nilai UAS</th><th>Predikat</th>'
+        : '<th style="width:44px;">No</th><th>Nama Santri</th><th>Harian</th><th>UAS</th><th>Kehadiran</th><th>Nilai Akhir</th><th>Predikat</th>';
     }
 
     const rows = Array.isArray(card.detail_nilai) ? card.detail_nilai : [];
@@ -687,9 +833,28 @@
         tbody.innerHTML = `<tr class="table-state-row"><td colspan="7">${UI.renderStateBox({
           type: 'empty',
           title: 'Belum ada rincian nilai santri',
-          message: 'Ringkasan setoran: ' + (card.ringkasan || 'Belum ada data nilai tersimpan untuk kelas ini.'),
+          message: 'Belum ada data nilai tersimpan untuk kelas ini.',
         })}</td></tr>`;
         UI.refreshIcons(tbody);
+      } else if (isUAS) {
+        tbody.innerHTML = rows
+          .map(
+            (r, idx) => `
+            <tr>
+              <td class="mono-num dn-no" data-label="No">${idx + 1}</td>
+              <td class="dn-nama" data-label="Nama Santri">
+                <strong>${UI.esc(r.nama_santri)}</strong>
+                ${r.skema_soal && r.skema_soal !== '-' ? `<div class="text-muted" style="font-size:0.75rem;margin-top:2px;">${UI.esc(r.skema_soal)}</div>` : ''}
+              </td>
+              <td class="mono-num dn-harian" data-label="PG Benar">${UI.esc(r.pg_benar ?? 0)}</td>
+              <td class="mono-num dn-uas" data-label="Essay Benar">${UI.esc(r.essay_benar ?? 0)}</td>
+              <td class="mono-num dn-hadir" data-label="1/2 Benar">${UI.esc(r.setengah_benar ?? 0)}</td>
+              <td class="mono-num dn-akhir" data-label="Nilai UAS"><strong>${Number(r.n_akhir || 0).toFixed(1)}</strong></td>
+              <td class="dn-pred" data-label="Predikat"><span class="status-badge ${gradeBadgeClass(r.grade)} mono-num">${UI.esc(r.grade)} (${UI.esc(r.keterangan)})</span></td>
+            </tr>
+          `
+          )
+          .join('');
       } else {
         tbody.innerHTML = rows
           .map(
@@ -710,36 +875,6 @@
     }
 
     UI.openModal('modal-detail-nilai');
-  }
-
-  function printKepsekNilaiCard(rawCard) {
-    const card = sanitizeRekapNilaiCard(rawCard || {});
-    const printMeta = document.getElementById('kepsek-nilai-print-meta');
-    const printTbody = document.getElementById('kepsek-nilai-print-tbody');
-    if (printMeta) {
-      printMeta.textContent = `Kelas: ${card.kelas} · Periode: ${card.periode} · Penyetor: ${card.nama_guru} · Rata-rata Kelas: ${Number(card.rata_rata || 0).toFixed(2)}`;
-    }
-    if (printTbody) {
-      const rows = Array.isArray(card.detail_nilai) ? card.detail_nilai : [];
-      printTbody.innerHTML = rows
-        .map(
-          (r, i) => `
-          <tr>
-            <td>${i + 1}</td>
-            <td>${UI.esc(r.nama_santri)}</td>
-            <td>${UI.esc(r.n_harian)}</td>
-            <td>${UI.esc(r.n_uas)}</td>
-            <td>${UI.esc(r.n_kehadiran)}%</td>
-            <td><strong>${Number(r.n_akhir || 0).toFixed(2)}</strong></td>
-            <td>${UI.esc(r.grade)} (${UI.esc(r.keterangan)})</td>
-          </tr>
-        `
-        )
-        .join('');
-    }
-    document.body.classList.add('printing-kepsek-nilai');
-    window.print();
-    setTimeout(() => document.body.classList.remove('printing-kepsek-nilai'), 300);
   }
 
   function renderRiwayatTable() {
@@ -954,47 +1089,148 @@
     return sorted;
   }
 
+  function buildDailyFallbackKepsekData(d, targetTanggal) {
+    const targetIso = API.normalizeISODate(targetTanggal);
+    const allRiwayat = ((d && d.riwayat_presensi) || []).map(API.normalizePresensi);
+    const todayRiwayat = allRiwayat.filter((r) => targetIso && API.normalizeISODate(r.tanggal) === targetIso);
+    const agregat = { Hadir: 0, Sakit: 0, Izin: 0, Alpa: 0, total: todayRiwayat.length };
+    todayRiwayat.forEach((r) => {
+      if (Object.prototype.hasOwnProperty.call(agregat, r.status)) agregat[r.status]++;
+    });
+    const todayLogs = (STATE.logSetoran || []).filter(
+      (l) => !targetIso || API.normalizeISODate(l.tanggal) === targetIso
+    );
+    const absensiLogs = todayLogs.filter((l) => String(l.jenis_laporan || '').toLowerCase() === 'absensi harian');
+    return {
+      daftar_kelas: getOfficialClassNames(false),
+      status_setoran_hari_ini: absensiLogs.map((l) => ({
+        kelas: l.kelas,
+        sudah_setor: true,
+        id_setoran: l.id_setoran,
+        nama_guru: l.nama_guru,
+        waktu_submit: l.waktu_submit,
+        ringkasan: l.ringkasan,
+      })),
+      absensi_harian: {
+        agregat,
+        setoran: absensiLogs,
+        santri_tidak_hadir: todayRiwayat.filter((r) => ['Sakit', 'Izin', 'Alpa'].includes(r.status)),
+        riwayat: todayRiwayat,
+      },
+      rekap_nilai: [],
+    };
+  }
+
   function renderKepsekBlockFromData(rk, targetTanggal) {
-    const penyetorEl = document.getElementById('kepsek-absensi-penyetor');
-    const summaryEl = document.getElementById('kepsek-setoran-summary');
+    const updatedEl = document.getElementById('dashboard-last-updated');
+    const riwayatSec = document.getElementById('kepsek-riwayat-section');
+    const absCountEl = document.getElementById('kepsek-absensi-count');
+    const nilaiCountEl = document.getElementById('kepsek-nilai-count');
     const kelasSel = document.getElementById('kepsek-filter-kelas');
     const activeKelas = kelasSel ? kelasSel.value : '';
+    const targetIso = API.normalizeISODate(targetTanggal);
 
-    const allClassNames = syncKepsekClassFilter(rk.daftar_kelas);
-    const statusList = Array.isArray(rk.status_setoran_hari_ini) ? rk.status_setoran_hari_ini : [];
-    const doneCount = statusList.filter((item) => item.sudah_setor).length;
-
-    if (summaryEl) {
-      if (statusList.length === 0) {
-        summaryEl.textContent = 'Belum ada kelas aktif';
-        summaryEl.className = 'status-badge status-izin';
-      } else {
-        summaryEl.textContent = `${doneCount} dari ${statusList.length} kelas sudah menyetor laporan hari ini`;
-        summaryEl.className = `status-badge ${doneCount === statusList.length ? 'status-hadir' : 'status-sakit'}`;
-      }
+    syncKepsekClassFilter(rk.daftar_kelas);
+    if (updatedEl) {
+      updatedEl.textContent = UI.formatDateId(targetTanggal);
     }
+
+    const allBlocksUnfiltered = buildLaporanPerKelas(rk, targetTanggal, '');
+    const allAbsensiToday = allBlocksUnfiltered
+      .filter((b) => Number((b.agregat_absensi && b.agregat_absensi.total) || 0) > 0)
+      .sort((a, b) => compareClassOrder(a.kelas, b.kelas));
+
+    const rawNilaiPool = [];
+    allBlocksUnfiltered.forEach((b) => {
+      (b.rekap_nilai || []).forEach((n) => rawNilaiPool.push(n));
+    });
+    if (Array.isArray(rk && rk.rekap_nilai)) {
+      rk.rekap_nilai.forEach((n) => rawNilaiPool.push(n));
+    }
+    synthesizeDailyNilaiCardsFromState(targetTanggal).forEach((n) => rawNilaiPool.push(n));
+
+    const seenNilai = new Set();
+    const allNilaiToday = [];
+    rawNilaiPool.forEach((rawCard) => {
+      const card = sanitizeRekapNilaiCard(rawCard);
+      const jenisKey = String(card.jenis_nilai || 'Nilai Raport').toLowerCase();
+      const key = `${jenisKey}||${String(card.kelas || '').trim().toLowerCase()}||${String(card.periode || '').trim()}`;
+      if (seenNilai.has(key) || !isNilaiCardOnDate(card, targetTanggal)) return;
+      seenNilai.add(key);
+      if (!card.nama_guru || card.nama_guru === 'Belum Disetor Guru' || card.nama_guru === 'Guru Pengampu') {
+        const gurus = getGurusForClass(card.kelas);
+        if (gurus.length > 0) {
+          card.nama_guru = gurus.map((g) => g.nama_lengkap || g.username).join(', ');
+        }
+      }
+      allNilaiToday.push(card);
+    });
+
+    allNilaiToday.sort((a, b) => {
+      const clsCmp = compareClassOrder(a.kelas, b.kelas);
+      if (clsCmp !== 0) return clsCmp;
+      return String(a.jenis_nilai || '').localeCompare(String(b.jenis_nilai || ''));
+    });
+
+    localState.allActiveAbsensiClasses = Array.from(
+      new Set(allAbsensiToday.map((b) => b.kelas).filter(Boolean))
+    ).sort(compareClassOrder);
+    localState.allActiveNilaiClasses = Array.from(
+      new Set(allNilaiToday.map((c) => c.kelas).filter(Boolean))
+    ).sort(compareClassOrder);
+
+    const absensiBlocksToday = allAbsensiToday.filter(
+      (b) => !activeKelas || String(b.kelas || '').toLowerCase() === activeKelas.toLowerCase()
+    );
+    const nilaiCardsToday = allNilaiToday.filter(
+      (c) => !activeKelas || String(c.kelas || '').toLowerCase() === activeKelas.toLowerCase()
+    );
+
+    if (absCountEl) absCountEl.textContent = String(absensiBlocksToday.length);
+    if (nilaiCountEl) nilaiCountEl.textContent = String(nilaiCardsToday.length);
 
     const abs = rk.absensi_harian || {};
-    renderDashboardStats(abs.agregat || {}, abs.agregat ? abs.agregat.total : 0);
+    const todayAgregat = absensiBlocksToday.reduce(
+      (acc, b) => {
+        const a = b.agregat_absensi || {};
+        acc.Hadir += Number(a.Hadir || 0);
+        acc.Sakit += Number(a.Sakit || 0);
+        acc.Izin += Number(a.Izin || 0);
+        acc.Alpa += Number(a.Alpa || 0);
+        return acc;
+      },
+      { Hadir: 0, Sakit: 0, Izin: 0, Alpa: 0 }
+    );
+    const totalToday = todayAgregat.Hadir + todayAgregat.Sakit + todayAgregat.Izin + todayAgregat.Alpa;
+    renderDashboardStats(
+      totalToday > 0 ? todayAgregat : (abs.agregat || {}),
+      totalToday > 0 ? totalToday : (abs.agregat ? abs.agregat.total : 0)
+    );
 
-    const setoranList = Array.isArray(abs.setoran) ? abs.setoran : [];
-    if (penyetorEl) {
-      if (setoranList.length > 0) {
-        const latest = setoranList[0];
-        penyetorEl.textContent = `Disetor oleh ${latest.nama_guru} (${latest.kelas}) pukul ${formatJamWIB(latest.waktu_submit) || '-'}`;
-        penyetorEl.className = 'status-badge status-hadir';
-      } else {
-        penyetorEl.textContent = `Belum ada laporan absensi dikirim guru untuk ${UI.formatDateShort(targetTanggal)}`;
-        penyetorEl.className = 'status-badge status-sakit';
-      }
+    localState.laporanPerKelas = absensiBlocksToday;
+    localState.riwayatHarian = (abs.riwayat || [])
+      .map(API.normalizePresensi)
+      .filter((r) => {
+        const matchDate = !targetIso || API.normalizeISODate(r.tanggal) === targetIso;
+        const matchKelas = !activeKelas || String(r.kelas || '').toLowerCase() === activeKelas.toLowerCase();
+        return matchDate && matchKelas;
+      });
+    if (riwayatSec) {
+      riwayatSec.hidden = absensiBlocksToday.length === 0 || localState.riwayatHarian.length === 0;
     }
 
-    renderKepsekSubtabs(allClassNames, activeKelas, statusList);
-    const blocks = buildLaporanPerKelas(rk, targetTanggal, activeKelas);
-    renderLaporanPerKelas(blocks, targetTanggal);
-
-    localState.riwayatHarian = (abs.riwayat || []).map(API.normalizePresensi);
+    renderAbsensiLaporan(absensiBlocksToday, targetTanggal);
+    renderNilaiLaporan(nilaiCardsToday, targetTanggal);
     renderRiwayatTable();
+
+    if (!localState.kepsekModeLocked) {
+      if (absensiBlocksToday.length === 0 && nilaiCardsToday.length > 0) {
+        localState.kepsekReportMode = 'nilai';
+      } else {
+        localState.kepsekReportMode = 'absensi';
+      }
+    }
+    applyKepsekReportMode(localState.kepsekReportMode);
   }
 
   function applyBootstrapData(bundle, targetTanggal, targetKelas) {
@@ -1037,6 +1273,12 @@
     if (Array.isArray(bundle.nilai_raport)) {
       STATE.nilaiRaportSaved = bundle.nilai_raport.map(API.normalizeNilaiRaport);
       if (CACHE) CACHE.write('nilaiRaportSaved', STATE.nilaiRaportSaved);
+    }
+
+    if (Array.isArray(bundle.nilai_uas)) {
+      STATE.nilaiUAS = bundle.nilai_uas.map(API.normalizeNilaiUAS).reverse();
+      STATE.loaded.uas = true;
+      if (CACHE) CACHE.write('nilaiUAS', STATE.nilaiUAS);
     }
 
     if (Array.isArray(bundle.dokumen_arsip)) {
@@ -1094,26 +1336,20 @@
     syncClassFilterOptions();
     renderKelasManagement();
 
+    const absContainer = document.getElementById('kepsek-absensi-container');
+
     // 1. Stale-While-Revalidate: Paint instan (0 ms) jika cache tersedia
     if (hasCachedRk) {
       renderKepsekBlockFromData(STATE.rekapKepsek, targetTanggal);
     } else if (STATE.dashboard) {
-      const d = STATE.dashboard;
-      renderDashboardStats(d.summary || {}, d.total_presensi);
-      localState.riwayatHarian = (d.riwayat_presensi || []).map(API.normalizePresensi);
-      renderRiwayatTable();
-      const synthRk = {
-        daftar_kelas: getOfficialClassNames(false),
-        status_setoran_hari_ini: [],
-        absensi_harian: {
-          agregat: d.summary || {},
-          setoran: [],
-          santri_tidak_hadir: localState.riwayatHarian.filter((r) => ['Sakit', 'Izin', 'Alpa'].includes(r.status)),
-          riwayat: localState.riwayatHarian,
-        },
-        rekap_nilai: [],
-      };
-      renderKepsekBlockFromData(synthRk, targetTanggal);
+      renderKepsekBlockFromData(buildDailyFallbackKepsekData(STATE.dashboard, targetTanggal), targetTanggal);
+    } else if (absContainer) {
+      absContainer.innerHTML = UI.renderStateBox({
+        type: 'loading',
+        title: 'Memuat Laporan Harian',
+        message: 'Mengambil data absensi dan nilai terbaru...',
+      });
+      UI.refreshIcons(absContainer);
     } else if (riwayatTbody) {
       riwayatTbody.innerHTML = UI.renderSkeletonRows(6, 4);
     }
@@ -1128,12 +1364,7 @@
 
     // Jika sesi sudah memuat kombinasi tanggal/kelas ini & bukan manual refresh, hentikan
     if (!force && STATE.loaded.bootstrap && hasCachedRk) {
-      if (updatedEl && STATE.dashboard) {
-        const totalSantri = Number.isFinite(Number(STATE.dashboard.total_santri))
-          ? ` · ${STATE.dashboard.total_santri} santri terdaftar`
-          : '';
-        updatedEl.textContent = `Tersinkron (${totalSantri.replace(/^ · /, '') || 'aktif'})`;
-      }
+      if (updatedEl) updatedEl.textContent = UI.formatDateId(targetTanggal);
       return;
     }
 
@@ -1158,23 +1389,10 @@
         } else if (bundle.dashboard) {
           if (noticeBox && noticeMsg) {
             noticeMsg.textContent =
-              'Backend Apps Script Anda perlu diperbarui dengan kode terbaru (Code.gs) agar pemetaan kelas terpusat, isolasi guru & log setoran aktif penuh.';
+              'Backend Apps Script perlu diperbarui agar rekap harian & setoran guru aktif penuh.';
             noticeBox.hidden = false;
           }
-          const d = bundle.dashboard;
-          localState.riwayatHarian = (d.riwayat_presensi || []).map(API.normalizePresensi);
-          const fallbackRk = {
-            daftar_kelas: getOfficialClassNames(false),
-            status_setoran_hari_ini: [],
-            absensi_harian: {
-              agregat: d.summary || {},
-              setoran: [],
-              santri_tidak_hadir: localState.riwayatHarian.filter((r) => ['Sakit', 'Izin', 'Alpa'].includes(r.status)),
-              riwayat: localState.riwayatHarian,
-            },
-            rekap_nilai: [],
-          };
-          renderKepsekBlockFromData(fallbackRk, targetTanggal);
+          renderKepsekBlockFromData(buildDailyFallbackKepsekData(bundle.dashboard, targetTanggal), targetTanggal);
         }
 
         if (!hasCachedUsers || diff.usersChanged) {
@@ -1196,25 +1414,23 @@
       }
 
       if (updatedEl) {
-        const d = STATE.dashboard || {};
-        const totalSantri = Number.isFinite(Number(d.total_santri)) ? ` · ${d.total_santri} santri terdaftar` : '';
-        updatedEl.textContent = `Terakhir diperbarui: ${new Date().toLocaleTimeString('id-ID')}${totalSantri}`;
+        updatedEl.textContent = UI.formatDateId(targetTanggal);
       }
       if (showToastOnDone) {
-        UI.toast('Laporan Kepala Madrasah berhasil diperbarui.', 'success');
+        UI.toast('Laporan harian berhasil diperbarui.', 'success');
       }
     } catch (err) {
       if (!hasAnyCache) {
         renderDashboardStats({ Hadir: null, Sakit: null, Izin: null, Alpa: null }, 0);
-        if (riwayatTbody) {
-          riwayatTbody.innerHTML = `<tr class="table-state-row"><td colspan="6">${UI.renderStateBox({
+        if (absContainer) {
+          absContainer.innerHTML = UI.renderStateBox({
             type: 'error',
             title: 'Gagal memuat laporan',
             message: err.message,
             actionLabel: 'Muat Ulang',
             actionId: 'btn-retry-dashboard',
-          })}</td></tr>`;
-          UI.refreshIcons(riwayatTbody);
+          });
+          UI.refreshIcons(absContainer);
           const retryBtn = document.getElementById('btn-retry-dashboard');
           if (retryBtn) retryBtn.addEventListener('click', () => loadDashboard(false, { force: true }));
         }
@@ -1631,7 +1847,6 @@
 
   function bindDashboardEvents() {
     const refreshBtn = document.getElementById('btn-refresh-dashboard');
-    const printAllBtn = document.getElementById('btn-print-all-kelas-laporan');
     const filterTanggal = document.getElementById('kepsek-filter-tanggal');
     const filterKelas = document.getElementById('kepsek-filter-kelas');
     const searchInput = document.getElementById('admin-riwayat-search');
@@ -1647,12 +1862,23 @@
 
     const closeDetailBtn = document.getElementById('btn-close-detail-nilai');
     const tutupDetailBtn = document.getElementById('btn-tutup-detail-nilai');
-    const printDetailBtn = document.getElementById('btn-print-detail-nilai');
 
     if (filterTanggal && !filterTanggal.value) filterTanggal.value = UI.todayISO();
-    if (filterTanggal) filterTanggal.addEventListener('change', () => loadDashboard(false, { force: false }));
+    if (filterTanggal) {
+      filterTanggal.addEventListener('change', () => {
+        localState.kepsekModeLocked = false;
+        localState.kepsekReportMode = 'absensi';
+        loadDashboard(false, { force: false });
+      });
+    }
     if (filterKelas) filterKelas.addEventListener('change', () => loadDashboard(false, { force: false }));
     if (refreshBtn) refreshBtn.addEventListener('click', () => loadDashboard(true, { force: true }));
+    document.querySelectorAll('#kepsek-report-tabs .report-mode-btn').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        localState.kepsekModeLocked = true;
+        applyKepsekReportMode(btn.dataset.kepsekMode || 'absensi');
+      });
+    });
     if (refreshUsersBtn) refreshUsersBtn.addEventListener('click', () => loadDashboard(true, { force: true }));
     if (usersSearchInput) {
       usersSearchInput.addEventListener('input', (e) => {
@@ -1666,22 +1892,9 @@
         renderUsersTable();
       });
     }
-    if (printAllBtn) {
-      printAllBtn.addEventListener('click', () => {
-        const tgl = (filterTanggal && filterTanggal.value) || UI.todayISO();
-        printKepsekLaporan('', tgl);
-      });
-    }
 
     if (closeDetailBtn) closeDetailBtn.addEventListener('click', () => UI.closeModal('modal-detail-nilai'));
     if (tutupDetailBtn) tutupDetailBtn.addEventListener('click', () => UI.closeModal('modal-detail-nilai'));
-    if (printDetailBtn) {
-      printDetailBtn.addEventListener('click', () => {
-        if (localState.selectedNilaiCard) {
-          printKepsekNilaiCard(localState.selectedNilaiCard);
-        }
-      });
-    }
 
     if (searchInput) {
       searchInput.addEventListener('input', (e) => {
@@ -2218,26 +2431,26 @@
     ctx.strokeRect(16, 16, cardCanvas.width - 32, cardCanvas.height - 32);
 
     ctx.fillStyle = '#09090b';
-    ctx.font = 'bold 18px sans-serif';
+    ctx.font = 'bold 18px Montserrat, sans-serif';
     ctx.textAlign = 'center';
     ctx.fillText('KARTU PRESENSI SANTRI MDTA', cardCanvas.width / 2, 62);
 
     ctx.fillStyle = '#52525b';
-    ctx.font = '14px sans-serif';
+    ctx.font = '500 14px Montserrat, sans-serif';
     ctx.fillText("MDTA ASY SYIFA AL MUSRI' · Bojongsoang, Kab. Bandung", cardCanvas.width / 2, 88);
 
     const drawQrSource = (src) => {
       if (src) ctx.drawImage(src, 120, 120, 240, 240);
       ctx.fillStyle = '#09090b';
-      ctx.font = 'bold 20px sans-serif';
+      ctx.font = 'bold 20px Montserrat, sans-serif';
       ctx.fillText(data.nama.slice(0, 32), cardCanvas.width / 2, 412);
 
       ctx.fillStyle = '#27272a';
-      ctx.font = '15px sans-serif';
+      ctx.font = '600 15px Montserrat, sans-serif';
       ctx.fillText(`${data.kelas} | ID: ${data.id_santri}`, cardCanvas.width / 2, 444);
 
       ctx.fillStyle = '#52525b';
-      ctx.font = '14px monospace';
+      ctx.font = '600 14px Montserrat, sans-serif';
       ctx.fillText(data.token, cardCanvas.width / 2, 484);
 
       const link = document.createElement('a');
@@ -2453,13 +2666,21 @@
   }
 
   // =========================================================================
-  // TAB 3: REKAP LAPORAN BULANAN (TERPISAH PER KELAS + CETAK PER HALAMAN)
+  // TAB 3: REKAP LAPORAN BULANAN (FILTER-FIRST + PENCARIAN + CETAK PER HALAMAN)
   // =========================================================================
   function getFilteredRekapRows(onlyKelas) {
     const kelasF = onlyKelas !== undefined ? onlyKelas : document.getElementById('rekap-kelas-filter')?.value || '';
-    return STATE.rekap.filter((r) =>
-      !kelasF ? true : String(r.kelas || '').trim().toLowerCase() === kelasF.trim().toLowerCase()
-    );
+    const q = (localState.rekapSearchQuery || '').trim().toLowerCase();
+    return (Array.isArray(STATE.rekap) ? STATE.rekap : []).filter((r) => {
+      const matchKelas = !kelasF ? true : String(r.kelas || '').trim().toLowerCase() === kelasF.trim().toLowerCase();
+      if (!matchKelas) return false;
+      if (!q) return true;
+      return (
+        String(r.nama_lengkap || '').toLowerCase().includes(q) ||
+        String(r.id_santri || '').toLowerCase().includes(q) ||
+        String(r.kelas || '').toLowerCase().includes(q)
+      );
+    });
   }
 
   function groupRekapByClass(rows) {
@@ -2511,13 +2732,14 @@
     if (!bar) return;
 
     const activeKelas = kelasSelect ? kelasSelect.value : '';
-    const allGroups = groupRekapByClass(STATE.rekap);
+    const searchedRows = getFilteredRekapRows('');
+    const allGroups = groupRekapByClass(searchedRows);
     const nameSet = new Set(getOfficialClassNames(false));
     allGroups.forEach((g) => nameSet.add(g.kelas));
-    const names = Array.from(nameSet).sort((a, b) => a.localeCompare(b));
+    const names = Array.from(nameSet).sort(compareClassOrder);
 
     const buttons = [
-      `<button type="button" class="kelas-subtab" data-rekap-subtab="" aria-pressed="${!activeKelas ? 'true' : 'false'}">Semua Kelas (${STATE.rekap.length} santri)</button>`,
+      `<button type="button" class="kelas-subtab" data-rekap-subtab="" aria-pressed="${!activeKelas ? 'true' : 'false'}">Semua Kelas (${searchedRows.length} santri)</button>`,
     ];
     names.forEach((k) => {
       const grp = allGroups.find((g) => g.kelas.toLowerCase() === k.toLowerCase());
@@ -2542,7 +2764,31 @@
   function renderRekapTable() {
     const container = document.getElementById('admin-rekap-grouped-container');
     const periodEl = document.getElementById('rekap-period-label');
+    const subtabsBar = document.getElementById('rekap-kelas-subtabs');
+    const actionsWrap = document.getElementById('rekap-toolbar-actions');
+    const resetBtn = document.getElementById('btn-reset-rekap');
     if (!container) return;
+
+    if (!localState.rekapHasSearched) {
+      if (subtabsBar) {
+        subtabsBar.hidden = true;
+        subtabsBar.innerHTML = '';
+      }
+      if (actionsWrap) actionsWrap.hidden = true;
+      if (resetBtn) resetBtn.hidden = true;
+      if (periodEl) {
+        periodEl.textContent = 'Gunakan pencarian atau filter di bawah untuk menampilkan rekap presensi bulanan.';
+      }
+      container.innerHTML = UI.renderStateBox({
+        type: 'empty',
+        title: 'Belum ada pencarian atau filter diterapkan',
+        message: 'Pilih bulan, tahun, kelas, atau ketik nama santri, lalu klik "Tampilkan Rekap".',
+      });
+      UI.refreshIcons(container);
+      return;
+    }
+
+    if (resetBtn) resetBtn.hidden = false;
 
     const bulan = Number(document.getElementById('rekap-bulan').value) || 1;
     const tahun = Number(document.getElementById('rekap-tahun').value) || new Date().getFullYear();
@@ -2550,17 +2796,25 @@
     const rows = getFilteredRekapRows();
     const grouped = groupRekapByClass(rows);
 
+    if (actionsWrap) actionsWrap.hidden = rows.length === 0;
+    if (subtabsBar) {
+      subtabsBar.hidden = STATE.rekap.length === 0;
+      if (!subtabsBar.hidden) renderRekapSubtabs();
+      else subtabsBar.innerHTML = '';
+    }
+
     if (periodEl) {
       periodEl.textContent = `Periode: ${bulanNama} ${tahun} (${rows.length} santri dalam ${grouped.length} kelas)`;
     }
 
-    renderRekapSubtabs();
-
     if (rows.length === 0) {
+      const hasQueryOrKelas = Boolean((localState.rekapSearchQuery || '').trim() || document.getElementById('rekap-kelas-filter')?.value);
       container.innerHTML = UI.renderStateBox({
         type: 'empty',
-        title: 'Belum ada data rekap pada periode ini',
-        message: `Tidak ditemukan data presensi untuk bulan ${bulanNama} ${tahun}. Pilih periode lain atau muat ulang.`,
+        title: hasQueryOrKelas ? 'Data santri tidak ditemukan pada filter ini' : 'Belum ada data rekap pada periode ini',
+        message: hasQueryOrKelas
+          ? `Tidak ada data presensi yang cocok untuk filter saat ini pada bulan ${bulanNama} ${tahun}. Ubah kata kunci atau kelas.`
+          : `Tidak ditemukan data presensi untuk bulan ${bulanNama} ${tahun}. Pilih periode lain atau muat ulang.`,
       });
       UI.refreshIcons(container);
       return;
@@ -2658,6 +2912,8 @@
     const fetchBtn = document.getElementById('btn-fetch-rekap');
     const bulan = document.getElementById('rekap-bulan').value;
     const tahun = document.getElementById('rekap-tahun').value;
+
+    localState.rekapHasSearched = true;
 
     if (CACHE && STATE.rekap.length === 0) {
       const c = CACHE.read('rekap');
@@ -2925,6 +3181,8 @@
     const bulanSelect = document.getElementById('rekap-bulan');
     const tahunInput = document.getElementById('rekap-tahun');
     const kelasSelect = document.getElementById('rekap-kelas-filter');
+    const searchInput = document.getElementById('rekap-search-input');
+    const resetBtn = document.getElementById('btn-reset-rekap');
     const fetchBtn = document.getElementById('btn-fetch-rekap');
     const csvBtn = document.getElementById('btn-export-rekap-csv');
     const printBtn = document.getElementById('btn-print-rekap-pdf');
@@ -2940,7 +3198,82 @@
     if (bulanSelect) bulanSelect.value = String(now.getMonth() + 1);
     if (tahunInput) tahunInput.value = String(now.getFullYear());
 
-    if (kelasSelect) kelasSelect.addEventListener('change', renderRekapTable);
+    let searchDebounce = null;
+    function isCurrentRekapLoaded() {
+      const b = bulanSelect ? bulanSelect.value : '';
+      const t = tahunInput ? tahunInput.value : '';
+      return Boolean(
+        STATE.loaded.rekap &&
+        STATE.lastRekapPeriod &&
+        String(STATE.lastRekapPeriod.bulan) === String(b) &&
+        String(STATE.lastRekapPeriod.tahun) === String(t)
+      );
+    }
+
+    if (kelasSelect) {
+      kelasSelect.addEventListener('change', () => {
+        if (kelasSelect.value) {
+          localState.rekapHasSearched = true;
+          if (!isCurrentRekapLoaded()) {
+            loadRekapLaporan(false);
+            return;
+          }
+        }
+        if (localState.rekapHasSearched) {
+          renderRekapTable();
+        }
+      });
+    }
+
+    if (searchInput) {
+      searchInput.addEventListener('input', (e) => {
+        const val = e.target.value || '';
+        localState.rekapSearchQuery = val;
+        if (searchDebounce) clearTimeout(searchDebounce);
+        if (val.trim()) {
+          localState.rekapHasSearched = true;
+          if (!isCurrentRekapLoaded()) {
+            searchDebounce = setTimeout(() => loadRekapLaporan(false), 260);
+            return;
+          }
+        }
+        if (localState.rekapHasSearched) {
+          renderRekapTable();
+        }
+      });
+      searchInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          if (searchDebounce) clearTimeout(searchDebounce);
+          loadRekapLaporan(false);
+        }
+      });
+    }
+
+    [bulanSelect, tahunInput].forEach((el) => {
+      if (el) {
+        el.addEventListener('change', () => {
+          if (localState.rekapHasSearched) {
+            loadRekapLaporan(false);
+          }
+        });
+      }
+    });
+
+    if (resetBtn) {
+      resetBtn.addEventListener('click', () => {
+        if (searchDebounce) clearTimeout(searchDebounce);
+        localState.rekapHasSearched = false;
+        localState.rekapSearchQuery = '';
+        if (searchInput) searchInput.value = '';
+        if (kelasSelect) kelasSelect.value = '';
+        const dNow = new Date();
+        if (bulanSelect) bulanSelect.value = String(dNow.getMonth() + 1);
+        if (tahunInput) tahunInput.value = String(dNow.getFullYear());
+        renderRekapTable();
+      });
+    }
+
     if (fetchBtn) fetchBtn.addEventListener('click', () => loadRekapLaporan(true));
     if (csvBtn) csvBtn.addEventListener('click', () => exportRekapCSV());
     if (printBtn) printBtn.addEventListener('click', () => printRekapPDF());
@@ -3071,6 +3404,13 @@
 
   function init(session) {
     adminSession = session || {};
+    localState.rekapHasSearched = false;
+    localState.rekapSearchQuery = '';
+    const rekapSearchInp = document.getElementById('rekap-search-input');
+    if (rekapSearchInp) rekapSearchInp.value = '';
+    const rekapKelasSel = document.getElementById('rekap-kelas-filter');
+    if (rekapKelasSel) rekapKelasSel.value = '';
+
     const tablist = document.getElementById('admin-tablist');
 
     if (!initialized) {
@@ -3092,7 +3432,11 @@
 
       tabController = UI.initSlidingTabs(tablist, (tabName) => {
         closeAdminCalculators();
-        if (tabName === 'santri') {
+        if (tabName === 'dashboard') {
+          if (!STATE.loaded.bootstrap || !STATE.rekapKepsek) {
+            loadDashboard(false, { force: false });
+          }
+        } else if (tabName === 'santri') {
           if (STATE.santri.length > 0) {
             syncClassFilterOptions();
             renderSantriTable();
@@ -3101,12 +3445,8 @@
             loadSantri(false);
           }
         } else if (tabName === 'rekap') {
-          if (STATE.rekap.length > 0) {
-            renderRekapTable();
-          }
-          if (!STATE.loaded.rekap) {
-            loadRekapLaporan(false);
-          }
+          syncClassFilterOptions();
+          renderRekapTable();
         } else if (tabName === 'kelas') {
           renderKelasManagement();
           if (!STATE.loaded.bootstrap && (STATE.kelas || []).length === 0) {

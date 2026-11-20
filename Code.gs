@@ -1752,6 +1752,7 @@ function handleGetRekapKepsek(tanggalParam, kelasParam) {
   const santriList = getSheetData('Santri');
   const presensiList = getSheetData('Presensi');
   const raportList = getSheetData('Nilai_Raport');
+  const uasList = getSheetData('Nilai_UAS');
   const logList = getSheetData('Log_Setoran').map(r => ({
     id_setoran: String(r.id_setoran || ''),
     tanggal: formatDateOnlyWIB(r.tanggal),
@@ -1798,6 +1799,7 @@ function handleGetRekapKepsek(tanggalParam, kelasParam) {
     if (formatDateOnlyWIB(p.tanggal) === targetTanggal) registerClassName(p.kelas);
   });
   raportList.forEach(r => registerClassName(r.kelas));
+  uasList.forEach(u => registerClassName(u.kelas));
 
   const daftarKelas = Object.keys(classNameSet).map(key => classNameSet[key]).sort();
 
@@ -1815,6 +1817,12 @@ function handleGetRekapKepsek(tanggalParam, kelasParam) {
         username: String(u.username || '')
       }));
     guruMapByKelas[k] = gurus;
+  });
+
+  const userById = {};
+  usersList.forEach(u => {
+    const uid = String(u.id_user || '').trim();
+    if (uid) userById[uid] = u;
   });
 
   // 1. Setoran Absensi Harian pada tanggal terpilih
@@ -1887,7 +1895,7 @@ function handleGetRekapKepsek(tanggalParam, kelasParam) {
     isAllClasses || !l.kelas || l.kelas.toLowerCase() === 'semua kelas' || normalizeKelasName(l.kelas) === normalizeKelasName(targetKelas)
   );
 
-  // 3. Rekap Nilai Disetor Guru (gabungan Nilai_Raport & Log_Setoran Nilai Raport)
+  // 3. Rekap Nilai Otomatis (Nilai_Raport + Nilai_UAS per kelas & periode)
   const nilaiGroups = {};
   raportList.forEach(r => {
     const k = String(r.kelas || 'Tanpa Kelas').trim();
@@ -1905,6 +1913,7 @@ function handleGetRekapKepsek(tanggalParam, kelasParam) {
       nama_santri: String(r.nama_santri || '-'),
       kelas: k,
       periode: per,
+      jenis_nilai: 'Nilai Raport',
       n_harian: resolved.n_harian,
       n_uas: resolved.n_uas,
       n_kehadiran: resolved.n_kehadiran,
@@ -1933,12 +1942,27 @@ function handleGetRekapKepsek(tanggalParam, kelasParam) {
     }
   });
 
-  const rekapNilai = Object.keys(nilaiGroups).map(key => {
+  const rekapRaport = Object.keys(nilaiGroups).map(key => {
     const g = nilaiGroups[key];
     const matchedLog = setoranNilaiList.find(s =>
       (normalizeKelasName(s.kelas) === normalizeKelasName(g.kelas) || !s.kelas || s.kelas.toLowerCase() === 'semua kelas') &&
       (!s.periode || s.periode === g.periode)
     );
+    const classGurus = guruMapByKelas[g.kelas] || [];
+    const fallbackGuruName = classGurus.length > 0
+      ? classGurus.map(x => x.nama_lengkap).join(', ')
+      : 'Guru Pengampu';
+    let latestUpdatedAt = '';
+    g.rows.forEach(item => {
+      if (item.updated_at && (!latestUpdatedAt || item.updated_at > latestUpdatedAt)) {
+        latestUpdatedAt = item.updated_at;
+      }
+    });
+    const logTanggal = matchedLog ? matchedLog.tanggal : '';
+    const effectiveTanggal = (logTanggal && (!latestUpdatedAt || logTanggal > latestUpdatedAt))
+      ? logTanggal
+      : (latestUpdatedAt || logTanggal || '-');
+
     const jumlahSantri = g.rows.length;
     const totalNilai = g.rows.reduce((sum, item) => sum + item.n_akhir, 0);
     const rataRata = jumlahSantri > 0 ? Math.round((totalNilai / jumlahSantri) * 100) / 100 : 0;
@@ -1947,12 +1971,13 @@ function handleGetRekapKepsek(tanggalParam, kelasParam) {
 
     return {
       id_setoran: matchedLog ? matchedLog.id_setoran : '',
+      jenis_nilai: 'Nilai Raport',
       kelas: g.kelas,
       periode: g.periode,
-      status_setoran: matchedLog ? 'Sudah Disetor' : 'Draft',
+      status_setoran: matchedLog ? 'Sudah Disetor' : 'Tersimpan',
       id_guru: matchedLog ? matchedLog.id_guru : '',
-      nama_guru: matchedLog ? matchedLog.nama_guru : 'Belum Disetor Guru',
-      tanggal_setor: matchedLog ? matchedLog.tanggal : (g.rows[0] ? g.rows[0].updated_at : '-'),
+      nama_guru: matchedLog ? matchedLog.nama_guru : fallbackGuruName,
+      tanggal_setor: effectiveTanggal,
       waktu_submit: matchedLog ? matchedLog.waktu_submit : '',
       ringkasan: matchedLog ? matchedLog.ringkasan : '',
       jumlah_santri: jumlahSantri,
@@ -1963,14 +1988,102 @@ function handleGetRekapKepsek(tanggalParam, kelasParam) {
     };
   });
 
+  const uasGroups = {};
+  uasList.forEach(u => {
+    const k = String(u.kelas || 'Tanpa Kelas').trim() || 'Tanpa Kelas';
+    const per = String(u.periode || 'Ganjil 2026/2027').trim();
+    if (!isAllClasses && normalizeKelasName(k) !== normalizeKelasName(targetKelas)) return;
+    const key = k + '||' + per;
+    if (!uasGroups[key]) {
+      uasGroups[key] = { kelas: k, periode: per, rowMap: {}, order: [], latestDate: '', latestGuruId: '' };
+    }
+    const g = uasGroups[key];
+    const score = Math.round(parseNumSafe(u.nilai_uas, 0) * 100) / 100;
+    const pred = computeRaportGrade(score);
+    const updatedAt = formatDateOnlyWIB(u.updated_at);
+    const idGuru = String(u.id_guru || '').trim();
+    const dedupKey = String(u.id_santri || '').trim() ||
+      String(u.nama_santri || '').trim().toLowerCase() ||
+      ('row_' + u._rowIndex);
+
+    if (!Object.prototype.hasOwnProperty.call(g.rowMap, dedupKey)) {
+      g.order.push(dedupKey);
+    }
+    g.rowMap[dedupKey] = {
+      id_uas: String(u.id_uas || ''),
+      id_santri: String(u.id_santri || ''),
+      nama_santri: String(u.nama_santri || '-'),
+      kelas: k,
+      periode: per,
+      jenis_nilai: 'Nilai UAS',
+      skema_soal: String(u.skema_soal || '-'),
+      pg_benar: parseNumSafe(u.pg_benar, 0),
+      essay_benar: parseNumSafe(u.essay_benar, 0),
+      setengah_benar: parseNumSafe(u.setengah_benar, 0),
+      n_harian: null,
+      n_uas: score,
+      n_kehadiran: null,
+      n_akhir: score,
+      grade: pred.grade,
+      keterangan: pred.keterangan,
+      id_guru: idGuru,
+      updated_at: updatedAt
+    };
+
+    if (updatedAt && (!g.latestDate || updatedAt >= g.latestDate)) {
+      g.latestDate = updatedAt;
+      if (idGuru) g.latestGuruId = idGuru;
+    } else if (!g.latestGuruId && idGuru) {
+      g.latestGuruId = idGuru;
+    }
+  });
+
+  const rekapUas = Object.keys(uasGroups).map(key => {
+    const g = uasGroups[key];
+    const uasRows = g.order.map(dk => g.rowMap[dk]);
+    const uasCount = uasRows.length;
+    const uasSum = uasRows.reduce((sum, item) => sum + item.n_akhir, 0);
+    const uasAvg = uasCount > 0 ? Math.round((uasSum / uasCount) * 100) / 100 : 0;
+    const uasTuntas = uasRows.filter(item => ['A', 'B', 'C'].includes(item.grade.toUpperCase())).length;
+
+    const guruById = g.latestGuruId && userById[g.latestGuruId];
+    const classGurus = guruMapByKelas[g.kelas] || [];
+    const resolvedUasGuruName = guruById
+      ? String(guruById.nama_lengkap || guruById.username || 'Guru Pengampu')
+      : (classGurus.length > 0 ? classGurus.map(x => x.nama_lengkap).join(', ') : 'Guru Pengampu');
+
+    return {
+      id_setoran: '',
+      jenis_nilai: 'Nilai UAS',
+      kelas: g.kelas,
+      periode: g.periode,
+      status_setoran: 'Tersimpan',
+      id_guru: g.latestGuruId || '',
+      nama_guru: resolvedUasGuruName,
+      tanggal_setor: g.latestDate || '-',
+      waktu_submit: '',
+      ringkasan: '',
+      jumlah_santri: uasCount,
+      rata_rata: uasAvg,
+      jumlah_tuntas: uasTuntas,
+      jumlah_perlu_bimbingan: uasCount - uasTuntas,
+      detail_nilai: uasRows
+    };
+  });
+
+  const rekapNilai = rekapRaport.concat(rekapUas);
+
   // 4. Laporan Terstruktur Per Kelas
   const laporanPerKelas = statusSetoranHariIni.map(stItem => {
     const k = stItem.kelas;
     const classRiwayat = riwayatTanggal.filter(r => normalizeKelasName(r.kelas) === normalizeKelasName(k));
     const classAbsent = santriTidakHadir.filter(r => normalizeKelasName(r.kelas) === normalizeKelasName(k));
     const classAgregat = { Hadir: 0, Sakit: 0, Izin: 0, Alpa: 0, total: classRiwayat.length };
+    const metodeAbsensi = { qr: 0, manual: 0 };
     classRiwayat.forEach(r => {
       if (Object.prototype.hasOwnProperty.call(classAgregat, r.status)) classAgregat[r.status]++;
+      if (String(r.metode || '').trim().toLowerCase() === 'qr') metodeAbsensi.qr++;
+      else metodeAbsensi.manual++;
     });
     const classNilai = rekapNilai.filter(n => normalizeKelasName(n.kelas) === normalizeKelasName(k));
     const totalNilaiSantri = classNilai.reduce((s, n) => s + Number(n.jumlah_santri || 0), 0);
@@ -1994,6 +2107,7 @@ function handleGetRekapKepsek(tanggalParam, kelasParam) {
         ringkasan: stItem.ringkasan
       },
       agregat_absensi: classAgregat,
+      metode_absensi: metodeAbsensi,
       santri_tidak_hadir: classAbsent,
       riwayat_absensi: classRiwayat.slice().reverse(),
       rekap_nilai: classNilai,
@@ -2067,7 +2181,7 @@ function handleGetBootstrapData(params, scope) {
     santri: handleGetSantri(null),
     users: handleGetUsers(),
     nilai_raport: handleGetNilaiRaport(null),
-    nilai_uas: [],
+    nilai_uas: getSheetData('Nilai_UAS'),
     dokumen_arsip: getSheetData('Dokumen_Arsip'),
     log_setoran: handleGetLogSetoran({}),
     presensi_hari_ini: [],
