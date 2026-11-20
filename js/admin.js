@@ -1764,6 +1764,11 @@
         !q ||
         s.nama_lengkap.toLowerCase().includes(q) ||
         s.id_santri.toLowerCase().includes(q) ||
+        (s.nis || '').toLowerCase().includes(q) ||
+        (s.nik || '').toLowerCase().includes(q) ||
+        (s.tempat_lahir || '').toLowerCase().includes(q) ||
+        (s.tanggal_lahir || '').toLowerCase().includes(q) ||
+        (s.ttl || '').toLowerCase().includes(q) ||
         s.kelas.toLowerCase().includes(q) ||
         s.no_wa_ortu.toLowerCase().includes(q) ||
         s.qr_token.toLowerCase().includes(q);
@@ -1778,7 +1783,7 @@
       updateBulkSantriBar(filtered);
       tbody.innerHTML = `
         <tr class="table-state-row">
-          <td colspan="8">
+          <td colspan="11">
             ${UI.renderStateBox({
               type: 'empty',
               title: STATE.santri.length === 0 ? 'Belum ada data santri' : 'Santri tidak ditemukan',
@@ -1798,13 +1803,17 @@
       .map((s) => {
         const sid = s.id_santri || s.qr_token;
         const isChecked = s.id_santri && localState.selectedSantriIds.has(s.id_santri);
+        const ttlText = s.ttl && s.ttl !== '-' ? s.ttl : API.formatTTL(s.tempat_lahir, s.tanggal_lahir);
         return `
         <tr>
           <td class="snt-check" data-label="Pilih">
             <input type="checkbox" class="santri-row-checkbox" data-select-santri="${UI.esc(s.id_santri || '')}" aria-label="Pilih ${UI.esc(s.nama_lengkap)}" ${isChecked ? 'checked' : ''} ${!s.id_santri ? 'disabled' : ''} />
           </td>
           <td class="mono-num snt-id" data-label="ID Santri">${UI.esc(s.id_santri || '-')}</td>
+          <td class="mono-num snt-nis" data-label="NIS">${UI.esc(s.nis || '-')}</td>
+          <td class="mono-num snt-nik" data-label="NIK">${UI.esc(s.nik || '-')}</td>
           <td class="snt-nama" data-label="Nama Santri"><strong>${UI.esc(s.nama_lengkap)}</strong></td>
+          <td class="snt-ttl" data-label="Tempat, Tgl Lahir">${UI.esc(ttlText)}</td>
           <td class="snt-kelas" data-label="Kelas">${UI.esc(s.kelas || '-')}</td>
           <td class="mono-num snt-wa" data-label="No. WA Ortu">${UI.esc(s.no_wa_ortu || '-')}</td>
           <td class="snt-token" data-label="Token QR"><code class="mono-num" style="font-size:0.78rem;">${UI.esc(s.qr_token || '-')}</code></td>
@@ -1923,7 +1932,7 @@
       syncClassFilterOptions();
       renderSantriTable();
     } else if (tbody) {
-      tbody.innerHTML = UI.renderSkeletonRows(8, 5);
+      tbody.innerHTML = UI.renderSkeletonRows(11, 5);
     }
 
     if (!force && (STATE.loaded.santri || STATE.loaded.bootstrap) && hasCache) {
@@ -1950,7 +1959,7 @@
       if (showToast) UI.toast(`${STATE.santri.length} data santri dimuat.`, 'success');
     } catch (err) {
       if (!hasCache && tbody) {
-        tbody.innerHTML = `<tr class="table-state-row"><td colspan="8">${UI.renderStateBox({
+        tbody.innerHTML = `<tr class="table-state-row"><td colspan="11">${UI.renderStateBox({
           type: 'error',
           title: 'Gagal memuat database santri',
           message: err.message,
@@ -1987,6 +1996,14 @@
 
     document.getElementById('santri-id').value = santri ? (santri.id_santri || '') : '';
     document.getElementById('santri-nama').value = santri ? (santri.nama_lengkap || '') : '';
+    const nisEl = document.getElementById('santri-nis');
+    const nikEl = document.getElementById('santri-nik');
+    const tmpEl = document.getElementById('santri-tempat-lahir');
+    const tglEl = document.getElementById('santri-tanggal-lahir');
+    if (nisEl) nisEl.value = santri ? (santri.nis || '') : '';
+    if (nikEl) nikEl.value = santri ? (santri.nik || '') : '';
+    if (tmpEl) tmpEl.value = santri ? (santri.tempat_lahir || '') : '';
+    if (tglEl) tglEl.value = santri ? API.normalizeISODate(santri.tanggal_lahir || '') : '';
     document.getElementById('santri-hp').value = santri ? (santri.no_wa_ortu || '') : '';
     document.getElementById('santri-qr-token').value =
       santri && santri.qr_token ? santri.qr_token : '';
@@ -2058,6 +2075,10 @@
           isEdit: true,
           id_santri: s.id_santri,
           nama_lengkap: s.nama_lengkap,
+          nis: s.nis || '',
+          nik: s.nik || '',
+          tempat_lahir: s.tempat_lahir || '',
+          tanggal_lahir: s.tanggal_lahir || '',
           kelas: targetKelas,
           no_wa_ortu: s.no_wa_ortu,
           qr_token: s.qr_token,
@@ -2217,6 +2238,11 @@
             !q ||
             s.nama_lengkap.toLowerCase().includes(q) ||
             s.id_santri.toLowerCase().includes(q) ||
+            (s.nis || '').toLowerCase().includes(q) ||
+            (s.nik || '').toLowerCase().includes(q) ||
+            (s.tempat_lahir || '').toLowerCase().includes(q) ||
+            (s.tanggal_lahir || '').toLowerCase().includes(q) ||
+            (s.ttl || '').toLowerCase().includes(q) ||
             s.kelas.toLowerCase().includes(q) ||
             s.no_wa_ortu.toLowerCase().includes(q) ||
             s.qr_token.toLowerCase().includes(q);
@@ -2299,6 +2325,10 @@
         const isEdit = Boolean(localState.editingSantriId);
         const idSantri = isEdit ? localState.editingSantriId : generateNextLocalId(STATE.santri || [], 'id_santri', 'S-', 3);
         const namaLengkap = document.getElementById('santri-nama').value.trim();
+        const nis = (document.getElementById('santri-nis')?.value || '').trim();
+        const nik = (document.getElementById('santri-nik')?.value || '').replace(/\s+/g, '').trim();
+        const tempatLahir = (document.getElementById('santri-tempat-lahir')?.value || '').trim();
+        const tanggalLahir = (document.getElementById('santri-tanggal-lahir')?.value || '').trim();
         const kelas = document.getElementById('santri-kelas').value.trim();
         const noWaOrtu = document.getElementById('santri-hp').value.trim();
         const qrToken = document.getElementById('santri-qr-token').value.trim();
@@ -2306,6 +2336,10 @@
 
         if (!namaLengkap) {
           UI.toast('Nama lengkap santri wajib diisi.', 'error');
+          return;
+        }
+        if (nik && !/^\d+$/.test(nik)) {
+          UI.toast('NIK harus berupa angka tanpa huruf atau simbol.', 'error');
           return;
         }
         if (!kelas) {
@@ -2317,6 +2351,10 @@
           isEdit,
           id_santri: idSantri,
           nama_lengkap: namaLengkap,
+          nis,
+          nik,
+          tempat_lahir: tempatLahir,
+          tanggal_lahir: tanggalLahir,
           kelas,
           no_wa_ortu: noWaOrtu,
           qr_token: qrToken,

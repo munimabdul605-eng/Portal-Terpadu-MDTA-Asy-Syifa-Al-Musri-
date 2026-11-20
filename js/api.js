@@ -101,6 +101,47 @@
     return s;
   }
 
+  function normalizeISODate(val) {
+    if (!val) return '';
+    const s = String(val).trim();
+    if (!s || s === '-') return '';
+    if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+    const dmy = s.match(/^(\d{2})[\/\-](\d{2})[\/\-](\d{4})$/);
+    if (dmy) return `${dmy[3]}-${dmy[2]}-${dmy[1]}`;
+    const d = new Date(val);
+    if (!Number.isNaN(d.getTime())) {
+      const formatted = new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'Asia/Jakarta',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+      }).format(d);
+      return /^\d{4}-\d{2}-\d{2}$/.test(formatted) ? formatted : '';
+    }
+    return '';
+  }
+
+  function formatTTL(tempatLahir, tanggalLahir) {
+    const tmp = String(tempatLahir || '').trim();
+    const iso = normalizeISODate(tanggalLahir);
+    let tglText = '';
+    if (iso) {
+      const parts = iso.split('-');
+      const dt = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
+      if (!Number.isNaN(dt.getTime())) {
+        tglText = dt.toLocaleDateString('id-ID', {
+          day: '2-digit',
+          month: 'short',
+          year: 'numeric',
+        });
+      }
+    } else if (tanggalLahir && String(tanggalLahir).trim() !== '-') {
+      tglText = String(tanggalLahir).trim();
+    }
+    if (tmp && tglText) return `${tmp}, ${tglText}`;
+    return tmp || tglText || '-';
+  }
+
   function formatSheetTime(val) {
     if (!val) return '';
     const s = String(val).trim();
@@ -604,13 +645,24 @@
 
   // Normalizer selaras kolom Database Sistem MDTA
   function normalizeSantri(raw) {
-    const id = String(pick(raw, ['id_santri', 'id', 'nis'], ''));
+    const id = String(pick(raw, ['id_santri', 'id'], '')).trim();
     const nama = String(pick(raw, ['nama_lengkap', 'nama', 'name'], ''));
+    const nis = String(pick(raw, ['nis', 'nis_santri', 'no_induk'], '')).trim();
+    const nik = String(pick(raw, ['nik', 'nik_santri', 'no_nik'], '')).trim();
+    const tempatLahir = String(pick(raw, ['tempat_lahir', 'tmp_lahir'], '')).trim();
+    const tanggalLahir = normalizeISODate(pick(raw, ['tanggal_lahir', 'tgl_lahir'], ''));
+    const rawTtl = String(pick(raw, ['tempat_tanggal_lahir', 'ttl'], '')).trim();
+    const ttl = (tempatLahir || tanggalLahir) ? formatTTL(tempatLahir, tanggalLahir) : (rawTtl || '-');
     const wa = String(pick(raw, ['no_wa_ortu', 'no_hp', 'hp', 'whatsapp'], ''));
     const token = String(pick(raw, ['qr_token', 'token', 'kode_qr'], id));
     return {
       id_santri: id,
       id: id,
+      nis,
+      nik,
+      tempat_lahir: tempatLahir,
+      tanggal_lahir: tanggalLahir,
+      ttl,
       nama_lengkap: nama,
       nama: nama,
       kelas: String(pick(raw, ['kelas', 'rombel', 'class'], '')),
@@ -739,8 +791,8 @@
       rawPct !== null && rawPct !== ''
         ? Math.round(parseLocaleNumber(rawPct, 0) * 10) / 10
         : total > 0
-        ? Math.round((hadir / total) * 1000) / 10
-        : 0;
+          ? Math.round((hadir / total) * 1000) / 10
+          : 0;
 
     return {
       id_santri: String(pick(raw, ['id_santri', 'id'], '')),
@@ -1202,6 +1254,8 @@
     normalizeNilaiRaport,
     normalizeDokumen,
     normalizeLogSetoran,
+    normalizeISODate,
+    formatTTL,
     formatWhatsAppUrl,
 
     ping: () => requestGet('ping'),

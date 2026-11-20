@@ -23,20 +23,20 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@500;600;700&family=Montserrat:wght@700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
 
-  <link rel="stylesheet" href="./css/tokens.css?v=20261120-5" />
-  <link rel="stylesheet" href="./css/style.css?v=20261120-5" />
+  <link rel="stylesheet" href="./css/tokens.css?v=20261120-6" />
+  <link rel="stylesheet" href="./css/style.css?v=20261120-6" />
 
   <script defer src="https://unpkg.com/lucide@0.468.0/dist/umd/lucide.min.js"></script>
   <script defer src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
   <script defer src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
   <script defer src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 
-  <script defer src="./js/config.js?v=20261120-5"></script>
-  <script defer src="./js/api.js?v=20261120-5"></script>
-  <script defer src="./js/calculators.js?v=20261120-5"></script>
-  <script defer src="./js/admin.js?v=20261120-5"></script>
-  <script defer src="./js/guru.js?v=20261120-5"></script>
-  <script defer src="./js/auth.js?v=20261120-5"></script>
+  <script defer src="./js/config.js?v=20261120-6"></script>
+  <script defer src="./js/api.js?v=20261120-6"></script>
+  <script defer src="./js/calculators.js?v=20261120-6"></script>
+  <script defer src="./js/admin.js?v=20261120-6"></script>
+  <script defer src="./js/guru.js?v=20261120-6"></script>
+  <script defer src="./js/auth.js?v=20261120-6"></script>
 </head>
 <body>
   <a href="#main-content" class="skip-link">Langsung ke konten utama</a>
@@ -486,7 +486,7 @@
           <div class="form-grid">
             <div class="field-group">
               <label class="field-label" for="santri-search-input">Pencarian Real-Time</label>
-              <input id="santri-search-input" type="search" class="input-control" placeholder="Ketik nama, ID santri, kelas, no WA, atau QR token..." />
+              <input id="santri-search-input" type="search" class="input-control" placeholder="Ketik nama, ID santri, NIS, NIK, TTL, kelas, no WA, atau QR token..." />
             </div>
             <div class="field-group">
               <label class="field-label" for="santri-kelas-filter">Filter Kelas</label>
@@ -517,7 +517,10 @@
                 <tr>
                   <th style="width:42px;"><input id="santri-select-all" type="checkbox" aria-label="Pilih semua santri" /></th>
                   <th>ID Santri</th>
+                  <th>NIS</th>
+                  <th>NIK</th>
                   <th>Nama Lengkap</th>
+                  <th>Tempat, Tgl Lahir</th>
                   <th>Kelas</th>
                   <th>No. WA Orang Tua</th>
                   <th>Token QR</th>
@@ -1063,6 +1066,26 @@
         <div class="field-group">
           <label class="field-label" for="santri-nama">Nama Lengkap Santri</label>
           <input id="santri-nama" type="text" class="input-control" placeholder="Nama lengkap santri" required />
+        </div>
+        <div class="form-grid-2">
+          <div class="field-group">
+            <label class="field-label" for="santri-nis">NIS (Nomor Induk Santri)</label>
+            <input id="santri-nis" type="text" inputmode="numeric" class="input-control mono-num" placeholder="Contoh: 2026001" maxlength="30" />
+          </div>
+          <div class="field-group">
+            <label class="field-label" for="santri-nik">NIK (16 Digit)</label>
+            <input id="santri-nik" type="text" inputmode="numeric" class="input-control mono-num" placeholder="16 digit NIK santri" maxlength="16" />
+          </div>
+        </div>
+        <div class="form-grid-2">
+          <div class="field-group">
+            <label class="field-label" for="santri-tempat-lahir">Tempat Lahir</label>
+            <input id="santri-tempat-lahir" type="text" class="input-control" placeholder="Contoh: Bandung" maxlength="80" />
+          </div>
+          <div class="field-group">
+            <label class="field-label" for="santri-tanggal-lahir">Tanggal Lahir</label>
+            <input id="santri-tanggal-lahir" type="date" class="input-control mono-num" />
+          </div>
         </div>
         <div class="form-grid-2">
           <div class="field-group">

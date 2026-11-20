@@ -36,6 +36,13 @@ const KELAS_HEADERS = [
   'created_at'
 ];
 
+const SANTRI_EXTRA_COLUMNS = [
+  'nis',
+  'nik',
+  'tempat_lahir',
+  'tanggal_lahir'
+];
+
 /**
  * Helper untuk merespons JSON dengan format standar
  */
@@ -399,6 +406,20 @@ function ensureUsersSchema() {
 }
 
 /**
+ * Memastikan sheet Santri memiliki kolom nis, nik, tempat_lahir, dan tanggal_lahir
+ */
+function ensureSantriSchema() {
+  if (_requestEnsured.santri) return _requestEnsured.santri;
+  const ss = getSpreadsheet();
+  const sheet = ss.getSheetByName('Santri');
+  if (sheet) {
+    SANTRI_EXTRA_COLUMNS.forEach(col => ensureColumn(sheet, col));
+  }
+  _requestEnsured.santri = sheet || true;
+  return sheet;
+}
+
+/**
  * Memastikan sheet Kelas tersedia dan melakukan sinkronisasi awal dari Santri/Users jika baru dibuat
  */
 function ensureKelasSheet() {
@@ -532,6 +553,7 @@ function getSheetData(sheetName, forceFresh) {
   }
   const ss = getSpreadsheet();
   if (sheetName === 'Users') ensureUsersSchema();
+  if (sheetName === 'Santri') ensureSantriSchema();
   if (sheetName === 'Kelas') ensureKelasSheet();
   if (sheetName === 'Log_Setoran') ensureLogSetoranSheet();
 
@@ -560,6 +582,7 @@ function getSheetData(sheetName, forceFresh) {
 function getSheetAndHeaders(sheetName) {
   const ss = getSpreadsheet();
   if (sheetName === 'Users') ensureUsersSchema();
+  if (sheetName === 'Santri') ensureSantriSchema();
   if (sheetName === 'Kelas') ensureKelasSheet();
   if (sheetName === 'Log_Setoran') ensureLogSetoranSheet();
 
@@ -596,7 +619,7 @@ function doGet(e) {
       }
       case 'getSantri': {
         const sCacheKey = scope.isGuru ? ('mdta_santri_v' + ver + guruCacheSuffix) : 'mdta_getSantri';
-        return jsonResponse(true, cachedRead(sCacheKey, () => filterRowsByGuruScope(getSheetData('Santri'), scope, 'kelas')));
+        return jsonResponse(true, cachedRead(sCacheKey, () => handleGetSantri(scope)));
       }
       case 'getPresensi':
         return jsonResponse(true, filterRowsByGuruScope(getSheetData('Presensi'), scope, 'kelas'));
@@ -1187,6 +1210,39 @@ function handleBulkMoveSantriKelas(data) {
   return { updatedCount: updatedCount, target_kelas: canonicalKelas };
 }
 
+function formatSantriTextCols(sheet, headers, rowIndex, valuesByHeader) {
+  if (!sheet || !Array.isArray(headers) || !rowIndex || rowIndex < 2) return;
+  ['nis', 'nik', 'no_wa_ortu', 'tanggal_lahir'].forEach(colName => {
+    const colIdx = headers.findIndex(h => h.toLowerCase() === colName) + 1;
+    if (colIdx <= 0) return;
+    const cell = sheet.getRange(rowIndex, colIdx, 1, 1);
+    if (typeof cell.setNumberFormat === 'function') {
+      cell.setNumberFormat('@');
+    }
+    if (valuesByHeader && valuesByHeader[colName] !== undefined) {
+      cell.setValue(valuesByHeader[colName]);
+    }
+  });
+}
+
+function handleGetSantri(scope) {
+  ensureSantriSchema();
+  const rows = filterRowsByGuruScope(getSheetData('Santri'), scope, 'kelas');
+  return rows.map(s => ({
+    id_santri: String(s.id_santri || '').trim(),
+    nama_lengkap: String(s.nama_lengkap || ''),
+    nis: String(s.nis || '').trim(),
+    nik: String(s.nik || '').trim(),
+    tempat_lahir: String(s.tempat_lahir || '').trim(),
+    tanggal_lahir: formatDateOnlyWIB(s.tanggal_lahir),
+    kelas: String(s.kelas || '').trim(),
+    no_wa_ortu: String(s.no_wa_ortu || '').trim(),
+    qr_token: String(s.qr_token || '').trim(),
+    status: String(s.status || 'aktif').trim(),
+    created_at: formatDateOnlyWIB(s.created_at)
+  }));
+}
+
 function handleSaveSantri(data) {
   const { sheet, headers } = getSheetAndHeaders('Santri');
   const rows = getSheetData('Santri');
@@ -1196,6 +1252,11 @@ function handleSaveSantri(data) {
   if (!namaLengkap) {
     throw new Error('Nama lengkap santri wajib diisi.');
   }
+
+  const nisVal = data && data.nis !== undefined ? String(data.nis || '').trim() : undefined;
+  const nikVal = data && data.nik !== undefined ? String(data.nik || '').replace(/\s+/g, '').trim() : undefined;
+  const tempatLahirVal = data && data.tempat_lahir !== undefined ? String(data.tempat_lahir || '').trim() : undefined;
+  const tanggalLahirVal = data && data.tanggal_lahir !== undefined ? formatDateOnlyWIB(data.tanggal_lahir) : undefined;
 
   const isEdit = Boolean(data && data.isEdit === true);
   const targetId = String((data && data.id_santri) || '').trim();
@@ -1213,16 +1274,34 @@ function handleSaveSantri(data) {
       String(existing.qr_token || '').trim() ||
       ('QR-MDTA-' + existing.id_santri.replace(/[^a-zA-Z0-9]/g, ''));
 
+    const finalNis = nisVal !== undefined ? nisVal : String(existing.nis || '').trim();
+    const finalNik = nikVal !== undefined ? nikVal : String(existing.nik || '').replace(/\s+/g, '').trim();
+    const finalTempatLahir = tempatLahirVal !== undefined ? tempatLahirVal : String(existing.tempat_lahir || '').trim();
+    const finalTanggalLahir = tanggalLahirVal !== undefined ? tanggalLahirVal : formatDateOnlyWIB(existing.tanggal_lahir);
+
     const updated = headers.map(h => {
       if (h === 'id_santri') return existing.id_santri;
       if (h === 'nama_lengkap') return namaLengkap;
+      if (h === 'nis') return finalNis;
+      if (h === 'nik') return finalNik;
+      if (h === 'tempat_lahir') return finalTempatLahir;
+      if (h === 'tanggal_lahir') return finalTanggalLahir;
       if (h === 'qr_token') return finalQrToken;
       if (h === 'created_at') return existing.created_at || now;
       return data[h] !== undefined ? data[h] : existing[h];
     });
+    formatSantriTextCols(sheet, headers, existing._rowIndex, null);
     sheet.getRange(existing._rowIndex, 1, 1, headers.length).setValues([updated]);
     delete _requestSheetData['Santri'];
-    return { id_santri: existing.id_santri, qr_token: finalQrToken, updated: true };
+    return {
+      id_santri: existing.id_santri,
+      nis: finalNis,
+      nik: finalNik,
+      tempat_lahir: finalTempatLahir,
+      tanggal_lahir: finalTanggalLahir,
+      qr_token: finalQrToken,
+      updated: true
+    };
   }
 
   const idSantri = generateUniqueSequentialId(rows, 'id_santri', 'S-', 3);
@@ -1233,17 +1312,31 @@ function handleSaveSantri(data) {
     qrToken = 'QR-MDTA-' + idSantri.replace(/[^a-zA-Z0-9]/g, '') + '-' + String(Date.now()).slice(-4);
   }
 
-  sheet.appendRow([
-    idSantri,
-    namaLengkap,
-    String((data && data.kelas) || '').trim(),
-    String((data && data.no_wa_ortu) || '').trim(),
-    qrToken,
-    String((data && data.status) || 'aktif').trim(),
-    now
-  ]);
+  const newRowValues = {
+    id_santri: idSantri,
+    nama_lengkap: namaLengkap,
+    kelas: String((data && data.kelas) || '').trim(),
+    no_wa_ortu: String((data && data.no_wa_ortu) || '').trim(),
+    qr_token: qrToken,
+    status: String((data && data.status) || 'aktif').trim(),
+    created_at: now,
+    nis: nisVal || '',
+    nik: nikVal || '',
+    tempat_lahir: tempatLahirVal || '',
+    tanggal_lahir: tanggalLahirVal || ''
+  };
+  sheet.appendRow(headers.map(h => newRowValues[h] !== undefined ? newRowValues[h] : ''));
+  formatSantriTextCols(sheet, headers, sheet.getLastRow(), newRowValues);
   delete _requestSheetData['Santri'];
-  return { id_santri: idSantri, qr_token: qrToken, created: true };
+  return {
+    id_santri: idSantri,
+    nis: newRowValues.nis,
+    nik: newRowValues.nik,
+    tempat_lahir: newRowValues.tempat_lahir,
+    tanggal_lahir: newRowValues.tanggal_lahir,
+    qr_token: qrToken,
+    created: true
+  };
 }
 
 function handleSavePresensi(data) {
@@ -1955,7 +2048,7 @@ function handleGetBootstrapData(params, scope) {
       rekap_kepsek: null,
       kelas: handleGetKelas(activeScope),
       kelas_ampu: activeScope.kelas_ampu,
-      santri: filterRowsByGuruScope(getSheetData('Santri'), activeScope, 'kelas'),
+      santri: handleGetSantri(activeScope),
       users: [],
       nilai_raport: handleGetNilaiRaport(activeScope),
       nilai_uas: filterRowsByGuruScope(getSheetData('Nilai_UAS'), activeScope, 'kelas'),
@@ -1971,7 +2064,7 @@ function handleGetBootstrapData(params, scope) {
     rekap_kepsek: handleGetRekapKepsek(targetTanggal, targetKelas),
     kelas: handleGetKelas(null),
     kelas_ampu: [],
-    santri: getSheetData('Santri'),
+    santri: handleGetSantri(null),
     users: handleGetUsers(),
     nilai_raport: handleGetNilaiRaport(null),
     nilai_uas: [],
