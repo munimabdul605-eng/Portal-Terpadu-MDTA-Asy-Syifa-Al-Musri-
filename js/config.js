@@ -20,6 +20,7 @@
     INSTITUTION_LOCATION: 'Bojongsoang, Kab. Bandung',
     SESSION_KEY: 'mdta_user_session',
     THEME_KEY: 'mdta_theme',
+    CACHE_PREFIX: 'mdta_swr_v1_',
     DEFAULT_RAPORT_WEIGHTS: {
       harian: 40,
       uas: 40,
@@ -110,12 +111,32 @@
 
   // State bersama lintas modul (tanpa data rekaan)
   root.MDTA_STATE = {
+    kelas: [],
     santri: [],
     users: [],
     dashboard: null,
+    rekapKepsek: null,
+    rekapKepsekKey: '',
     rekap: [],
     lastRekapPeriod: null,
     nilaiUAS: [],
+    nilaiRaportSaved: [],
     raportRows: [],
+    dokumenArsip: [],
+    logSetoran: [],
+    presensiToday: [],
+    loaded: {
+      bootstrap: false,
+      dashboard: false,
+      kelas: false,
+      santri: false,
+      rekap: false,
+      uas: false,
+      raport: false,
+      arsip: false,
+      guruPresensi: false,
+    },
+    lastSyncAt: 0,
   };
+  root.appState = root.MDTA_STATE;
 })(window);

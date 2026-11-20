@@ -155,10 +155,10 @@
         const iconName = item.isFolder
           ? 'folder'
           : item.kategori.toLowerCase().includes('pdf')
-          ? 'file-text'
-          : item.kategori.toLowerCase().includes('ai')
-          ? 'scan-text'
-          : 'file';
+            ? 'file-text'
+            : item.kategori.toLowerCase().includes('ai')
+              ? 'scan-text'
+              : 'file';
 
         const metaParts = [item.kategori];
         if (item.diunggah_oleh && item.diunggah_oleh !== '-') metaParts.push(`Oleh ${item.diunggah_oleh}`);
@@ -175,14 +175,13 @@
                 <div class="text-muted" style="font-size:0.78rem;">${UI.esc(metaParts.join(' · '))}</div>
               </div>
             </div>
-            ${
-              item.drive_url
-                ? `<a href="${UI.esc(item.drive_url)}" target="_blank" rel="noopener" class="btn btn-secondary btn-sm">
+            ${item.drive_url
+            ? `<a href="${UI.esc(item.drive_url)}" target="_blank" rel="noopener" class="btn btn-secondary btn-sm">
                      <i data-lucide="external-link" aria-hidden="true"></i>
                      <span>${item.isFolder ? 'Buka Folder' : 'Buka Berkas'}</span>
                    </a>`
-                : `<span class="text-muted" style="font-size:0.78rem;">Tautan kosong</span>`
-            }
+            : `<span class="text-muted" style="font-size:0.78rem;">Tautan kosong</span>`
+          }
           </div>
         `;
       })
@@ -195,12 +194,15 @@
     return Boolean(session && String(session.role || '').trim().toLowerCase() === 'admin');
   }
 
-  async function loadDokumenArsip() {
+  async function loadDokumenArsip(opts) {
     if (!isAdminSession(currentSession || getSession())) {
       UI.closeModal('modal-arsip-drive');
       UI.toast('Arsip Dokumen Drive hanya tersedia pada halaman Administrator.', 'warn');
       return;
     }
+    const force = Boolean(opts && opts.force);
+    const STATE = root.MDTA_STATE;
+    const CACHE = root.MDTA_CACHE;
     const container = document.getElementById('arsip-drive-list');
     const folderLink = document.getElementById('arsip-drive-root-link');
     if (folderLink) {
@@ -209,30 +211,74 @@
     }
     if (!container) return;
 
-    container.innerHTML = UI.renderStateBox({
-      type: 'loading',
-      title: 'Memuat Arsip Dokumen Drive',
-      message: 'Mengambil indeks dokumen dan folder dari Google Sheets Dokumen_Arsip...',
-    });
-    UI.refreshIcons(container);
+    if (STATE && STATE.dokumenArsip.length === 0 && CACHE) {
+      const cached = CACHE.read('dokumenArsip');
+      if (cached && Array.isArray(cached.data)) STATE.dokumenArsip = cached.data;
+    }
+
+    const cachedItems = STATE && Array.isArray(STATE.dokumenArsip) ? STATE.dokumenArsip : [];
+    if (cachedItems.length > 0) {
+      arsipState.items = cachedItems.slice();
+      renderArsipList();
+    } else {
+      container.innerHTML = UI.renderStateBox({
+        type: 'loading',
+        title: 'Memuat Arsip Dokumen Drive',
+        message: 'Mengambil indeks dokumen dan folder dari Google Sheets Dokumen_Arsip...',
+      });
+      UI.refreshIcons(container);
+    }
+
+    if (!force && STATE && STATE.loaded && STATE.loaded.arsip && cachedItems.length > 0) {
+      // Tetap sinkron diam-diam saat modal dibuka; tanpa spinner pemblokir
+      API.getDokumenArsip()
+        .then((res) => {
+          const freshItems = API.extractArray(res, ['dokumen', 'arsip', 'files', 'folders']).map(API.normalizeDokumen);
+          const changed = !CACHE || CACHE.hasChanged(arsipState.items, freshItems);
+          if (STATE) {
+            STATE.dokumenArsip = freshItems;
+            if (STATE.loaded) STATE.loaded.arsip = true;
+          }
+          if (CACHE) CACHE.write('dokumenArsip', freshItems);
+          if (changed) {
+            arsipState.items = freshItems;
+            renderArsipList();
+          }
+        })
+        .catch(() => { });
+      return;
+    }
 
     try {
       const res = await API.getDokumenArsip();
       const rawItems = API.extractArray(res, ['dokumen', 'arsip', 'files', 'folders']);
-      arsipState.items = rawItems.map(API.normalizeDokumen);
-      renderArsipList();
+      const freshItems = rawItems.map(API.normalizeDokumen);
+      const changed = !CACHE || CACHE.hasChanged(arsipState.items, freshItems);
+      if (STATE) {
+        STATE.dokumenArsip = freshItems;
+        if (STATE.loaded) STATE.loaded.arsip = true;
+      }
+      if (CACHE) CACHE.write('dokumenArsip', freshItems);
+      if (changed || arsipState.items.length === 0) {
+        arsipState.items = freshItems;
+        renderArsipList();
+      }
     } catch (err) {
-      container.innerHTML = UI.renderStateBox({
-        type: 'error',
-        title: 'Gagal Memuat Arsip Drive',
-        message: err.message,
-        actionLabel: 'Coba Lagi',
-        actionId: 'btn-retry-arsip',
-      });
-      UI.refreshIcons(container);
-      const retryBtn = document.getElementById('btn-retry-arsip');
-      if (retryBtn) {
-        retryBtn.addEventListener('click', loadDokumenArsip);
+      if (arsipState.items.length === 0) {
+        container.innerHTML = UI.renderStateBox({
+          type: 'error',
+          title: 'Gagal Memuat Arsip Drive',
+          message: err.message,
+          actionLabel: 'Coba Lagi',
+          actionId: 'btn-retry-arsip',
+        });
+        UI.refreshIcons(container);
+        const retryBtn = document.getElementById('btn-retry-arsip');
+        if (retryBtn) {
+          retryBtn.addEventListener('click', () => loadDokumenArsip({ force: true }));
+        }
+      } else if (force) {
+        UI.toast(err.message, 'error');
       }
     }
   }
@@ -260,7 +306,7 @@
           });
         }
         UI.openModal('modal-arsip-drive');
-        loadDokumenArsip();
+        loadDokumenArsip({ force: false });
       });
     }
 
@@ -269,7 +315,7 @@
     }
 
     if (refreshBtn) {
-      refreshBtn.addEventListener('click', loadDokumenArsip);
+      refreshBtn.addEventListener('click', () => loadDokumenArsip({ force: true }));
     }
 
     if (searchInput) {
@@ -312,9 +358,23 @@
     sessionStorage.setItem(CONFIG.SESSION_KEY, JSON.stringify(sessionObj));
   }
 
+  function updateSession(partial) {
+    const base = currentSession || getSession();
+    if (!base || !partial || typeof partial !== 'object') return base;
+    const updated = Object.assign({}, base, partial);
+    if (updated.kelas_ampu !== undefined) {
+      updated.kelas_ampu = API.parseKelasAmpu(updated.kelas_ampu);
+    }
+    saveSession(updated);
+    return updated;
+  }
+
   function clearSession() {
     currentSession = null;
     sessionStorage.removeItem(CONFIG.SESSION_KEY);
+    if (root.MDTA_CACHE && typeof root.MDTA_CACHE.clearAll === 'function') {
+      root.MDTA_CACHE.clearAll();
+    }
   }
 
   function updateHeaderAuthUI(session) {
@@ -395,6 +455,7 @@
       throw new Error('Respons login tidak menyertakan role pengguna (admin atau guru).');
     }
     const namaLengkap = String(API.pick(userObj, ['nama_lengkap', 'nama', 'name'], fallbackUsername));
+    const kelasAmpu = API.parseKelasAmpu(API.pick(userObj, ['kelas_ampu'], []));
     return {
       token: String(API.pick(dataBlock, ['token'], '')),
       id_user: String(API.pick(userObj, ['id_user', 'id'], '')),
@@ -402,6 +463,7 @@
       nama_lengkap: namaLengkap,
       nama: namaLengkap,
       role,
+      kelas_ampu: role === 'admin' ? [] : kelasAmpu,
       loginAt: new Date().toISOString(),
     };
   }
@@ -527,6 +589,7 @@
 
   root.MDTA_AUTH = {
     getSession: () => currentSession || getSession(),
+    updateSession,
     routeToPortal,
     checkBackendHealth,
   };

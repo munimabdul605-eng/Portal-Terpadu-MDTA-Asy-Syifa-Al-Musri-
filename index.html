@@ -23,20 +23,20 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@500;600;700&family=Montserrat:wght@700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
 
-  <link rel="stylesheet" href="./css/tokens.css?v=20261120-3" />
-  <link rel="stylesheet" href="./css/style.css?v=20261120-3" />
+  <link rel="stylesheet" href="./css/tokens.css?v=20261120-5" />
+  <link rel="stylesheet" href="./css/style.css?v=20261120-5" />
 
   <script defer src="https://unpkg.com/lucide@0.468.0/dist/umd/lucide.min.js"></script>
   <script defer src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
   <script defer src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
   <script defer src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 
-  <script defer src="./js/config.js?v=20261120-3"></script>
-  <script defer src="./js/api.js?v=20261120-3"></script>
-  <script defer src="./js/calculators.js?v=20261120-3"></script>
-  <script defer src="./js/admin.js?v=20261120-3"></script>
-  <script defer src="./js/guru.js?v=20261120-3"></script>
-  <script defer src="./js/auth.js?v=20261120-3"></script>
+  <script defer src="./js/config.js?v=20261120-5"></script>
+  <script defer src="./js/api.js?v=20261120-5"></script>
+  <script defer src="./js/calculators.js?v=20261120-5"></script>
+  <script defer src="./js/admin.js?v=20261120-5"></script>
+  <script defer src="./js/guru.js?v=20261120-5"></script>
+  <script defer src="./js/auth.js?v=20261120-5"></script>
 </head>
 <body>
   <a href="#main-content" class="skip-link">Langsung ke konten utama</a>
@@ -222,18 +222,24 @@
 
       <!-- TAB 1: BERANDA KEPALA MADRASAH -->
       <div id="admin-panel-dashboard" class="tab-panel stack-gap" role="tabpanel" aria-labelledby="admin-tab-dashboard">
-        <!-- Bar Kontrol Tanggal & Kelas -->
-        <section class="surface-card no-print">
+        <!-- Bar Kontrol Tanggal, Kelas & Sub-Tab -->
+        <section class="surface-card stack-gap no-print">
           <div class="card-spotlight-layer" aria-hidden="true"></div>
-          <div class="section-toolbar" style="margin-bottom:14px;">
+          <div class="section-toolbar" style="margin-bottom:0;">
             <div>
               <h2 class="heading-lg">Rekapan &amp; Pelaporan Guru</h2>
               <p id="dashboard-last-updated" class="text-muted" style="margin:4px 0 0;font-size:0.8125rem;">Menunggu pembaruan laporan...</p>
             </div>
-            <button id="btn-refresh-dashboard" type="button" class="btn btn-primary">
-              <i data-lucide="refresh-cw" aria-hidden="true"></i>
-              <span>Perbarui Laporan</span>
-            </button>
+            <div class="toolbar-actions">
+              <button id="btn-print-all-kelas-laporan" type="button" class="btn btn-secondary">
+                <i data-lucide="printer" aria-hidden="true"></i>
+                <span>Cetak Semua Kelas (Per Halaman)</span>
+              </button>
+              <button id="btn-refresh-dashboard" type="button" class="btn btn-primary">
+                <i data-lucide="refresh-cw" aria-hidden="true"></i>
+                <span>Perbarui Laporan</span>
+              </button>
+            </div>
           </div>
           <div class="form-grid">
             <div class="field-group">
@@ -247,6 +253,7 @@
               </select>
             </div>
           </div>
+          <div id="kepsek-kelas-subtabs" class="kelas-subtabs-bar" role="group" aria-label="Pilih laporan per kelas"></div>
         </section>
 
         <div id="kepsek-backend-notice" class="inline-alert inline-alert-warn no-print" role="status" hidden>
@@ -254,28 +261,18 @@
           <span id="kepsek-backend-notice-msg"></span>
         </div>
 
-        <!-- A. KARTU STATUS SETORAN HARI INI -->
-        <section class="surface-card stack-gap no-print">
+        <!-- A. RINGKASAN UMUM HARI INI (2x2 di Mobile) -->
+        <section id="kepsek-overview-section" class="surface-card stack-gap no-print">
           <div class="card-spotlight-layer" aria-hidden="true"></div>
           <div class="section-toolbar" style="margin-bottom:0;">
             <div>
-              <h3 class="heading-md">Status Setoran Absensi Guru</h3>
-              <p class="text-muted" style="margin:4px 0 0;font-size:0.8125rem;">Pantau kelas mana saja yang sudah dan belum menyetor laporan absensi pada tanggal terpilih.</p>
+              <h3 class="heading-md">Ringkasan Umum Kehadiran</h3>
+              <p class="text-muted" style="margin:4px 0 0;font-size:0.8125rem;">Rekap agregat kehadiran seluruh santri sesuai filter tanggal &amp; kelas aktif.</p>
             </div>
-            <span id="kepsek-setoran-summary" class="status-badge status-izin">-</span>
-          </div>
-          <div id="kepsek-setoran-grid" class="setoran-status-grid"></div>
-        </section>
-
-        <!-- B. PANEL REKAP ABSENSI HARIAN & SANTRI TIDAK HADIR -->
-        <section class="surface-card stack-gap no-print">
-          <div class="card-spotlight-layer" aria-hidden="true"></div>
-          <div class="section-toolbar" style="margin-bottom:0;">
-            <div>
-              <h3 class="heading-md">Rekap Absensi Harian</h3>
-              <p class="text-muted" style="margin:4px 0 0;font-size:0.8125rem;">Ringkasan jumlah kehadiran serta daftar santri yang membutuhkan tindak lanjut.</p>
+            <div class="toolbar-actions">
+              <span id="kepsek-setoran-summary" class="status-badge status-izin">-</span>
+              <span id="kepsek-absensi-penyetor" class="status-badge status-izin">Menunggu data...</span>
             </div>
-            <span id="kepsek-absensi-penyetor" class="status-badge status-izin">Menunggu data...</span>
           </div>
 
           <div class="stats-grid" style="margin-bottom:0;" aria-label="Ringkasan absensi harian">
@@ -323,25 +320,25 @@
               <div id="stat-alpa-foot" class="stat-foot">Tanpa keterangan</div>
             </article>
           </div>
-
-          <div>
-            <h4 class="heading-md" style="font-size:0.98rem;margin-bottom:10px;">Santri Tidak Hadir Hari Ini (Sakit, Izin, Alpa)</h4>
-            <div id="kepsek-tidak-hadir-list"></div>
-          </div>
         </section>
 
-        <!-- C. PANEL REKAP NILAI DISETOR GURU -->
-        <section id="kepsek-nilai-print-area" class="surface-card stack-gap">
+        <!-- B. LAPORAN TERPISAH PER KELAS (Absensi, Santri Tidak Hadir, Nilai, & Pengampu) -->
+        <section id="kepsek-per-kelas-section" class="surface-card stack-gap no-print">
           <div class="card-spotlight-layer" aria-hidden="true"></div>
-
-          <div class="no-print">
-            <h3 class="heading-md">Rekap Nilai Disetor Guru</h3>
-            <p class="text-muted" style="margin:4px 0 0;font-size:0.8125rem;">Ringkasan nilai raport per kelas beserta jumlah santri tuntas dan santri yang perlu bimbingan.</p>
+          <div class="section-toolbar" style="margin-bottom:0;">
+            <div>
+              <h3 class="heading-md">Laporan Terpisah Per Kelas</h3>
+              <p class="text-muted" style="margin:4px 0 0;font-size:0.8125rem;">Setiap kartu menampilkan kelas, guru pengampu, status setoran harian, absensi, santri tidak hadir, dan rekap nilai.</p>
+            </div>
           </div>
+          <div id="kepsek-per-kelas-container" class="stack-gap"></div>
+        </section>
 
-          <div id="kepsek-rekap-nilai-grid" class="nilai-rekap-grid no-print"></div>
+        <!-- Area Cetak PDF Terpisah Per Halaman Kelas -->
+        <section id="kepsek-laporan-print-area" class="print-only-block"></section>
 
-          <!-- Area Cetak PDF Rekap Nilai Kepala Madrasah -->
+        <!-- Area Cetak PDF Modal Detail Nilai Kepala Madrasah -->
+        <section id="kepsek-nilai-print-area" class="surface-card stack-gap print-only-block">
           <div class="print-only-block">
             <div class="print-kop">
               <div>
@@ -379,6 +376,22 @@
               </div>
             </div>
           </div>
+        </section>
+
+        <!-- C. KELOLA KELAS RESMI & PEMETAAN GURU PENGAMPU -->
+        <section id="admin-kelas-management-section" class="surface-card stack-gap no-print">
+          <div class="card-spotlight-layer" aria-hidden="true"></div>
+          <div class="section-toolbar" style="margin-bottom:0;">
+            <div>
+              <h3 class="heading-md">Kelola Kelas &amp; Pemetaan Guru</h3>
+              <p class="text-muted" style="margin:4px 0 0;font-size:0.8125rem;">Kelola daftar kelas resmi dan guru pengampu langsung dari portal tanpa membuka Google Sheets.</p>
+            </div>
+            <button id="btn-add-kelas" type="button" class="btn btn-primary btn-sm">
+              <i data-lucide="folder-plus" aria-hidden="true"></i>
+              <span>Tambah Kelas</span>
+            </button>
+          </div>
+          <div id="admin-kelas-grid" class="kelas-manage-grid"></div>
         </section>
 
         <!-- D. RIWAYAT ABSENSI LENGKAP & KELOLA AKUN GURU -->
@@ -423,7 +436,7 @@
             <div class="section-toolbar" style="margin-bottom:0;">
               <div>
                 <h3 class="heading-md">Kelola Akun Guru &amp; Admin</h3>
-                <p class="text-muted" style="margin:4px 0 0;font-size:0.8125rem;">Atur akun masuk untuk Kepala Madrasah dan Guru.</p>
+                <p class="text-muted" style="margin:4px 0 0;font-size:0.8125rem;">Atur akun masuk dan kelas ampu untuk Kepala Madrasah dan Guru.</p>
               </div>
               <button id="btn-add-user" type="button" class="btn btn-primary btn-sm">
                 <i data-lucide="user-plus" aria-hidden="true"></i>
@@ -437,6 +450,7 @@
                   <tr>
                     <th>Nama &amp; Username</th>
                     <th>Peran</th>
+                    <th>Kelas Ampu</th>
                     <th>Status</th>
                     <th style="width:96px;">Aksi</th>
                   </tr>
@@ -478,13 +492,22 @@
               <label class="field-label" for="santri-kelas-filter">Filter Kelas</label>
               <select id="santri-kelas-filter" class="select-control">
                 <option value="">Semua Kelas</option>
-                <option value="Kelas 7A">Kelas 7A</option>
-                <option value="Kelas 7B">Kelas 7B</option>
-                <option value="Kelas 8A">Kelas 8A</option>
-                <option value="Kelas 8B">Kelas 8B</option>
-                <option value="Kelas 9A">Kelas 9A</option>
-                <option value="Kelas 9B">Kelas 9B</option>
               </select>
+            </div>
+          </div>
+
+          <div id="santri-bulk-bar" class="santri-bulk-bar" hidden>
+            <div style="display:flex;align-items:center;gap:8px;">
+              <i data-lucide="check-square" aria-hidden="true" style="width:18px;height:18px;"></i>
+              <strong id="santri-bulk-count">0 santri dipilih</strong>
+            </div>
+            <div class="toolbar-actions" style="flex:1 1 auto;justify-content:flex-end;">
+              <select id="santri-bulk-target-kelas" class="select-control" aria-label="Pilih kelas tujuan pemindahan" style="max-width:220px;"></select>
+              <button id="btn-bulk-move-kelas" type="button" class="btn btn-primary btn-sm">
+                <i data-lucide="arrow-right-left" aria-hidden="true"></i>
+                <span>Pindahkan Kelas</span>
+              </button>
+              <button id="btn-bulk-clear-select" type="button" class="btn btn-secondary btn-sm">Batal</button>
             </div>
           </div>
 
@@ -492,13 +515,14 @@
             <table class="data-table mobile-cards-table mobile-cards-santri">
               <thead>
                 <tr>
+                  <th style="width:42px;"><input id="santri-select-all" type="checkbox" aria-label="Pilih semua santri" /></th>
                   <th>ID Santri</th>
                   <th>Nama Lengkap</th>
                   <th>Kelas</th>
                   <th>No. WA Orang Tua</th>
                   <th>Token QR</th>
                   <th>Status</th>
-                  <th style="width:190px;">Aksi</th>
+                  <th style="width:230px;">Aksi</th>
                 </tr>
               </thead>
               <tbody id="admin-santri-tbody"></tbody>
@@ -512,17 +536,6 @@
         <section class="surface-card stack-gap">
           <div class="card-spotlight-layer" aria-hidden="true"></div>
 
-          <!-- Kop Cetak PDF Khusus Rekap -->
-          <div class="print-only-block">
-            <div class="print-kop">
-              <div>
-                <h2 class="print-kop-title">MDTA ASY SYIFA AL MUSRI'</h2>
-                <p class="print-kop-sub">Rekapitulasi Laporan Kehadiran Santri Madrasah Diniyah Takmiliyah Awaliyah (Bojongsoang, Kab. Bandung)</p>
-                <p id="rekap-print-meta" class="print-kop-sub"></p>
-              </div>
-            </div>
-          </div>
-
           <div class="section-toolbar no-print" style="margin-bottom:0;">
             <div>
               <h2 class="heading-lg">Rekap Laporan Presensi Bulanan</h2>
@@ -535,7 +548,7 @@
               </button>
               <button id="btn-print-rekap-pdf" type="button" class="btn btn-secondary">
                 <i data-lucide="printer" aria-hidden="true"></i>
-                <span>Cetak PDF</span>
+                <span>Cetak PDF (Per Halaman)</span>
               </button>
               <button id="btn-open-upload-pdf" type="button" class="btn btn-accent">
                 <i data-lucide="upload-cloud" aria-hidden="true"></i>
@@ -570,12 +583,6 @@
               <label class="field-label" for="rekap-kelas-filter">Kelas (Opsional)</label>
               <select id="rekap-kelas-filter" class="select-control">
                 <option value="">Semua Kelas</option>
-                <option value="Kelas 7A">Kelas 7A</option>
-                <option value="Kelas 7B">Kelas 7B</option>
-                <option value="Kelas 8A">Kelas 8A</option>
-                <option value="Kelas 8B">Kelas 8B</option>
-                <option value="Kelas 9A">Kelas 9A</option>
-                <option value="Kelas 9B">Kelas 9B</option>
               </select>
             </div>
             <div class="field-group" style="justify-content:flex-end;">
@@ -586,40 +593,11 @@
             </div>
           </div>
 
-          <div class="table-scroll mobile-cards-wrap">
-            <table class="data-table mobile-cards-table mobile-cards-rekap">
-              <thead>
-                <tr>
-                  <th style="width:48px;">No</th>
-                  <th>ID Santri</th>
-                  <th>Nama Santri</th>
-                  <th>Kelas</th>
-                  <th>Hadir</th>
-                  <th>Sakit</th>
-                  <th>Izin</th>
-                  <th>Alpa</th>
-                  <th>Kehadiran</th>
-                </tr>
-              </thead>
-              <tbody id="admin-rekap-tbody"></tbody>
-            </table>
-          </div>
+          <div id="rekap-kelas-subtabs" class="kelas-subtabs-bar no-print" role="group" aria-label="Filter sub-tab kelas rekap bulanan"></div>
 
-          <div class="print-only-block">
-            <div class="print-signatures">
-              <div class="print-sign-box">
-                <div>Mengetahui,</div>
-                <div>Kepala Madrasah MDTA</div>
-                <div class="print-sign-space"></div>
-                <div><strong>( ____________________ )</strong></div>
-              </div>
-              <div class="print-sign-box">
-                <div>Tata Usaha / Admin MDTA</div>
-                <div class="print-sign-space"></div>
-                <div><strong>( ____________________ )</strong></div>
-              </div>
-            </div>
-          </div>
+          <div id="admin-rekap-grouped-container" class="stack-gap no-print"></div>
+
+          <div id="rekap-print-pages" class="print-only-block"></div>
         </section>
       </div>
 
@@ -649,10 +627,21 @@
             <span id="guru-piket-name">Nama Guru</span>
           </h1>
           <p id="guru-piket-date" class="text-muted" style="margin:4px 0 0;font-size:0.875rem;">-</p>
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:6px;">
+            <span id="guru-kelas-ampu-badge" class="status-badge status-izin">
+              <i data-lucide="book-open" aria-hidden="true" style="width:14px;height:14px;"></i>
+              <span id="guru-kelas-ampu-text">Pengampu: -</span>
+            </span>
+          </div>
         </div>
         <div class="guru-banner-meta">
           <span id="guru-piket-count" class="status-badge status-hadir mono-num">0 presensi tercatat hari ini</span>
         </div>
+      </div>
+
+      <div id="guru-unmapped-alert" class="inline-alert inline-alert-warn no-print" role="alert" hidden>
+        <i data-lucide="alert-triangle" aria-hidden="true" style="width:18px;height:18px;flex-shrink:0;margin-top:2px;"></i>
+        <span id="guru-unmapped-alert-msg"></span>
       </div>
 
       <div class="portal-tablist-wrap no-print">
@@ -795,7 +784,7 @@
               <div class="form-grid-2">
                 <div class="field-group">
                   <label class="field-label" for="manual-santri-kelas">Kelas</label>
-                  <input id="manual-santri-kelas" type="text" class="input-control" placeholder="Otomatis terisi atau ketik kelas" />
+                  <select id="manual-santri-kelas" class="select-control"></select>
                 </div>
                 <div class="field-group">
                   <label class="field-label" for="manual-presensi-tanggal">Tanggal</label>
@@ -871,10 +860,8 @@
 
           <div class="form-grid">
             <div class="field-group">
-              <label class="field-label" for="guru-laporan-kelas">Cakupan Kelas yang Dilaporkan</label>
-              <select id="guru-laporan-kelas" class="select-control">
-                <option value="Semua Kelas">Semua Kelas</option>
-              </select>
+              <label class="field-label" for="guru-laporan-kelas">Kelas yang Dilaporkan</label>
+              <select id="guru-laporan-kelas" class="select-control"></select>
             </div>
             <div class="field-group">
               <label class="field-label" for="guru-laporan-catatan">Catatan untuk Kepala Madrasah (Opsional)</label>
@@ -1040,6 +1027,12 @@
             </select>
           </div>
         </div>
+        <div id="user-kelas-ampu-group" class="field-group">
+          <span class="field-label">Kelas yang Diampu</span>
+          <div id="user-kelas-checkboxes" class="kelas-checkbox-grid"></div>
+          <span id="user-kelas-empty-hint" class="text-muted" style="font-size:0.78rem;">Centang satu atau lebih kelas yang diampu guru ini. Data guru akan terisolasi hanya untuk kelas terpilih.</span>
+        </div>
+        <p id="user-kelas-admin-note" class="text-muted" style="margin:0;font-size:0.8125rem;" hidden>Akun Kepala Madrasah / Admin memiliki akses ke seluruh kelas.</p>
         <div class="modal-footer" style="padding:12px 0 0;border-top:none;">
           <button id="btn-cancel-user-modal" type="button" class="btn btn-secondary">Batal</button>
           <button id="btn-save-user" type="submit" class="btn btn-primary">
@@ -1074,15 +1067,7 @@
         <div class="form-grid-2">
           <div class="field-group">
             <label class="field-label" for="santri-kelas">Kelas</label>
-            <input id="santri-kelas" list="modal-santri-kelas-list" type="text" class="input-control" placeholder="Contoh: Kelas 7A" />
-            <datalist id="modal-santri-kelas-list">
-              <option value="Kelas 7A"></option>
-              <option value="Kelas 7B"></option>
-              <option value="Kelas 8A"></option>
-              <option value="Kelas 8B"></option>
-              <option value="Kelas 9A"></option>
-              <option value="Kelas 9B"></option>
-            </datalist>
+            <select id="santri-kelas" class="select-control" required></select>
           </div>
           <div class="field-group">
             <label class="field-label" for="santri-hp">No. WhatsApp Orang Tua</label>
@@ -1112,6 +1097,116 @@
           <button id="btn-save-santri" type="submit" class="btn btn-accent">
             <i data-lucide="save" aria-hidden="true"></i>
             <span>Simpan Data Santri</span>
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- ===================================================================
+       MODAL TAMBAH / EDIT KELAS RESMI
+       =================================================================== -->
+  <div id="modal-kelas" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="kelas-modal-title" hidden>
+    <div class="modal-panel modal-panel-sm">
+      <div class="modal-header">
+        <div>
+          <span class="eyebrow-label">Master Kelas Madrasah</span>
+          <h2 id="kelas-modal-title" class="heading-md">Tambah Kelas Resmi</h2>
+        </div>
+        <button id="btn-close-kelas-modal" type="button" class="btn btn-secondary btn-icon" aria-label="Tutup modal kelas">
+          <i data-lucide="x" aria-hidden="true"></i>
+        </button>
+      </div>
+      <form id="form-kelas" class="modal-body">
+        <input id="kelas-id" type="hidden" />
+        <div class="field-group">
+          <label class="field-label" for="kelas-nama">Nama Kelas Resmi</label>
+          <input id="kelas-nama" type="text" class="input-control" placeholder="Contoh: Kelas 7A" required />
+        </div>
+        <div class="form-grid-2">
+          <div class="field-group">
+            <label class="field-label" for="kelas-tingkat">Tingkat / Jenjang</label>
+            <input id="kelas-tingkat" type="text" class="input-control" placeholder="Contoh: Kelas 7 / Ula" />
+          </div>
+          <div class="field-group">
+            <label class="field-label" for="kelas-status">Status</label>
+            <select id="kelas-status" class="select-control">
+              <option value="aktif">Aktif</option>
+              <option value="nonaktif">Nonaktif</option>
+            </select>
+          </div>
+        </div>
+        <div class="field-group">
+          <label class="field-label" for="kelas-keterangan">Keterangan (Opsional)</label>
+          <input id="kelas-keterangan" type="text" class="input-control" placeholder="Contoh: Rombel Pagi" />
+        </div>
+        <p id="kelas-edit-hint" class="text-muted" style="margin:0;font-size:0.78rem;" hidden>Jika nama kelas diubah, seluruh data santri &amp; pemetaan guru untuk kelas ini otomatis ikut diperbarui.</p>
+        <div class="modal-footer" style="padding:12px 0 0;border-top:none;">
+          <button id="btn-cancel-kelas-modal" type="button" class="btn btn-secondary">Batal</button>
+          <button id="btn-save-kelas" type="submit" class="btn btn-primary">
+            <i data-lucide="save" aria-hidden="true"></i>
+            <span>Simpan Kelas</span>
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- ===================================================================
+       MODAL PEMETAAN GURU PENGAMPU PER KELAS
+       =================================================================== -->
+  <div id="modal-kelas-guru" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="kelas-guru-modal-title" hidden>
+    <div class="modal-panel modal-panel-sm">
+      <div class="modal-header">
+        <div>
+          <span class="eyebrow-label">Pemetaan Guru Pengampu</span>
+          <h2 id="kelas-guru-modal-title" class="heading-md">Atur Guru Pengampu</h2>
+          <p id="kelas-guru-subtitle" class="text-muted" style="margin:4px 0 0;font-size:0.8125rem;"></p>
+        </div>
+        <button id="btn-close-kelas-guru-modal" type="button" class="btn btn-secondary btn-icon" aria-label="Tutup modal pemetaan guru">
+          <i data-lucide="x" aria-hidden="true"></i>
+        </button>
+      </div>
+      <form id="form-kelas-guru" class="modal-body">
+        <input id="kelas-guru-target-nama" type="hidden" />
+        <div id="kelas-guru-checkboxes" class="kelas-checkbox-grid"></div>
+        <div class="modal-footer" style="padding:12px 0 0;border-top:none;">
+          <button id="btn-cancel-kelas-guru-modal" type="button" class="btn btn-secondary">Batal</button>
+          <button id="btn-save-kelas-guru" type="submit" class="btn btn-primary">
+            <i data-lucide="save" aria-hidden="true"></i>
+            <span>Simpan Pemetaan</span>
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- ===================================================================
+       MODAL PINDAH KELAS SANTRI (SATUAN)
+       =================================================================== -->
+  <div id="modal-move-kelas" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="move-kelas-modal-title" hidden>
+    <div class="modal-panel modal-panel-sm">
+      <div class="modal-header">
+        <div>
+          <span class="eyebrow-label">Pemindahan Kelas Santri</span>
+          <h2 id="move-kelas-modal-title" class="heading-md">Pindahkan Santri ke Kelas</h2>
+        </div>
+        <button id="btn-close-move-kelas-modal" type="button" class="btn btn-secondary btn-icon" aria-label="Tutup modal pindah kelas">
+          <i data-lucide="x" aria-hidden="true"></i>
+        </button>
+      </div>
+      <form id="form-move-kelas" class="modal-body">
+        <input id="move-santri-id" type="hidden" />
+        <p id="move-santri-label" style="margin:0;font-weight:600;font-size:0.9375rem;"></p>
+        <div class="field-group">
+          <label class="field-label" for="move-target-kelas">Pilih Kelas Tujuan</label>
+          <select id="move-target-kelas" class="select-control" required></select>
+        </div>
+        <div class="modal-footer" style="padding:12px 0 0;border-top:none;">
+          <button id="btn-cancel-move-kelas-modal" type="button" class="btn btn-secondary">Batal</button>
+          <button id="btn-save-move-kelas" type="submit" class="btn btn-primary">
+            <i data-lucide="arrow-right-left" aria-hidden="true"></i>
+            <span>Pindahkan</span>
           </button>
         </div>
       </form>

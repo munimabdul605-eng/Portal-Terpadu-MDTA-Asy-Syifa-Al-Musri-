@@ -477,6 +477,35 @@
     return json;
   }
 
+  const GURU_SCOPED_GET_ACTIONS = new Set([
+    'getBootstrapData',
+    'getSantri',
+    'getPresensi',
+    'getNilaiUAS',
+    'getNilaiRaport',
+    'getRekapLaporan',
+    'getLogSetoran',
+    'getKelas',
+  ]);
+  const GURU_SCOPED_POST_ACTIONS = new Set([
+    'savePresensi',
+    'saveNilaiUAS',
+    'saveNilaiRaport',
+    'submitLaporanGuru',
+  ]);
+
+  function getActiveSessionContext() {
+    try {
+      if (!root.sessionStorage) return null;
+      const raw = root.sessionStorage.getItem(CONFIG.SESSION_KEY);
+      if (!raw) return null;
+      const parsed = JSON.parse(raw);
+      return parsed && typeof parsed === 'object' ? parsed : null;
+    } catch (err) {
+      return null;
+    }
+  }
+
   async function requestGet(action, params) {
     const url = new URL(CONFIG.GAS_WEB_APP_URL);
     url.searchParams.set('action', action);
@@ -486,6 +515,15 @@
           url.searchParams.set(k, String(params[k]));
         }
       });
+    }
+
+    if (GURU_SCOPED_GET_ACTIONS.has(action)) {
+      const sess = getActiveSessionContext();
+      if (sess && String(sess.role || '').trim().toLowerCase() === 'guru') {
+        if (!url.searchParams.has('role')) url.searchParams.set('role', 'guru');
+        if (!url.searchParams.has('id_user') && sess.id_user) url.searchParams.set('id_user', String(sess.id_user));
+        if (!url.searchParams.has('username') && sess.username) url.searchParams.set('username', String(sess.username));
+      }
     }
 
     let response;
@@ -502,6 +540,23 @@
   }
 
   async function requestPost(action, payload) {
+    const bodyObj = Object.assign({ action }, payload || {});
+    if (GURU_SCOPED_POST_ACTIONS.has(action)) {
+      const sess = getActiveSessionContext();
+      if (sess && String(sess.role || '').trim().toLowerCase() === 'guru') {
+        if (!bodyObj.role) bodyObj.role = 'guru';
+        if (!bodyObj.id_user && sess.id_user) bodyObj.id_user = String(sess.id_user);
+        if (!bodyObj.username && sess.username) bodyObj.username = String(sess.username);
+        if (bodyObj.data && typeof bodyObj.data === 'object' && !Array.isArray(bodyObj.data)) {
+          bodyObj.data = Object.assign({}, bodyObj.data, {
+            role: bodyObj.data.role || 'guru',
+            id_user: bodyObj.data.id_user || String(sess.id_user || ''),
+            username: bodyObj.data.username || String(sess.username || ''),
+          });
+        }
+      }
+    }
+
     let response;
     try {
       response = await fetch(CONFIG.GAS_WEB_APP_URL, {
@@ -510,7 +565,7 @@
         headers: {
           'Content-Type': 'text/plain;charset=utf-8',
         },
-        body: JSON.stringify(Object.assign({ action }, payload || {})),
+        body: JSON.stringify(bodyObj),
       });
     } catch (err) {
       throw new Error(`Gagal mengirim data ke server (${action}): periksa koneksi internet atau akses Web App.`);
@@ -568,9 +623,80 @@
     };
   }
 
+  function parseKelasAmpu(raw) {
+    const list = Array.isArray(raw) ? raw : String(raw || '').split(/[;,]/);
+    const seen = new Set();
+    const out = [];
+    list.forEach((item) => {
+      const clean = String(item || '').trim();
+      if (!clean) return;
+      const key = clean.toLowerCase();
+      if (!seen.has(key)) {
+        seen.add(key);
+        out.push(clean);
+      }
+    });
+    return out;
+  }
+
+  function formatKelasAmpu(raw) {
+    return parseKelasAmpu(raw).join(', ');
+  }
+
+  function isKelasAllowed(kelasVal, allowedList) {
+    const target = String(kelasVal || '').trim().toLowerCase();
+    if (!target || !Array.isArray(allowedList) || allowedList.length === 0) return false;
+    return allowedList.some((k) => String(k || '').trim().toLowerCase() === target);
+  }
+
+  function filterByGuruScope(list, session, classField) {
+    const arr = Array.isArray(list) ? list : [];
+    const sess = session || getActiveSessionContext();
+    if (!sess || String(sess.role || '').trim().toLowerCase() !== 'guru') {
+      return arr;
+    }
+    const allowed = parseKelasAmpu(sess.kelas_ampu);
+    if (allowed.length === 0) return [];
+    const field = classField || 'kelas';
+    return arr.filter((item) => isKelasAllowed(item && item[field], allowed));
+  }
+
+  function normalizeKelas(raw) {
+    const src = raw || {};
+    return {
+      id_kelas: String(pick(src, ['id_kelas', 'id'], '')),
+      nama_kelas: String(pick(src, ['nama_kelas', 'kelas', 'nama'], '')).trim(),
+      tingkat: String(pick(src, ['tingkat', 'level'], '')).trim(),
+      keterangan: String(pick(src, ['keterangan', 'catatan'], '')).trim(),
+      status: String(pick(src, ['status'], 'aktif')).trim().toLowerCase(),
+      created_at: formatSheetDate(pick(src, ['created_at'], '')),
+    };
+  }
+
+  function getOfficialKelasNames(includeInactive) {
+    const st = root.MDTA_STATE || {};
+    if (Array.isArray(st.kelas) && st.kelas.length > 0) {
+      return st.kelas
+        .map(normalizeKelas)
+        .filter((k) => k.nama_kelas && (includeInactive || k.status !== 'nonaktif'))
+        .map((k) => k.nama_kelas)
+        .sort((a, b) => a.localeCompare(b));
+    }
+    const fallbackSet = new Set();
+    (st.santri || []).forEach((s) => {
+      const k = String((s && s.kelas) || '').trim();
+      if (k) fallbackSet.add(k);
+    });
+    if (fallbackSet.size === 0) {
+      (CONFIG.KELAS_OPTIONS || []).forEach((k) => fallbackSet.add(k));
+    }
+    return Array.from(fallbackSet).sort((a, b) => a.localeCompare(b));
+  }
+
   function normalizeUser(raw) {
     const id = String(pick(raw, ['id_user', 'id', 'username'], ''));
     const nama = String(pick(raw, ['nama_lengkap', 'nama', 'name'], ''));
+    const kelasAmpu = parseKelasAmpu(pick(raw, ['kelas_ampu'], ''));
     return {
       id_user: id,
       id: id,
@@ -579,6 +705,8 @@
       nama: nama,
       role: String(pick(raw, ['role', 'peran', 'level'], 'guru')).toLowerCase(),
       status_aktif: String(pick(raw, ['status_aktif', 'status'], 'aktif')).toLowerCase(),
+      kelas_ampu: kelasAmpu,
+      kelas_ampu_text: kelasAmpu.join(', '),
       created_at: String(pick(raw, ['created_at'], '')),
       raw: raw,
     };
@@ -788,7 +916,270 @@
     bindSpotlights,
   };
 
+  // =========================================================================
+  // STALE-WHILE-REVALIDATE (SWR) & CACHE LOCALSTORAGE + BOOTSTRAP 1-REQUEST
+  // =========================================================================
+  const CACHE_KEYS = [
+    'kelas',
+    'santri',
+    'users',
+    'dashboard',
+    'rekapKepsek',
+    'rekap',
+    'nilaiUAS',
+    'nilaiRaportSaved',
+    'raportRows',
+    'dokumenArsip',
+    'logSetoran',
+    'presensiToday',
+  ];
+  const bootstrapInflight = new Map();
+
+  function cacheKeyFull(key) {
+    return (CONFIG.CACHE_PREFIX || 'mdta_swr_v1_') + key;
+  }
+
+  function readCache(key) {
+    try {
+      if (!root.localStorage) return null;
+      const raw = root.localStorage.getItem(cacheKeyFull(key));
+      if (!raw) return null;
+      const parsed = JSON.parse(raw);
+      return parsed && typeof parsed === 'object' ? parsed : null;
+    } catch (err) {
+      return null;
+    }
+  }
+
+  function writeCache(key, data) {
+    try {
+      if (!root.localStorage) return;
+      root.localStorage.setItem(cacheKeyFull(key), JSON.stringify({ data, ts: Date.now() }));
+    } catch (err) {
+      // Abaikan jika quota localStorage penuh atau private mode
+    }
+  }
+
+  function removeCache(key) {
+    try {
+      if (!root.localStorage) return;
+      root.localStorage.removeItem(cacheKeyFull(key));
+    } catch (err) {
+      // Abaikan
+    }
+  }
+
+  function clearAllCache() {
+    const prefix = CONFIG.CACHE_PREFIX || 'mdta_swr_v1_';
+    try {
+      if (root.localStorage) {
+        const toRemove = [];
+        for (let i = 0; i < root.localStorage.length; i++) {
+          const k = root.localStorage.key(i);
+          if (k && k.startsWith(prefix)) toRemove.push(k);
+        }
+        toRemove.forEach((k) => root.localStorage.removeItem(k));
+      }
+    } catch (err) {
+      // Abaikan
+    }
+    const st = root.MDTA_STATE;
+    if (st) {
+      st.kelas = [];
+      st.santri = [];
+      st.users = [];
+      st.dashboard = null;
+      st.rekapKepsek = null;
+      st.rekapKepsekKey = '';
+      st.rekap = [];
+      st.lastRekapPeriod = null;
+      st.nilaiUAS = [];
+      st.nilaiRaportSaved = [];
+      st.raportRows = [];
+      st.dokumenArsip = [];
+      st.logSetoran = [];
+      st.presensiToday = [];
+      st.lastSyncAt = 0;
+      if (st.loaded) {
+        Object.keys(st.loaded).forEach((k) => {
+          st.loaded[k] = false;
+        });
+      }
+    }
+  }
+
+  function hasChanged(prevVal, nextVal) {
+    try {
+      return JSON.stringify(prevVal) !== JSON.stringify(nextVal);
+    } catch (err) {
+      return true;
+    }
+  }
+
+  function hydrateState() {
+    const st = root.MDTA_STATE;
+    if (!st) return;
+
+    if ((!st.kelas || st.kelas.length === 0)) {
+      const c = readCache('kelas');
+      if (c && Array.isArray(c.data)) st.kelas = c.data;
+    }
+    if ((!st.santri || st.santri.length === 0)) {
+      const c = readCache('santri');
+      if (c && Array.isArray(c.data)) st.santri = c.data;
+    }
+    if ((!st.users || st.users.length === 0)) {
+      const c = readCache('users');
+      if (c && Array.isArray(c.data)) st.users = c.data;
+    }
+    if (!st.dashboard) {
+      const c = readCache('dashboard');
+      if (c && c.data) st.dashboard = c.data;
+    }
+    if (!st.rekapKepsek) {
+      const c = readCache('rekapKepsek');
+      if (c && c.data) {
+        st.rekapKepsek = c.data.payload || c.data;
+        st.rekapKepsekKey = c.data.key || '';
+      }
+    }
+    if ((!st.nilaiRaportSaved || st.nilaiRaportSaved.length === 0)) {
+      const c = readCache('nilaiRaportSaved');
+      if (c && Array.isArray(c.data)) st.nilaiRaportSaved = c.data;
+    }
+    if ((!st.dokumenArsip || st.dokumenArsip.length === 0)) {
+      const c = readCache('dokumenArsip');
+      if (c && Array.isArray(c.data)) st.dokumenArsip = c.data;
+    }
+    if ((!st.logSetoran || st.logSetoran.length === 0)) {
+      const c = readCache('logSetoran');
+      if (c && Array.isArray(c.data)) st.logSetoran = c.data;
+    }
+    if ((!st.nilaiUAS || st.nilaiUAS.length === 0)) {
+      const c = readCache('nilaiUAS');
+      if (c && Array.isArray(c.data)) st.nilaiUAS = c.data;
+    }
+    if ((!st.presensiToday || st.presensiToday.length === 0)) {
+      const c = readCache('presensiToday');
+      if (c && Array.isArray(c.data)) st.presensiToday = c.data;
+    }
+    if ((!st.raportRows || st.raportRows.length === 0)) {
+      const c = readCache('raportRows');
+      if (c && Array.isArray(c.data)) st.raportRows = c.data;
+    }
+  }
+
+  async function fetchBootstrapSmart(params) {
+    const p = params || {};
+    const sess = getActiveSessionContext();
+    const role = String(p.role || (sess && sess.role) || 'admin').trim().toLowerCase();
+    const tanggal = p.tanggal || todayISO();
+    const kelas = p.kelas || '';
+    const inflightKey = `${role}|${tanggal}|${kelas}|${(sess && (sess.id_user || sess.username)) || ''}`;
+
+    if (bootstrapInflight.has(inflightKey)) {
+      return bootstrapInflight.get(inflightKey);
+    }
+
+    const promise = (async () => {
+      try {
+        const res = await root.MDTA_API.getBootstrapData({ role, tanggal, kelas });
+        return res.data || res;
+      } catch (err) {
+        const msg = String((err && err.message) || '');
+        if (!/tidak dikenali/i.test(msg)) {
+          throw err;
+        }
+        // Fallback kompatibel bila Apps Script masih versi lama
+        const synthesizeKelas = (santriArr) => {
+          const seen = new Set();
+          (santriArr || []).forEach((s) => {
+            const k = String((s && s.kelas) || '').trim();
+            if (k) seen.add(k);
+          });
+          return Array.from(seen).sort().map((namaKelas, i) => ({
+            id_kelas: `KLS-${String(i + 1).padStart(3, '0')}`,
+            nama_kelas: namaKelas,
+            tingkat: '',
+            keterangan: 'Sinkron dari santri',
+            status: 'aktif',
+          }));
+        };
+
+        if (role === 'guru') {
+          const [sRes, pRes, rptRes, logRes, kRes] = await Promise.allSettled([
+            root.MDTA_API.getSantri(),
+            root.MDTA_API.getPresensi(),
+            root.MDTA_API.getNilaiRaport(),
+            root.MDTA_API.getLogSetoran({}),
+            root.MDTA_API.getKelas(),
+          ]);
+          const santriRaw = sRes.status === 'fulfilled' ? extractArray(sRes.value, ['santri']) : [];
+          const kelasRaw = kRes.status === 'fulfilled' ? extractArray(kRes.value, ['kelas']) : synthesizeKelas(santriRaw);
+          const allPresensi =
+            pRes.status === 'fulfilled' ? extractArray(pRes.value, ['presensi']).map(normalizePresensi) : [];
+          return {
+            dashboard: null,
+            rekap_kepsek: null,
+            kelas: kelasRaw,
+            kelas_ampu: sess ? parseKelasAmpu(sess.kelas_ampu) : [],
+            santri: santriRaw,
+            users: [],
+            nilai_raport: rptRes.status === 'fulfilled' ? extractArray(rptRes.value, ['raport']) : [],
+            dokumen_arsip: [],
+            log_setoran: logRes.status === 'fulfilled' ? extractArray(logRes.value, ['log_setoran']) : [],
+            presensi_hari_ini: allPresensi.filter((r) => !tanggal || r.tanggal === tanggal).reverse(),
+            fetched_at: new Date().toISOString(),
+          };
+        }
+
+        const [rkRes, dRes, sRes, rptRes, docRes, logRes, kRes] = await Promise.allSettled([
+          root.MDTA_API.getRekapKepsek(tanggal, kelas),
+          root.MDTA_API.getDashboard(),
+          root.MDTA_API.getSantri(),
+          root.MDTA_API.getNilaiRaport(),
+          root.MDTA_API.getDokumenArsip(),
+          root.MDTA_API.getLogSetoran({}),
+          root.MDTA_API.getKelas(),
+        ]);
+        const dashData = dRes.status === 'fulfilled' ? dRes.value.data || dRes.value : null;
+        const santriRaw = sRes.status === 'fulfilled' ? extractArray(sRes.value, ['santri']) : [];
+        const kelasRaw = kRes.status === 'fulfilled' ? extractArray(kRes.value, ['kelas']) : synthesizeKelas(santriRaw);
+        return {
+          dashboard: dashData,
+          rekap_kepsek: rkRes.status === 'fulfilled' ? rkRes.value.data || rkRes.value : null,
+          kelas: kelasRaw,
+          kelas_ampu: [],
+          santri: santriRaw,
+          users: dashData && Array.isArray(dashData.daftar_pengguna) ? dashData.daftar_pengguna : [],
+          nilai_raport: rptRes.status === 'fulfilled' ? extractArray(rptRes.value, ['raport']) : [],
+          dokumen_arsip: docRes.status === 'fulfilled' ? extractArray(docRes.value, ['dokumen']) : [],
+          log_setoran: logRes.status === 'fulfilled' ? extractArray(logRes.value, ['log_setoran']) : [],
+          presensi_hari_ini: [],
+          fetched_at: new Date().toISOString(),
+        };
+      }
+    })().finally(() => {
+      bootstrapInflight.delete(inflightKey);
+    });
+
+    bootstrapInflight.set(inflightKey, promise);
+    return promise;
+  }
+
+  root.MDTA_CACHE = {
+    KEYS: CACHE_KEYS,
+    read: readCache,
+    write: writeCache,
+    remove: removeCache,
+    clearAll: clearAllCache,
+    hasChanged,
+    hydrateState,
+    fetchBootstrapSmart,
+  };
+
   root.MDTA_API = {
+    cache: root.MDTA_CACHE,
     requestGet,
     requestPost,
     pick,
@@ -797,6 +1188,12 @@
     isSheetErrorValue,
     computeRaportGrade,
     resolveRaportNilai,
+    parseKelasAmpu,
+    formatKelasAmpu,
+    isKelasAllowed,
+    filterByGuruScope,
+    normalizeKelas,
+    getOfficialKelasNames,
     normalizeSantri,
     normalizeUser,
     normalizePresensi,
@@ -814,6 +1211,16 @@
     getUsers: () => requestGet('getUsers'),
     saveUser: (userData) => requestPost('saveUser', { data: userData }),
     deleteUser: (idUser) => requestPost('deleteUser', { id_user: idUser }),
+
+    getKelas: () => requestGet('getKelas'),
+    saveKelas: (kelasData) => requestPost('saveKelas', { data: kelasData }),
+    deleteKelas: (payload) =>
+      requestPost(
+        'deleteKelas',
+        typeof payload === 'object' && payload !== null ? payload : { id_kelas: payload }
+      ),
+    saveKelasMapping: (mappingData) => requestPost('saveKelasMapping', { data: mappingData }),
+    bulkMoveSantriKelas: (moveData) => requestPost('bulkMoveSantriKelas', { data: moveData }),
 
     getSantri: () => requestGet('getSantri'),
     saveSantri: (santriData) => requestPost('saveSantri', { data: santriData }),
@@ -837,5 +1244,6 @@
     submitLaporanGuru: (reportData) => requestPost('submitLaporanGuru', { data: reportData }),
     getLogSetoran: (params) => requestGet('getLogSetoran', params),
     getRekapKepsek: (tanggal, kelas) => requestGet('getRekapKepsek', { tanggal, kelas }),
+    getBootstrapData: (params) => requestGet('getBootstrapData', params),
   };
 })(window);

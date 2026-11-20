@@ -1800,15 +1800,19 @@ html.light .filter-chip[aria-pressed="true"] {
   /* Data Santri Cards */
   .mobile-cards-santri tbody tr {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-columns: auto minmax(0, 1fr) auto;
     grid-template-areas:
-      "nama status"
-      "kelas kelas"
-      "id wa"
-      "token token"
-      "actions actions";
+      "check nama status"
+      "kelas kelas kelas"
+      "id id wa"
+      "token token token"
+      "actions actions actions";
     gap: 8px 10px;
     align-items: center;
+  }
+  .mobile-cards-santri td.snt-check {
+    grid-area: check;
+    align-self: center;
   }
   .mobile-cards-santri td.snt-nama {
     grid-area: nama;
@@ -1861,7 +1865,7 @@ html.light .filter-chip[aria-pressed="true"] {
   }
   .mobile-cards-santri .table-actions-cell {
     display: grid;
-    grid-template-columns: 1.3fr 1fr 1fr;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 8px;
     width: 100%;
   }
@@ -1976,6 +1980,7 @@ html.light .filter-chip[aria-pressed="true"] {
     grid-template-areas:
       "nama status"
       "role role"
+      "kelas kelas"
       "actions actions";
     gap: 8px 10px;
     align-items: center;
@@ -1989,6 +1994,16 @@ html.light .filter-chip[aria-pressed="true"] {
   }
   .mobile-cards-users td.usr-role {
     grid-area: role;
+  }
+  .mobile-cards-users td.usr-kelas {
+    grid-area: kelas;
+    font-size: 0.82rem;
+    color: var(--text-secondary);
+  }
+  .mobile-cards-users td.usr-kelas::before {
+    content: "Kelas Ampu: ";
+    color: var(--text-muted);
+    font-weight: 500;
   }
   .mobile-cards-users td.usr-actions {
     grid-area: actions;
@@ -2203,6 +2218,25 @@ html.light .filter-chip[aria-pressed="true"] {
   .qr-reader-box:not(:empty) {
     aspect-ratio: 1 / 1;
   }
+
+  /* Pemetaan Kelas & Laporan Terpisah Per Kelas (Mobile) */
+  .kelas-mini-stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .kelas-report-split,
+  .kelas-manage-grid,
+  .kelas-checkbox-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .santri-bulk-bar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .kelas-report-header,
+  .rekap-kelas-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
 }
 
 @media (max-width: 359px) {
@@ -2356,6 +2390,25 @@ html.light .filter-chip[aria-pressed="true"] {
   body.printing-kepsek-nilai .modal-backdrop {
     display: none !important;
   }
+
+  .print-class-page {
+    page-break-after: always;
+    break-after: page;
+  }
+  .print-class-page:last-child {
+    page-break-after: auto;
+    break-after: auto;
+  }
+  body.printing-rekap #admin-panel-rekap .surface-card {
+    border: none !important;
+    padding: 0 !important;
+  }
+  body.printing-kepsek-laporan main > section:not(#view-admin),
+  body.printing-kepsek-laporan #view-admin .tab-panel:not(#admin-panel-dashboard),
+  body.printing-kepsek-laporan #admin-panel-dashboard > :not(#kepsek-laporan-print-area),
+  body.printing-kepsek-laporan .modal-backdrop {
+    display: none !important;
+  }
 }
 
 /* ==========================================================================
@@ -2461,6 +2514,208 @@ html.light .filter-chip[aria-pressed="true"] {
     grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 6px;
   }
+}
+
+/* ==========================================================================
+   PEMETAAN KELAS, SUB-TAB PER KELAS, & BULK MOVE SANTRI
+   ========================================================================== */
+.kelas-subtabs-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.kelas-subtab {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 36px;
+  padding: 6px 13px;
+  border-radius: 999px;
+  border: 1px solid var(--border-strong);
+  background-color: var(--bg-subsurface);
+  color: var(--text-secondary);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 0.16s ease, color 0.16s ease, border-color 0.16s ease;
+}
+
+.kelas-subtab:hover {
+  border-color: var(--border-hover);
+  background-color: var(--bg-subsurface-hover);
+  color: var(--text-primary);
+}
+
+.kelas-subtab[aria-pressed="true"] {
+  background-color: var(--btn-primary-bg);
+  color: var(--btn-primary-text);
+  border-color: var(--btn-primary-bg);
+}
+
+html.light .kelas-subtab[aria-pressed="true"] {
+  background-color: var(--btn-primary-bg);
+  color: #ffffff;
+  border-color: var(--btn-primary-bg);
+}
+
+.subtab-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  display: inline-block;
+  flex-shrink: 0;
+}
+
+.subtab-dot.is-done {
+  background-color: var(--accent-brand);
+}
+
+.subtab-dot.is-pending {
+  background-color: var(--status-sakit-fg);
+}
+
+.kelas-report-block {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 18px;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-strong);
+  background-color: var(--bg-surface);
+}
+
+.kelas-report-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.kelas-mini-stats {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.kelas-mini-stat-item {
+  padding: 10px 12px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-subtle);
+  background-color: var(--bg-subsurface);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.kelas-report-split {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.kelas-manage-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 14px;
+}
+
+.kelas-manage-card {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-strong);
+  background-color: var(--bg-subsurface);
+}
+
+.guru-pill-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.guru-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  background-color: var(--accent-brand-soft);
+  color: var(--accent-brand-ink);
+  border: 1px solid var(--accent-brand-border);
+}
+
+.kelas-checkbox-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 8px;
+}
+
+.kelas-checkbox-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-subtle);
+  background-color: var(--bg-subsurface);
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
+.kelas-checkbox-item:hover {
+  border-color: var(--border-hover);
+  background-color: var(--bg-subsurface-hover);
+}
+
+.santri-bulk-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 12px 14px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--accent-brand-border);
+  background-color: var(--accent-brand-soft);
+}
+
+.santri-row-checkbox {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--accent-brand);
+  cursor: pointer;
+}
+
+.rekap-kelas-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-strong);
+  background-color: var(--bg-surface);
+}
+
+.rekap-kelas-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border-subtle);
 }
 
 /* ==========================================================================

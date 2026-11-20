@@ -16,6 +16,7 @@
 
   let initialized = false;
   let guruSession = null;
+  let lastGuruKey = '';
   let tabController = null;
 
   let qrScannerInstance = null;
@@ -29,6 +30,10 @@
   const sessionPresensiLogs = [];
   let serverTodayPresensi = [];
   let todaySetoranLogs = [];
+
+  function getGuruKelasAmpu() {
+    return API.parseKelasAmpu(guruSession && guruSession.kelas_ampu);
+  }
 
   function statusBadgeClass(status) {
     const s = String(status || '').toLowerCase();
@@ -67,13 +72,39 @@
   }
 
   function updateBanner(session) {
+    const sess = session || guruSession || {};
     const nameEl = document.getElementById('guru-piket-name');
     const dateEl = document.getElementById('guru-piket-date');
     const countEl = document.getElementById('guru-piket-count');
-    if (nameEl) nameEl.textContent = session.nama_lengkap || session.nama || session.username || 'Guru Piket';
+    const ampuBadge = document.getElementById('guru-kelas-ampu-badge');
+    const ampuText = document.getElementById('guru-kelas-ampu-text');
+    const unmappedAlert = document.getElementById('guru-unmapped-alert');
+    const unmappedMsg = document.getElementById('guru-unmapped-alert-msg');
+
+    if (nameEl) nameEl.textContent = sess.nama_lengkap || sess.nama || sess.username || 'Guru Piket';
     if (dateEl) dateEl.textContent = UI.formatDateId();
     const combinedCount = getCombinedTodayPresensi().length;
     if (countEl) countEl.textContent = `${combinedCount} presensi tercatat hari ini`;
+
+    const kelasAmpu = API.parseKelasAmpu(sess.kelas_ampu);
+    if (ampuBadge && ampuText) {
+      if (kelasAmpu.length > 0) {
+        ampuBadge.className = 'status-badge status-izin';
+        ampuText.textContent = `Pengampu: ${kelasAmpu.join(', ')}`;
+      } else {
+        ampuBadge.className = 'status-badge status-sakit';
+        ampuText.textContent = 'Belum dipetakan ke kelas';
+      }
+    }
+    if (unmappedAlert && unmappedMsg) {
+      if (kelasAmpu.length === 0) {
+        unmappedMsg.textContent =
+          'Akun Anda belum dipetakan ke kelas mana pun. Hubungi Kepala Madrasah / Admin untuk menetapkan kelas ampu Anda.';
+        unmappedAlert.hidden = false;
+      } else {
+        unmappedAlert.hidden = true;
+      }
+    }
   }
 
   function getCombinedTodayPresensi() {
@@ -93,34 +124,73 @@
     return merged;
   }
 
+  function populateManualKelasSelect() {
+    const sel = document.getElementById('manual-santri-kelas');
+    if (!sel) return;
+    const prev = sel.value;
+    const kelasAmpu = getGuruKelasAmpu();
+    if (kelasAmpu.length === 0) {
+      sel.innerHTML = '<option value="">Belum ada kelas ampu</option>';
+      sel.disabled = true;
+      return;
+    }
+    sel.disabled = false;
+    sel.innerHTML = kelasAmpu
+      .map((k) => `<option value="${UI.esc(k)}">${UI.esc(k)}</option>`)
+      .join('');
+    if (prev && kelasAmpu.some((k) => k.toLowerCase() === prev.toLowerCase())) {
+      const exact = kelasAmpu.find((k) => k.toLowerCase() === prev.toLowerCase());
+      if (exact) sel.value = exact;
+    } else {
+      sel.value = kelasAmpu[0];
+    }
+  }
+
   function populateLaporanKelasOptions() {
     const sel = document.getElementById('guru-laporan-kelas');
     if (!sel) return;
     const prev = sel.value;
-    const set = new Set();
-    (STATE.santri || []).forEach((s) => {
-      if (s.kelas) set.add(s.kelas);
-    });
-    if (set.size === 0) {
-      CONFIG.KELAS_OPTIONS.slice(0, 6).forEach((k) => set.add(k));
-    }
-    sel.innerHTML =
-      '<option value="Semua Kelas">Semua Kelas</option>' +
-      Array.from(set)
-        .sort()
+    const kelasAmpu = getGuruKelasAmpu();
+
+    if (kelasAmpu.length === 0) {
+      sel.innerHTML = '<option value="">Belum ada kelas ampu</option>';
+      sel.disabled = true;
+    } else {
+      sel.disabled = false;
+      sel.innerHTML = kelasAmpu
         .map((k) => `<option value="${UI.esc(k)}">${UI.esc(k)}</option>`)
         .join('');
-    if (prev && (prev === 'Semua Kelas' || set.has(prev))) {
-      sel.value = prev;
+      if (prev && kelasAmpu.some((k) => k.toLowerCase() === prev.toLowerCase())) {
+        const exact = kelasAmpu.find((k) => k.toLowerCase() === prev.toLowerCase());
+        if (exact) sel.value = exact;
+      } else {
+        sel.value = kelasAmpu[0];
+      }
+    }
+
+    const submitBtnSpan = document.querySelector('#btn-submit-absensi-kepsek span');
+    if (submitBtnSpan) {
+      submitBtnSpan.textContent = sel.value
+        ? `Kirim Laporan Absensi ${sel.value} ke Kepala Madrasah`
+        : 'Kirim Laporan Absensi ke Kepala Madrasah';
     }
   }
 
   function updateAbsensiReportSummaryUI() {
     const kelasSel = document.getElementById('guru-laporan-kelas');
-    const targetKelas = kelasSel ? kelasSel.value : 'Semua Kelas';
-    const list = getCombinedTodayPresensi().filter((item) =>
-      targetKelas === 'Semua Kelas' || !targetKelas ? true : item.kelas === targetKelas
-    );
+    const targetKelas = kelasSel ? kelasSel.value : '';
+    const submitBtnSpan = document.querySelector('#btn-submit-absensi-kepsek span');
+    if (submitBtnSpan) {
+      submitBtnSpan.textContent = targetKelas
+        ? `Kirim Laporan Absensi ${targetKelas} ke Kepala Madrasah`
+        : 'Kirim Laporan Absensi ke Kepala Madrasah';
+    }
+
+    const list = targetKelas
+      ? getCombinedTodayPresensi().filter(
+          (item) => String(item.kelas || '').trim().toLowerCase() === targetKelas.trim().toLowerCase()
+        )
+      : [];
 
     const counts = { Hadir: 0, Sakit: 0, Izin: 0, Alpa: 0 };
     list.forEach((item) => {
@@ -140,11 +210,13 @@
     const badge = document.getElementById('guru-absensi-submit-badge');
     const infoEl = document.getElementById('guru-absensi-submit-info');
     if (badge) {
-      const matched = todaySetoranLogs.find(
-        (log) =>
-          log.kelas === targetKelas ||
-          (targetKelas !== 'Semua Kelas' && log.kelas === 'Semua Kelas')
-      );
+      const matched = targetKelas
+        ? todaySetoranLogs.find(
+            (log) =>
+              String(log.kelas || '').trim().toLowerCase() === targetKelas.trim().toLowerCase() ||
+              String(log.kelas || '').trim().toLowerCase() === 'semua kelas'
+          )
+        : null;
       if (matched) {
         const jam = formatJamWIB(matched.waktu_submit);
         badge.className = 'status-badge status-hadir';
@@ -156,7 +228,9 @@
         badge.className = 'status-badge status-sakit';
         badge.textContent = 'Belum Dikirim';
         if (infoEl) {
-          infoEl.textContent = 'Klik tombol di bawah jika pencatatan absensi hari ini sudah selesai.';
+          infoEl.textContent = targetKelas
+            ? `Klik tombol di bawah jika pencatatan absensi ${targetKelas} hari ini sudah selesai.`
+            : 'Hubungi Admin untuk memetakan kelas ampu Anda terlebih dahulu.';
         }
       }
     }
@@ -178,7 +252,10 @@
             ${UI.renderStateBox({
               type: 'empty',
               title: 'Belum ada presensi dicatat hari ini',
-              message: 'Pindai kartu QR santri atau gunakan form Input Manual di atas.',
+              message:
+                getGuruKelasAmpu().length === 0
+                  ? 'Akun Anda belum dipetakan ke kelas mana pun. Hubungi Admin.'
+                  : 'Pindai kartu QR santri atau gunakan form Input Manual di atas.',
             })}
           </td>
         </tr>
@@ -202,55 +279,157 @@
       .join('');
   }
 
-  async function loadTodayPresensiAndSetoran() {
+  function applyGuruBootstrapData(bundle) {
+    const CACHE = root.MDTA_CACHE;
     const today = UI.todayISO();
-    try {
-      const presRes = await API.getPresensi();
-      const raw = API.extractArray(presRes, ['presensi']);
-      serverTodayPresensi = raw
-        .filter((r) => toISODateWIB(r.tanggal) === today)
-        .map(API.normalizePresensi)
-        .reverse();
-    } catch (err) {
-      serverTodayPresensi = [];
+
+    if (Array.isArray(bundle.kelas_ampu)) {
+      const nextAmpu = API.parseKelasAmpu(bundle.kelas_ampu);
+      guruSession.kelas_ampu = nextAmpu;
+      if (root.MDTA_AUTH && typeof root.MDTA_AUTH.updateSession === 'function') {
+        guruSession = root.MDTA_AUTH.updateSession({ kelas_ampu: nextAmpu }) || guruSession;
+      }
+      updateBanner(guruSession);
     }
 
-    try {
-      const logRes = await API.getLogSetoran({ tanggal: today, jenis_laporan: 'Absensi Harian' });
-      todaySetoranLogs = API.extractArray(logRes, ['log_setoran']).map(API.normalizeLogSetoran);
-    } catch (err) {
-      todaySetoranLogs = [];
+    if (Array.isArray(bundle.kelas)) {
+      STATE.kelas = bundle.kelas.map(API.normalizeKelas);
+      STATE.loaded.kelas = true;
+      if (CACHE) CACHE.write('kelas', STATE.kelas);
     }
 
-    renderSessionLogs();
+    const prevSantri = STATE.santri || [];
+    const prevPresensi = serverTodayPresensi;
+    const prevLogs = todaySetoranLogs;
+
+    if (Array.isArray(bundle.santri)) {
+      STATE.santri = API.filterByGuruScope(bundle.santri.map(API.normalizeSantri), guruSession, 'kelas');
+      STATE.loaded.santri = true;
+      if (CACHE) CACHE.write('santri', STATE.santri);
+    }
+    if (Array.isArray(bundle.presensi_hari_ini)) {
+      serverTodayPresensi = API.filterByGuruScope(
+        bundle.presensi_hari_ini.map(API.normalizePresensi).filter((r) => !r.tanggal || r.tanggal === today),
+        guruSession,
+        'kelas'
+      );
+      STATE.presensiToday = serverTodayPresensi;
+      if (CACHE) CACHE.write('presensiToday', serverTodayPresensi);
+    }
+    if (Array.isArray(bundle.nilai_raport)) {
+      STATE.nilaiRaportSaved = API.filterByGuruScope(
+        bundle.nilai_raport.map(API.normalizeNilaiRaport),
+        guruSession,
+        'kelas'
+      );
+      if (CACHE) CACHE.write('nilaiRaportSaved', STATE.nilaiRaportSaved);
+    }
+    if (Array.isArray(bundle.nilai_uas)) {
+      STATE.nilaiUAS = API.filterByGuruScope(
+        bundle.nilai_uas.map(API.normalizeNilaiUAS).reverse(),
+        guruSession,
+        'kelas'
+      );
+      STATE.loaded.uas = true;
+      if (CACHE) CACHE.write('nilaiUAS', STATE.nilaiUAS);
+    }
+    if (Array.isArray(bundle.log_setoran)) {
+      const allLogs = API.filterByGuruScope(
+        bundle.log_setoran.map(API.normalizeLogSetoran),
+        guruSession,
+        'kelas'
+      );
+      STATE.logSetoran = allLogs;
+      if (CACHE) CACHE.write('logSetoran', allLogs);
+      todaySetoranLogs = allLogs.filter(
+        (l) => l.tanggal === today && String(l.jenis_laporan || '').toLowerCase() === 'absensi harian'
+      );
+    }
+
+    STATE.loaded.guruPresensi = true;
+
+    const kelasAmpu = getGuruKelasAmpu();
+    const statusEl = document.getElementById('guru-santri-sync-status');
+    if (statusEl) {
+      if (kelasAmpu.length === 0) {
+        statusEl.textContent = 'Akun Anda belum dipetakan ke kelas mana pun.';
+      } else if (STATE.santri.length > 0) {
+        statusEl.textContent = `${STATE.santri.length} santri kelas ${kelasAmpu.join(', ')} siap untuk autocomplete dan verifikasi QR.`;
+      } else {
+        statusEl.textContent = `Belum ada santri aktif pada kelas ${kelasAmpu.join(', ')}.`;
+      }
+    }
+
+    const santriChanged = !CACHE || CACHE.hasChanged(prevSantri, STATE.santri);
+    const dataChanged =
+      santriChanged ||
+      CACHE.hasChanged(prevPresensi, serverTodayPresensi) ||
+      CACHE.hasChanged(prevLogs, todaySetoranLogs);
+
+    populateManualKelasSelect();
+    populateLaporanKelasOptions();
+    if (dataChanged || Array.isArray(bundle.kelas_ampu)) {
+      renderSessionLogs();
+    }
   }
 
-  async function ensureSantriLoaded() {
-    if (STATE.santri.length > 0) {
-      const statusEl = document.getElementById('guru-santri-sync-status');
-      if (statusEl) {
-        statusEl.textContent = `${STATE.santri.length} santri aktif siap untuk autocomplete dan verifikasi QR.`;
+  async function loadGuruBootstrapSWR(force) {
+    const CACHE = root.MDTA_CACHE;
+    if (CACHE) CACHE.hydrateState();
+    const today = UI.todayISO();
+
+    STATE.santri = API.filterByGuruScope(STATE.santri || [], guruSession, 'kelas');
+
+    // Paint 0ms dari cache memori / localStorage (sudah terisolasi ke kelas ampu)
+    if (Array.isArray(STATE.presensiToday) && STATE.presensiToday.length > 0) {
+      serverTodayPresensi = API.filterByGuruScope(
+        STATE.presensiToday.filter((r) => !r.tanggal || r.tanggal === today),
+        guruSession,
+        'kelas'
+      );
+    }
+    if (Array.isArray(STATE.logSetoran) && STATE.logSetoran.length > 0) {
+      todaySetoranLogs = API.filterByGuruScope(
+        STATE.logSetoran.filter(
+          (l) => l.tanggal === today && String(l.jenis_laporan || '').toLowerCase() === 'absensi harian'
+        ),
+        guruSession,
+        'kelas'
+      );
+    }
+    populateManualKelasSelect();
+    populateLaporanKelasOptions();
+    renderSessionLogs();
+
+    const kelasAmpu = getGuruKelasAmpu();
+    const statusEl = document.getElementById('guru-santri-sync-status');
+    if (statusEl) {
+      if (kelasAmpu.length === 0) {
+        statusEl.textContent = 'Akun Anda belum dipetakan ke kelas mana pun.';
+      } else {
+        statusEl.textContent =
+          STATE.santri.length > 0
+            ? `${STATE.santri.length} santri kelas ${kelasAmpu.join(', ')} siap untuk autocomplete dan verifikasi QR.`
+            : 'Memuat daftar santri kelas Anda dari database...';
       }
-      populateLaporanKelasOptions();
+    }
+
+    if (!force && STATE.loaded.guruPresensi && (STATE.santri.length > 0 || kelasAmpu.length === 0)) {
       return;
     }
 
-    const statusEl = document.getElementById('guru-santri-sync-status');
-    if (statusEl) statusEl.textContent = 'Memuat daftar santri dari database...';
-
     try {
-      const res = await API.getSantri();
-      STATE.santri = API.extractArray(res, ['santri', 'students']).map(API.normalizeSantri);
-      populateLaporanKelasOptions();
-      if (statusEl) {
-        statusEl.textContent =
-          STATE.santri.length > 0
-            ? `${STATE.santri.length} santri aktif siap untuk autocomplete dan verifikasi QR.`
-            : 'Database santri kosong. Pastikan santri sudah didaftarkan oleh Admin.';
-      }
+      const bundle = CACHE
+        ? await CACHE.fetchBootstrapSmart({
+            role: 'guru',
+            tanggal: today,
+            id_user: (guruSession && guruSession.id_user) || '',
+            username: (guruSession && guruSession.username) || '',
+          })
+        : {};
+      applyGuruBootstrapData(bundle);
     } catch (err) {
-      populateLaporanKelasOptions();
-      if (statusEl) {
+      if (statusEl && STATE.santri.length === 0) {
         statusEl.textContent = `Gagal memuat daftar santri (${err.message}).`;
       }
     }
@@ -304,6 +483,12 @@
       return;
     }
 
+    const kelasAmpu = getGuruKelasAmpu();
+    if (kelasAmpu.length === 0) {
+      UI.toast('Akun Anda belum dipetakan ke kelas mana pun. Hubungi Admin.', 'error');
+      return;
+    }
+
     const nowMs = Date.now();
     if (token === lastScanToken && nowMs - lastScanTime < 3500) {
       return;
@@ -316,6 +501,11 @@
         s.qr_token.toLowerCase() === token.toLowerCase() ||
         s.id_santri.toLowerCase() === token.toLowerCase()
     );
+
+    if (matched && !API.isKelasAllowed(matched.kelas, kelasAmpu)) {
+      UI.toast(`Akses ditolak: Santri "${matched.nama_lengkap}" (${matched.kelas}) berada di luar kelas ampu Anda.`, 'error');
+      return;
+    }
 
     const waktu = UI.nowTimeHMS();
     const payload = {
@@ -332,38 +522,93 @@
     };
 
     const lastBox = document.getElementById('qr-last-scan-result');
-    if (lastBox) {
-      lastBox.hidden = false;
-      lastBox.className = 'inline-alert inline-alert-info';
-      lastBox.innerHTML = `<i data-lucide="loader-2" class="spin-icon" aria-hidden="true"></i><span>Memproses presensi token <strong>${UI.esc(token)}</strong>...</span>`;
-      UI.refreshIcons(lastBox);
+    const resolvedKelas = matched ? matched.kelas : '-';
+    const initialNama = matched ? matched.nama_lengkap : token;
+
+    // Jika token santri dikenal dalam cache kelas ampu, pakai Optimistic UI seketika.
+    // Jika belum dikenal di list lokal, verifikasi ke backend dulu agar tidak tampil palsu bila beda kelas.
+    if (matched) {
+      const tempId = `tmp-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+      const optimisticEntry = {
+        _tempId: tempId,
+        id_presensi: '',
+        waktu: waktu.slice(0, 5),
+        nama_santri: initialNama,
+        kelas: resolvedKelas,
+        status: 'Hadir',
+        metode: 'QR',
+        catatan: payload.catatan,
+      };
+
+      sessionPresensiLogs.unshift(optimisticEntry);
+      if (root.MDTA_CACHE) root.MDTA_CACHE.write('presensiToday', getCombinedTodayPresensi());
+      renderSessionLogs();
+
+      if (lastBox) {
+        lastBox.hidden = false;
+        lastBox.className = 'inline-alert inline-alert-success';
+        lastBox.innerHTML = `<i data-lucide="check-circle-2" aria-hidden="true"></i><div><strong>Presensi Hadir Tercatat: ${UI.esc(initialNama)}</strong><div style="font-size:0.8rem;">${UI.esc(resolvedKelas)} · ${UI.esc(waktu)}</div></div>`;
+        UI.refreshIcons(lastBox);
+      }
+      UI.toast(`Presensi QR "${initialNama}" (Hadir) dicatat.`, 'success');
+
+      API.savePresensi(payload)
+        .then((res) => {
+          const d = res.data || res;
+          const resolvedNama = API.pick(d, ['santri', 'nama_santri'], initialNama);
+          optimisticEntry.id_presensi = d.id_presensi || '';
+          optimisticEntry.nama_santri = resolvedNama;
+          optimisticEntry.status = d.status || 'Hadir';
+          if (root.MDTA_CACHE) root.MDTA_CACHE.write('presensiToday', getCombinedTodayPresensi());
+          if (resolvedNama !== initialNama) {
+            renderSessionLogs();
+            if (lastBox) {
+              lastBox.innerHTML = `<i data-lucide="check-circle-2" aria-hidden="true"></i><div><strong>Presensi Hadir Tercatat: ${UI.esc(resolvedNama)}</strong><div style="font-size:0.8rem;">${UI.esc(resolvedKelas)} · ${UI.esc(waktu)}</div></div>`;
+              UI.refreshIcons(lastBox);
+            }
+          }
+        })
+        .catch((err) => {
+          const idx = sessionPresensiLogs.indexOf(optimisticEntry);
+          if (idx >= 0) sessionPresensiLogs.splice(idx, 1);
+          if (root.MDTA_CACHE) root.MDTA_CACHE.write('presensiToday', getCombinedTodayPresensi());
+          renderSessionLogs();
+          if (lastBox) {
+            lastBox.className = 'inline-alert inline-alert-error';
+            lastBox.innerHTML = `<i data-lucide="alert-circle" aria-hidden="true"></i><span>${UI.esc(err.message)}</span>`;
+            UI.refreshIcons(lastBox);
+          }
+          UI.toast(`Gagal menyimpan presensi "${initialNama}": ${err.message}`, 'error');
+        });
+      return;
     }
 
     try {
       const res = await API.savePresensi(payload);
       const d = res.data || res;
-      const resolvedNama = API.pick(d, ['santri', 'nama_santri'], matched ? matched.nama_lengkap : token);
-      const resolvedKelas = matched ? matched.kelas : '-';
-
+      const confirmedNama = API.pick(d, ['santri', 'nama_santri'], token);
+      const confirmedKelas = API.pick(d, ['kelas'], kelasAmpu[0] || '-');
       sessionPresensiLogs.unshift({
         id_presensi: d.id_presensi || '',
         waktu: waktu.slice(0, 5),
-        nama_santri: resolvedNama,
-        kelas: resolvedKelas,
+        nama_santri: confirmedNama,
+        kelas: confirmedKelas,
         status: d.status || 'Hadir',
         metode: 'QR',
         catatan: payload.catatan,
       });
+      if (root.MDTA_CACHE) root.MDTA_CACHE.write('presensiToday', getCombinedTodayPresensi());
       renderSessionLogs();
-
       if (lastBox) {
+        lastBox.hidden = false;
         lastBox.className = 'inline-alert inline-alert-success';
-        lastBox.innerHTML = `<i data-lucide="check-circle-2" aria-hidden="true"></i><div><strong>Presensi Hadir Tercatat: ${UI.esc(resolvedNama)}</strong><div style="font-size:0.8rem;">${UI.esc(resolvedKelas)} · ${UI.esc(waktu)}</div></div>`;
+        lastBox.innerHTML = `<i data-lucide="check-circle-2" aria-hidden="true"></i><div><strong>Presensi Hadir Tercatat: ${UI.esc(confirmedNama)}</strong><div style="font-size:0.8rem;">${UI.esc(confirmedKelas)} · ${UI.esc(waktu)}</div></div>`;
         UI.refreshIcons(lastBox);
       }
-      UI.toast(`Presensi QR "${resolvedNama}" (Hadir) berhasil disimpan.`, 'success');
+      UI.toast(`Presensi QR "${confirmedNama}" (Hadir) dicatat.`, 'success');
     } catch (err) {
       if (lastBox) {
+        lastBox.hidden = false;
         lastBox.className = 'inline-alert inline-alert-error';
         lastBox.innerHTML = `<i data-lucide="alert-circle" aria-hidden="true"></i><span>${UI.esc(err.message)}</span>`;
         UI.refreshIcons(lastBox);
@@ -495,14 +740,19 @@
     function selectAutocompleteItem(santri) {
       selectedSantri = santri;
       if (namaInput) namaInput.value = santri.nama_lengkap;
-      if (kelasInput) kelasInput.value = santri.kelas || '';
+      if (kelasInput && santri.kelas) {
+        const matchOpt = Array.from(kelasInput.options || []).find(
+          (o) => o.value.toLowerCase() === santri.kelas.toLowerCase()
+        );
+        if (matchOpt) kelasInput.value = matchOpt.value;
+      }
       closeAutocomplete();
     }
 
     function renderAutocomplete(query) {
       if (!acList || !namaInput) return;
       const q = String(query || '').trim().toLowerCase();
-      const pool = STATE.santri || [];
+      const pool = API.filterByGuruScope(STATE.santri || [], guruSession, 'kelas');
       const matches = (q
         ? pool.filter(
             (s) =>
@@ -590,8 +840,14 @@
     }
 
     if (form) {
-      form.addEventListener('submit', async (e) => {
+      form.addEventListener('submit', (e) => {
         e.preventDefault();
+        const kelasAmpu = getGuruKelasAmpu();
+        if (kelasAmpu.length === 0) {
+          UI.toast('Akun Anda belum dipetakan ke kelas mana pun. Hubungi Admin.', 'error');
+          return;
+        }
+
         const nama = (namaInput ? namaInput.value : '').trim();
         const kelas = (kelasInput ? kelasInput.value : '').trim();
         const tanggal = (tanggalInput ? tanggalInput.value : '') || UI.todayISO();
@@ -607,12 +863,24 @@
           selectedSantri ||
           (STATE.santri || []).find((s) => s.nama_lengkap.toLowerCase() === nama.toLowerCase());
 
+        if (matched && !API.isKelasAllowed(matched.kelas, kelasAmpu)) {
+          UI.toast(`Akses ditolak: Santri "${matched.nama_lengkap}" (${matched.kelas}) berada di luar kelas ampu Anda.`, 'error');
+          return;
+        }
+
+        const resolvedKelas = (matched && matched.kelas) || kelas || kelasAmpu[0];
+        if (!API.isKelasAllowed(resolvedKelas, kelasAmpu)) {
+          UI.toast(`Kelas "${resolvedKelas}" berada di luar kelas ampu Anda (${kelasAmpu.join(', ')}).`, 'error');
+          return;
+        }
+
+        const statusChoice = selectedStatus;
         const waktu = UI.nowTimeHMS();
         const payload = {
           id_santri: matched ? matched.id_santri : '',
           qr_token: matched ? matched.qr_token : '',
           nama_santri: matched ? matched.nama_lengkap : nama,
-          status: selectedStatus,
+          status: statusChoice,
           tanggal,
           waktu,
           id_guru_piket: (guruSession && guruSession.id_user) || '',
@@ -621,32 +889,53 @@
           catatan,
         };
 
-        UI.setButtonLoading(submitBtn, true, 'Menyimpan Presensi...');
-        try {
-          const res = await API.savePresensi(payload);
-          const d = res.data || res;
-          const resolvedNama = API.pick(d, ['santri', 'nama_santri'], payload.nama_santri);
-          sessionPresensiLogs.unshift({
-            id_presensi: d.id_presensi || '',
-            waktu: waktu.slice(0, 5),
-            nama_santri: resolvedNama,
-            kelas: kelas || (matched ? matched.kelas : '-'),
-            status: d.status || selectedStatus,
-            metode: 'Manual',
-            catatan,
-          });
-          renderSessionLogs();
+        const prevInputs = { nama, kelas, catatan, santriObj: selectedSantri };
+        const tempId = `tmp-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+        const optimisticEntry = {
+          _tempId: tempId,
+          id_presensi: '',
+          waktu: waktu.slice(0, 5),
+          nama_santri: payload.nama_santri,
+          kelas: resolvedKelas,
+          status: statusChoice,
+          metode: 'Manual',
+          catatan,
+        };
 
-          if (namaInput) namaInput.value = '';
-          if (kelasInput) kelasInput.value = '';
-          if (ketInput) ketInput.value = '';
-          selectedSantri = null;
-          UI.toast(`Presensi ${resolvedNama} (${selectedStatus}) berhasil disimpan.`, 'success');
-        } catch (err) {
-          UI.toast(err.message, 'error');
-        } finally {
-          UI.setButtonLoading(submitBtn, false);
-        }
+        // Optimistic UI: langsung tampilkan baris & ringkasan seketika
+        sessionPresensiLogs.unshift(optimisticEntry);
+        if (root.MDTA_CACHE) root.MDTA_CACHE.write('presensiToday', getCombinedTodayPresensi());
+        renderSessionLogs();
+
+        if (namaInput) namaInput.value = '';
+        populateManualKelasSelect();
+        if (ketInput) ketInput.value = '';
+        selectedSantri = null;
+        UI.toast(`Presensi ${payload.nama_santri} (${statusChoice}) dicatat.`, 'success');
+
+        API.savePresensi(payload)
+          .then((res) => {
+            const d = res.data || res;
+            const resolvedNama = API.pick(d, ['santri', 'nama_santri'], payload.nama_santri);
+            optimisticEntry.id_presensi = d.id_presensi || '';
+            optimisticEntry.nama_santri = resolvedNama;
+            optimisticEntry.status = d.status || statusChoice;
+            if (root.MDTA_CACHE) root.MDTA_CACHE.write('presensiToday', getCombinedTodayPresensi());
+            if (resolvedNama !== payload.nama_santri || optimisticEntry.status !== statusChoice) {
+              renderSessionLogs();
+            }
+          })
+          .catch((err) => {
+            const idx = sessionPresensiLogs.indexOf(optimisticEntry);
+            if (idx >= 0) sessionPresensiLogs.splice(idx, 1);
+            if (root.MDTA_CACHE) root.MDTA_CACHE.write('presensiToday', getCombinedTodayPresensi());
+            renderSessionLogs();
+            if (namaInput && !namaInput.value) namaInput.value = prevInputs.nama;
+            if (kelasInput && prevInputs.kelas) kelasInput.value = prevInputs.kelas;
+            if (ketInput && !ketInput.value) ketInput.value = prevInputs.catatan;
+            selectedSantri = prevInputs.santriObj;
+            UI.toast(`Gagal menyinkronkan presensi "${payload.nama_santri}": ${err.message}`, 'error');
+          });
       });
     }
 
@@ -656,7 +945,12 @@
 
     if (submitKepsekBtn) {
       submitKepsekBtn.addEventListener('click', async () => {
-        const kelas = laporanKelasSel ? laporanKelasSel.value : 'Semua Kelas';
+        const kelasAmpu = getGuruKelasAmpu();
+        const kelas = laporanKelasSel ? laporanKelasSel.value : '';
+        if (kelasAmpu.length === 0 || !kelas) {
+          UI.toast('Tidak ada kelas ampu yang dapat dilaporkan. Hubungi Admin untuk pemetaan kelas.', 'error');
+          return;
+        }
         const counts = updateAbsensiReportSummaryUI();
         const catatan = laporanCatatanInp ? laporanCatatanInp.value.trim() : '';
         const summaryText = `Hadir ${counts.Hadir}, Sakit ${counts.Sakit}, Izin ${counts.Izin}, Alpa ${counts.Alpa}${catatan ? ` | Catatan: ${catatan}` : ''}`;
@@ -745,7 +1039,19 @@
   // =========================================================================
   function init(session) {
     guruSession = session || {};
+    const nextKey = String((guruSession && (guruSession.id_user || guruSession.username)) || '');
+    if (nextKey !== lastGuruKey) {
+      lastGuruKey = nextKey;
+      sessionPresensiLogs.length = 0;
+      serverTodayPresensi = [];
+      todaySetoranLogs = [];
+      lastScanToken = '';
+      selectedSantri = null;
+    }
+
     updateBanner(guruSession);
+    populateManualKelasSelect();
+    populateLaporanKelasOptions();
     const tablist = document.getElementById('guru-tablist');
 
     if (!initialized) {
@@ -773,9 +1079,7 @@
       tabController.selectByName('presensi', false);
     }
 
-    renderSessionLogs();
-    ensureSantriLoaded();
-    loadTodayPresensiAndSetoran();
+    loadGuruBootstrapSWR(false);
   }
 
   function cleanup() {
