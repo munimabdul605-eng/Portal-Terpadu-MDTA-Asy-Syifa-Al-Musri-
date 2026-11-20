@@ -30,6 +30,21 @@
   const sessionPresensiLogs = [];
   let serverTodayPresensi = [];
 
+  let guruSyncTimer = null;
+  let guruSyncActive = false;
+  let guruSyncUnsupported = false;
+  let guruSyncCheckInFlight = false;
+  let guruSyncRefreshInFlight = false;
+  let guruSyncVisibilityBound = false;
+  let localGuruSyncTs = null;
+
+  function recordGuruSyncTs(tsVal) {
+    if (tsVal === null || tsVal === undefined || tsVal === '') return;
+    const nextStr = String(tsVal);
+    localGuruSyncTs = nextStr;
+    STATE.localSyncTs = nextStr;
+  }
+
   function invalidateAdminReportCache() {
     STATE.rekapKepsek = null;
     STATE.rekapKepsekKey = '';
@@ -188,9 +203,14 @@
       .join('');
   }
 
-  function applyGuruBootstrapData(bundle) {
+  function applyGuruBootstrapData(bundle, opts) {
     const CACHE = root.MDTA_CACHE;
     const today = UI.todayISO();
+    const prevAmpu = getGuruKelasAmpu().slice();
+
+    if (bundle && bundle.sync_ts !== undefined && bundle.sync_ts !== null && bundle.sync_ts !== '') {
+      recordGuruSyncTs(bundle.sync_ts);
+    }
 
     if (Array.isArray(bundle.kelas_ampu)) {
       const nextAmpu = API.parseKelasAmpu(bundle.kelas_ampu);
@@ -265,29 +285,47 @@
     if (dataChanged || Array.isArray(bundle.kelas_ampu)) {
       renderSessionLogs();
     }
+
+    if (root.MDTA_CALC && typeof root.MDTA_CALC.refreshScope === 'function') {
+      root.MDTA_CALC.refreshScope('guru', guruSession, {
+        silentBackground: Boolean(opts && opts.silentSync),
+        skipFetch: true,
+      });
+    }
+
+    if (opts && opts.silentSync) {
+      const nextAmpu = getGuruKelasAmpu();
+      const ampuChanged = !CACHE || CACHE.hasChanged(prevAmpu, nextAmpu);
+      if (ampuChanged) {
+        UI.toast('Pemetaan kelas ampu Anda diperbarui oleh Administrator.', 'info');
+      }
+    }
   }
 
-  async function loadGuruBootstrapSWR(force) {
+  async function loadGuruBootstrapSWR(force, opts) {
+    const isSilentSync = Boolean(opts && opts.silentSync);
     const CACHE = root.MDTA_CACHE;
     if (CACHE) CACHE.hydrateState();
     const today = UI.todayISO();
 
     STATE.santri = API.filterByGuruScope(STATE.santri || [], guruSession, 'kelas');
 
-    // Paint 0ms dari cache memori / localStorage (sudah terisolasi ke kelas ampu)
-    if (Array.isArray(STATE.presensiToday) && STATE.presensiToday.length > 0) {
-      serverTodayPresensi = API.filterByGuruScope(
-        STATE.presensiToday.filter((r) => !r.tanggal || r.tanggal === today),
-        guruSession,
-        'kelas'
-      );
+    if (!isSilentSync) {
+      // Paint 0ms dari cache memori / localStorage (sudah terisolasi ke kelas ampu)
+      if (Array.isArray(STATE.presensiToday) && STATE.presensiToday.length > 0) {
+        serverTodayPresensi = API.filterByGuruScope(
+          STATE.presensiToday.filter((r) => !r.tanggal || r.tanggal === today),
+          guruSession,
+          'kelas'
+        );
+      }
+      populateManualKelasSelect();
+      renderSessionLogs();
     }
-    populateManualKelasSelect();
-    renderSessionLogs();
 
     const kelasAmpu = getGuruKelasAmpu();
     const statusEl = document.getElementById('guru-santri-sync-status');
-    if (statusEl) {
+    if (statusEl && !isSilentSync) {
       if (kelasAmpu.length === 0) {
         statusEl.textContent = 'Akun Anda belum dipetakan ke kelas mana pun.';
       } else {
@@ -298,7 +336,7 @@
       }
     }
 
-    if (!force && STATE.loaded.guruPresensi && (STATE.santri.length > 0 || kelasAmpu.length === 0)) {
+    if (!force && STATE.loaded.guruPresensi && STATE.santri.length > 0 && kelasAmpu.length > 0) {
       return;
     }
 
@@ -311,9 +349,9 @@
             username: (guruSession && guruSession.username) || '',
           })
         : {};
-      applyGuruBootstrapData(bundle);
+      applyGuruBootstrapData(bundle, opts);
     } catch (err) {
-      if (statusEl && STATE.santri.length === 0) {
+      if (statusEl && !isSilentSync && STATE.santri.length === 0) {
         statusEl.textContent = `Gagal memuat daftar santri (${err.message}).`;
       }
     }
@@ -877,6 +915,85 @@
   }
 
   // =========================================================================
+  // SMART POLLING REAL-TIME GURU (5 DETIK VIA getSyncVersion)
+  // =========================================================================
+  function clearGuruSyncTimer() {
+    if (guruSyncTimer !== null) {
+      clearInterval(guruSyncTimer);
+      guruSyncTimer = null;
+    }
+  }
+
+  function scheduleGuruSyncInterval() {
+    clearGuruSyncTimer();
+    const intervalMs = Math.max(2000, Number(CONFIG.SYNC_POLL_INTERVAL_MS) || 5000);
+    guruSyncTimer = setInterval(pollGuruSyncVersion, intervalMs);
+  }
+
+  async function pollGuruSyncVersion() {
+    if (!guruSyncActive || guruSyncUnsupported || guruSyncCheckInFlight || guruSyncRefreshInFlight) return;
+    if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
+    const guruView = document.getElementById('view-guru');
+    if (!guruView || guruView.hidden) return;
+
+    guruSyncCheckInFlight = true;
+    try {
+      const res = await API.getSyncVersion();
+      const d = (res && res.data) || res || {};
+      const serverTs = String(d.ts !== undefined ? d.ts : (d.last_sync_ts !== undefined ? d.last_sync_ts : '0'));
+
+      if (localGuruSyncTs === null) {
+        recordGuruSyncTs(serverTs);
+      } else if (serverTs !== localGuruSyncTs) {
+        guruSyncRefreshInFlight = true;
+        try {
+          await loadGuruBootstrapSWR(true, { silentSync: true });
+          recordGuruSyncTs(serverTs);
+        } finally {
+          guruSyncRefreshInFlight = false;
+        }
+      }
+    } catch (err) {
+      if (/tidak dikenali/i.test(String((err && err.message) || ''))) {
+        guruSyncUnsupported = true;
+        clearGuruSyncTimer();
+      }
+    } finally {
+      guruSyncCheckInFlight = false;
+    }
+  }
+
+  function handleGuruVisibilityChange() {
+    if (!guruSyncActive || guruSyncUnsupported) return;
+    if (typeof document !== 'undefined' && document.visibilityState !== 'visible') {
+      clearGuruSyncTimer();
+    } else {
+      scheduleGuruSyncInterval();
+      pollGuruSyncVersion();
+    }
+  }
+
+  function startGuruLiveSync() {
+    guruSyncActive = true;
+    guruSyncUnsupported = false;
+    if (!guruSyncVisibilityBound && typeof document !== 'undefined') {
+      guruSyncVisibilityBound = true;
+      document.addEventListener('visibilitychange', handleGuruVisibilityChange);
+    }
+    if (typeof document === 'undefined' || document.visibilityState === 'visible') {
+      scheduleGuruSyncInterval();
+    } else {
+      clearGuruSyncTimer();
+    }
+  }
+
+  function stopGuruLiveSync() {
+    guruSyncActive = false;
+    clearGuruSyncTimer();
+    localGuruSyncTs = null;
+  }
+
+  // =========================================================================
   // INISIALISASI & CLEANUP PORTAL GURU (3 TAB)
   // =========================================================================
   function init(session) {
@@ -888,6 +1005,7 @@
       serverTodayPresensi = [];
       lastScanToken = '';
       selectedSantri = null;
+      localGuruSyncTs = null;
     }
 
     updateBanner(guruSession);
@@ -920,10 +1038,12 @@
     }
 
     loadGuruBootstrapSWR(false);
+    startGuruLiveSync();
   }
 
   function cleanup() {
     stopQRScanner();
+    stopGuruLiveSync();
   }
 
   root.MDTA_GURU = {

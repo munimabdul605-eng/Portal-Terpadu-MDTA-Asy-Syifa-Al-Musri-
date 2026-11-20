@@ -19,8 +19,15 @@
   let initialized = false;
   let adminSession = null;
   let tabController = null;
+  let syncPollTimer = null;
+  let syncCheckInFlight = false;
+  let syncRefreshInFlight = false;
+  let syncVisibilityBound = false;
+  let syncActive = false;
+  let syncUnsupported = false;
 
   const localState = {
+    localSyncTs: null,
     riwayatHarian: [],
     riwayatFilterStatus: 'Semua',
     riwayatQuery: '',
@@ -1301,6 +1308,15 @@
     STATE.loaded.bootstrap = true;
     STATE.loaded.dashboard = true;
     STATE.lastSyncAt = Date.now();
+    if (bundle.sync_ts !== undefined) {
+      recordLocalSyncTs(bundle.sync_ts);
+    } else if (bundle.rekap_kepsek && bundle.rekap_kepsek.sync_ts !== undefined) {
+      recordLocalSyncTs(bundle.rekap_kepsek.sync_ts);
+    }
+
+    if (root.MDTA_CALC && typeof root.MDTA_CALC.refreshScope === 'function') {
+      root.MDTA_CALC.refreshScope('admin', adminSession, { silentBackground: true, skipFetch: true });
+    }
 
     return {
       kelasChanged: !CACHE || CACHE.hasChanged(prevKelas, STATE.kelas),
@@ -1404,6 +1420,7 @@
         // Pergantian filter tanggal/kelas saja: cukup fetch getRekapKepsek yang ringan & cached
         const rekapRes = await API.getRekapKepsek(targetTanggal, targetKelas);
         const rk = rekapRes.data || rekapRes;
+        if (rk && rk.sync_ts !== undefined) recordLocalSyncTs(rk.sync_ts);
         const rkChanged = !CACHE || CACHE.hasChanged(STATE.rekapKepsek, rk) || !hasCachedRk;
         STATE.rekapKepsek = rk;
         STATE.rekapKepsekKey = key;
@@ -3402,10 +3419,193 @@
     }
   }
 
+  // =========================================================================
+  // AUTO-SYNC REAL-TIME (SMART POLLING 5 DETIK VIA getSyncVersion)
+  // =========================================================================
+  function recordLocalSyncTs(tsVal) {
+    if (tsVal === null || tsVal === undefined || tsVal === '') return;
+    const nextStr = String(tsVal);
+    localState.localSyncTs = nextStr;
+    STATE.localSyncTs = nextStr;
+  }
+
+  function updateLiveSyncBadge(statusKey) {
+    const badge = document.getElementById('admin-live-sync-badge');
+    const label = document.getElementById('admin-live-sync-label');
+    if (!badge || !label) return;
+
+    badge.classList.remove('is-active', 'is-syncing', 'is-paused');
+    if (statusKey === 'syncing') {
+      badge.classList.add('is-syncing');
+      label.textContent = 'Menyinkronkan...';
+    } else if (statusKey === 'paused') {
+      badge.classList.add('is-paused');
+      label.textContent = 'Live Sync Dijeda';
+    } else if (statusKey === 'unsupported') {
+      badge.classList.add('is-paused');
+      label.textContent = 'Live Sync Menunggu Deploy';
+    } else {
+      badge.classList.add('is-active');
+      label.textContent = 'Live Sync Aktif';
+    }
+  }
+
+  function clearSyncTimer() {
+    if (syncPollTimer !== null) {
+      clearInterval(syncPollTimer);
+      syncPollTimer = null;
+    }
+  }
+
+  function scheduleLiveSyncInterval() {
+    clearSyncTimer();
+    const intervalMs = Math.max(2000, Number(CONFIG.SYNC_POLL_INTERVAL_MS) || 5000);
+    syncPollTimer = setInterval(pollSyncVersion, intervalMs);
+  }
+
+  async function silentRefreshFromSync(nextServerTs) {
+    if (syncRefreshInFlight) return;
+    syncRefreshInFlight = true;
+    updateLiveSyncBadge('syncing');
+
+    const CACHE = root.MDTA_CACHE;
+    const tanggalInp = document.getElementById('kepsek-filter-tanggal');
+    const kelasSel = document.getElementById('kepsek-filter-kelas');
+    const targetTanggal = (tanggalInp && tanggalInp.value) || UI.todayISO();
+    const targetKelas = (kelasSel && kelasSel.value) || '';
+    const key = `${targetTanggal}|${targetKelas}`;
+
+    try {
+      const [rkRes, dashRes] = await Promise.allSettled([
+        API.getRekapKepsek(targetTanggal, targetKelas),
+        API.getDashboard(),
+      ]);
+
+      let anySucceeded = false;
+      let latestTsFromServer = nextServerTs;
+      let rkUpdated = false;
+
+      if (dashRes.status === 'fulfilled' && dashRes.value) {
+        anySucceeded = true;
+        const dash = dashRes.value.data || dashRes.value;
+        STATE.dashboard = dash;
+        if (CACHE) CACHE.write('dashboard', dash);
+
+        if (Array.isArray(dash.daftar_pengguna)) {
+          const freshUsers = dash.daftar_pengguna.map(API.normalizeUser);
+          const usersChanged = !CACHE || CACHE.hasChanged(STATE.users, freshUsers);
+          if (usersChanged) {
+            STATE.users = freshUsers;
+            if (CACHE) CACHE.write('users', freshUsers);
+            renderUsersTable();
+            renderKelasManagement();
+          }
+        }
+      }
+
+      if (rkRes.status === 'fulfilled' && rkRes.value) {
+        anySucceeded = true;
+        const rk = rkRes.value.data || rkRes.value;
+        if (rk && rk.sync_ts !== undefined) {
+          latestTsFromServer = String(rk.sync_ts);
+        }
+        const changed = !CACHE || CACHE.hasChanged(STATE.rekapKepsek, rk) || STATE.rekapKepsekKey !== key;
+        STATE.rekapKepsek = rk;
+        STATE.rekapKepsekKey = key;
+        if (CACHE) CACHE.write('rekapKepsek', { key, payload: rk });
+        if (changed) {
+          renderKepsekBlockFromData(rk, targetTanggal);
+          rkUpdated = true;
+        }
+      } else if (dashRes.status === 'fulfilled' && dashRes.value) {
+        const dash = dashRes.value.data || dashRes.value;
+        renderKepsekBlockFromData(buildDailyFallbackKepsekData(dash, targetTanggal), targetTanggal);
+        rkUpdated = true;
+      }
+
+      if (anySucceeded) {
+        recordLocalSyncTs(latestTsFromServer);
+        STATE.lastSyncAt = Date.now();
+        if (rkUpdated) {
+          UI.toast('Pembaruan otomatis: data presensi/nilai baru masuk.', 'info');
+        }
+      }
+    } finally {
+      syncRefreshInFlight = false;
+      const isVisible = typeof document === 'undefined' || document.visibilityState === 'visible';
+      updateLiveSyncBadge(syncActive && isVisible ? 'active' : 'paused');
+    }
+  }
+
+  async function pollSyncVersion() {
+    if (!syncActive || syncUnsupported || syncCheckInFlight || syncRefreshInFlight) return;
+    if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
+    const adminView = document.getElementById('view-admin');
+    if (!adminView || adminView.hidden) return;
+
+    syncCheckInFlight = true;
+    try {
+      const res = await API.getSyncVersion();
+      const d = (res && res.data) || res || {};
+      const serverTs = String(d.ts !== undefined ? d.ts : (d.last_sync_ts !== undefined ? d.last_sync_ts : '0'));
+
+      if (localState.localSyncTs === null) {
+        recordLocalSyncTs(serverTs);
+      } else if (serverTs !== localState.localSyncTs) {
+        await silentRefreshFromSync(serverTs);
+      }
+    } catch (err) {
+      if (/tidak dikenali/i.test(String((err && err.message) || ''))) {
+        syncUnsupported = true;
+        clearSyncTimer();
+        updateLiveSyncBadge('unsupported');
+      }
+    } finally {
+      syncCheckInFlight = false;
+    }
+  }
+
+  function handleVisibilityChange() {
+    if (!syncActive || syncUnsupported) return;
+    if (typeof document !== 'undefined' && document.visibilityState !== 'visible') {
+      clearSyncTimer();
+      updateLiveSyncBadge('paused');
+    } else {
+      updateLiveSyncBadge('active');
+      scheduleLiveSyncInterval();
+      pollSyncVersion();
+    }
+  }
+
+  function startLiveSync() {
+    syncActive = true;
+    syncUnsupported = false;
+    if (!syncVisibilityBound && typeof document !== 'undefined') {
+      syncVisibilityBound = true;
+      document.addEventListener('visibilitychange', handleVisibilityChange);
+    }
+    if (typeof document === 'undefined' || document.visibilityState === 'visible') {
+      updateLiveSyncBadge('active');
+      scheduleLiveSyncInterval();
+    } else {
+      clearSyncTimer();
+      updateLiveSyncBadge('paused');
+    }
+  }
+
+  function stopLiveSync() {
+    syncActive = false;
+    clearSyncTimer();
+    localState.localSyncTs = null;
+    STATE.localSyncTs = null;
+    updateLiveSyncBadge('paused');
+  }
+
   function init(session) {
     adminSession = session || {};
     localState.rekapHasSearched = false;
     localState.rekapSearchQuery = '';
+    localState.localSyncTs = STATE.localSyncTs || null;
     const rekapSearchInp = document.getElementById('rekap-search-input');
     if (rekapSearchInp) rekapSearchInp.value = '';
     const rekapKelasSel = document.getElementById('rekap-kelas-filter');
@@ -3465,10 +3665,12 @@
     }
 
     loadDashboard(false, { force: false });
+    startLiveSync();
   }
 
   root.MDTA_ADMIN = {
     init,
+    cleanup: stopLiveSync,
     loadDashboard,
     loadSantri,
     loadRekapLaporan,

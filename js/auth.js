@@ -407,6 +407,9 @@
     const guruView = document.getElementById('view-guru');
 
     if (!session) {
+      if (root.MDTA_ADMIN && typeof root.MDTA_ADMIN.cleanup === 'function') {
+        root.MDTA_ADMIN.cleanup();
+      }
       if (root.MDTA_GURU && typeof root.MDTA_GURU.cleanup === 'function') {
         root.MDTA_GURU.cleanup();
       }
@@ -431,6 +434,9 @@
         root.MDTA_ADMIN.init(session);
       }
     } else if (role === 'guru') {
+      if (root.MDTA_ADMIN && typeof root.MDTA_ADMIN.cleanup === 'function') {
+        root.MDTA_ADMIN.cleanup();
+      }
       if (loginView) loginView.hidden = true;
       if (adminView) adminView.hidden = true;
       if (guruView) guruView.hidden = false;
@@ -538,6 +544,9 @@
 
     if (logoutBtn) {
       logoutBtn.addEventListener('click', () => {
+        if (root.MDTA_ADMIN && typeof root.MDTA_ADMIN.cleanup === 'function') {
+          root.MDTA_ADMIN.cleanup();
+        }
         if (root.MDTA_GURU && typeof root.MDTA_GURU.cleanup === 'function') {
           root.MDTA_GURU.cleanup();
         }

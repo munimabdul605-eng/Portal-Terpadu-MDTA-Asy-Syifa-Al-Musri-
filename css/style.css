@@ -2949,6 +2949,85 @@ html.light .kelas-subtab[aria-pressed="true"] {
   flex: 1 1 280px;
 }
 
+.admin-eyebrow-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 10px;
+  margin-bottom: 4px;
+}
+
+.admin-eyebrow-row .eyebrow-label {
+  margin-bottom: 0;
+}
+
+.live-sync-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  line-height: 1.25;
+  border: 1px solid var(--status-hadir-bd);
+  background-color: var(--status-hadir-bg);
+  color: var(--status-hadir-fg);
+  white-space: nowrap;
+}
+
+.live-sync-badge.is-syncing {
+  border-color: var(--status-izin-bd);
+  background-color: var(--status-izin-bg);
+  color: var(--status-izin-fg);
+}
+
+.live-sync-badge.is-paused {
+  border-color: var(--border-strong);
+  background-color: var(--bg-subsurface);
+  color: var(--text-muted);
+}
+
+.live-sync-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  flex-shrink: 0;
+  background-color: var(--accent-brand);
+  box-shadow: 0 0 0 0 rgba(4, 120, 87, 0.45);
+  animation: liveSyncPulse 2.2s infinite;
+}
+
+html.dark .live-sync-dot {
+  box-shadow: 0 0 0 0 rgba(52, 211, 153, 0.45);
+}
+
+.live-sync-badge.is-syncing .live-sync-dot {
+  background-color: var(--status-izin-fg);
+  animation-duration: 0.9s;
+}
+
+.live-sync-badge.is-paused .live-sync-dot {
+  background-color: var(--text-muted);
+  box-shadow: none;
+  animation: none;
+}
+
+@keyframes liveSyncPulse {
+  0% {
+    opacity: 1;
+    box-shadow: 0 0 0 0 rgba(4, 120, 87, 0.45);
+  }
+  70% {
+    opacity: 0.65;
+    box-shadow: 0 0 0 6px rgba(4, 120, 87, 0);
+  }
+  100% {
+    opacity: 1;
+    box-shadow: 0 0 0 0 rgba(4, 120, 87, 0);
+  }
+}
+
 .admin-calc-switcher {
   display: inline-flex;
   align-items: center;

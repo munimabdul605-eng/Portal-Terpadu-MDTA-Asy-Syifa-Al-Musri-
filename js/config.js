@@ -21,6 +21,7 @@
     SESSION_KEY: 'mdta_user_session',
     THEME_KEY: 'mdta_theme',
     CACHE_PREFIX: 'mdta_swr_v1_',
+    SYNC_POLL_INTERVAL_MS: 5000,
     DEFAULT_RAPORT_WEIGHTS: {
       harian: 40,
       uas: 40,
@@ -137,6 +138,7 @@
       guruPresensi: false,
     },
     lastSyncAt: 0,
+    localSyncTs: null,
   };
   root.appState = root.MDTA_STATE;
 })(window);

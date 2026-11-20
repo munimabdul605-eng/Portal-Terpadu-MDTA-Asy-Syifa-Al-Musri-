@@ -1066,6 +1066,7 @@
       st.logSetoran = [];
       st.presensiToday = [];
       st.lastSyncAt = 0;
+      st.localSyncTs = null;
       if (st.loaded) {
         Object.keys(st.loaded).forEach((k) => {
           st.loaded[k] = false;
@@ -1173,10 +1174,11 @@
         };
 
         if (role === 'guru') {
-          const [sRes, pRes, rptRes, logRes, kRes] = await Promise.allSettled([
+          const [sRes, pRes, rptRes, uasRes, logRes, kRes] = await Promise.allSettled([
             root.MDTA_API.getSantri(),
             root.MDTA_API.getPresensi(),
             root.MDTA_API.getNilaiRaport(),
+            root.MDTA_API.getNilaiUAS(),
             root.MDTA_API.getLogSetoran({}),
             root.MDTA_API.getKelas(),
           ]);
@@ -1192,6 +1194,7 @@
             santri: santriRaw,
             users: [],
             nilai_raport: rptRes.status === 'fulfilled' ? extractArray(rptRes.value, ['raport']) : [],
+            nilai_uas: uasRes.status === 'fulfilled' ? extractArray(uasRes.value, ['nilai_uas']) : [],
             dokumen_arsip: [],
             log_setoran: logRes.status === 'fulfilled' ? extractArray(logRes.value, ['log_setoran']) : [],
             presensi_hari_ini: allPresensi.filter((r) => !tanggal || r.tanggal === tanggal).reverse(),
@@ -1315,5 +1318,6 @@
     getLogSetoran: (params) => requestGet('getLogSetoran', params),
     getRekapKepsek: (tanggal, kelas) => requestGet('getRekapKepsek', { tanggal, kelas }),
     getBootstrapData: (params) => requestGet('getBootstrapData', params),
+    getSyncVersion: () => requestGet('getSyncVersion', { _t: Date.now() }),
   };
 })(window);

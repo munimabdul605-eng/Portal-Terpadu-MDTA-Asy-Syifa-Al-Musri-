@@ -42,6 +42,10 @@
     return API.getOfficialKelasNames(false);
   }
 
+  function normKelasKey(val) {
+    return String(val || '').trim().toLowerCase();
+  }
+
   function getPredicate(score) {
     return API.computeRaportGrade(score);
   }
@@ -257,6 +261,8 @@
     const sendRaportBtn = document.getElementById(`${scope}-uas-send-raport`);
     const resetBtn = document.getElementById(`${scope}-uas-reset`);
     const refreshHistBtn = document.getElementById(`${scope}-uas-refresh-hist`);
+    let lastUserKey = String((opts.session && (opts.session.id_user || opts.session.username)) || '');
+    let uasHistorySeq = 0;
 
     function syncUasClassSelect() {
       if (!kelasInput) return;
@@ -285,10 +291,10 @@
     function getActiveScheme() {
       const id = skemaSelect.value;
       if (id === 'custom') {
-        const maxPg = Math.max(1, Number(cPgMax.value) || 25);
-        const maxEssay = Math.max(1, Number(cEsMax.value) || 10);
-        const bobotPg = Math.max(0, Number(cPgW.value) || 0);
-        const bobotEssay = Math.max(0, Number(cEsW.value) || 0);
+        const maxPg = Math.max(1, UI.parseLocaleNumber(cPgMax.value, 25));
+        const maxEssay = Math.max(1, UI.parseLocaleNumber(cEsMax.value, 10));
+        const bobotPg = Math.max(0, UI.parseLocaleNumber(cPgW.value, 0));
+        const bobotEssay = Math.max(0, UI.parseLocaleNumber(cEsW.value, 0));
         return {
           id: 'custom',
           label: `Kustom (${maxPg} PG [${bobotPg}%] & ${maxEssay} Essay [${bobotEssay}%])`,
@@ -305,9 +311,9 @@
       const scheme = getActiveScheme();
       customBox.hidden = scheme.id !== 'custom';
 
-      const pgVal = Math.max(0, Number(pgInput.value) || 0);
-      const essayVal = Math.max(0, Number(essayInput.value) || 0);
-      const halfVal = Math.max(0, Number(halfInput.value) || 0);
+      const pgVal = Math.max(0, UI.parseLocaleNumber(pgInput.value, 0));
+      const essayVal = Math.max(0, UI.parseLocaleNumber(essayInput.value, 0));
+      const halfVal = Math.max(0, UI.parseLocaleNumber(halfInput.value, 0));
 
       document.getElementById(`${scope}-uas-pg-hint`).textContent = `(Maks ${scheme.maxPg})`;
       document.getElementById(`${scope}-uas-essay-hint`).textContent = `(Maks ${scheme.maxEssay})`;
@@ -409,27 +415,39 @@
       const CACHE = root.MDTA_CACHE;
       if (CACHE) CACHE.hydrateState();
 
-      if (STATE.nilaiUAS.length > 0) {
+      const activeSess = getScopeSession(scope);
+      if (scope === 'guru' && getAllowedClasses(scope, activeSess).length === 0) {
         renderUASHistory();
-      }
-      if (!force && STATE.loaded.uas && STATE.nilaiUAS.length > 0) {
         return;
       }
 
+      if (STATE.nilaiUAS.length > 0) {
+        renderUASHistory();
+      }
+      if (!force && STATE.loaded.uas && (STATE.nilaiUAS.length > 0 || STATE.santri.length > 0)) {
+        return;
+      }
+
+      const mySeq = ++uasHistorySeq;
       try {
-        const activeSess = getScopeSession(scope);
         if (STATE.santri.length === 0) {
           const sRes = await API.getSantri();
+          if (mySeq !== uasHistorySeq) return;
           const normalizedSantri = API.extractArray(sRes, ['santri']).map(API.normalizeSantri);
-          STATE.santri = scope === 'guru' ? API.filterByGuruScope(normalizedSantri, activeSess, 'kelas') : normalizedSantri;
+          const freshSess = getScopeSession(scope);
+          STATE.santri = scope === 'guru' ? API.filterByGuruScope(normalizedSantri, freshSess, 'kelas') : normalizedSantri;
+          STATE.loaded.santri = true;
           if (CACHE) CACHE.write('santri', STATE.santri);
           const dl = document.getElementById(`${scope}-uas-santri-datalist`);
-          if (dl) dl.innerHTML = buildSantriDatalistOptions(scope, activeSess);
+          if (dl) dl.innerHTML = buildSantriDatalistOptions(scope, freshSess);
+          syncUasClassSelect();
         }
         const prevUAS = STATE.nilaiUAS;
         const res = await API.getNilaiUAS();
+        if (mySeq !== uasHistorySeq) return;
+        const freshSess = getScopeSession(scope);
         const rawUAS = API.extractArray(res, ['nilai_uas']).map(API.normalizeNilaiUAS).reverse();
-        const freshUAS = scope === 'guru' ? API.filterByGuruScope(rawUAS, activeSess, 'kelas') : rawUAS;
+        const freshUAS = scope === 'guru' ? API.filterByGuruScope(rawUAS, freshSess, 'kelas') : rawUAS;
         const changed = !CACHE || CACHE.hasChanged(prevUAS, freshUAS);
         STATE.nilaiUAS = freshUAS;
         STATE.loaded.uas = true;
@@ -438,6 +456,7 @@
           renderUASHistory();
         }
       } catch (err) {
+        if (mySeq !== uasHistorySeq) return;
         if (!silent) UI.toast(err.message, 'error');
         renderUASHistory();
       }
@@ -491,8 +510,10 @@
         id_guru: activeSess.id_user || '',
       };
 
+      uasHistorySeq++;
       const res = await API.saveNilaiUAS(payload);
       const d = res.data || res;
+      if (!Array.isArray(STATE.nilaiUAS)) STATE.nilaiUAS = [];
       STATE.nilaiUAS.unshift(
         Object.assign({}, payload, {
           id_uas: d.id_uas || 'Baru',
@@ -505,8 +526,9 @@
       return payload;
     }
 
-    santriInput.addEventListener('change', () => {
+    function syncSantriClassFromInput() {
       const val = santriInput.value.trim().toLowerCase();
+      if (!val) return;
       const activeSess = getScopeSession(scope);
       const pool = scope === 'guru' ? API.filterByGuruScope(STATE.santri || [], activeSess, 'kelas') : (STATE.santri || []);
       const match = pool.find((s) => s.nama_lengkap.toLowerCase() === val);
@@ -518,7 +540,10 @@
           kelasInput.value = matchOpt.value;
         }
       }
-    });
+    }
+
+    santriInput.addEventListener('input', syncSantriClassFromInput);
+    santriInput.addEventListener('change', syncSantriClassFromInput);
 
     [skemaSelect, cPgMax, cEsMax, cPgW, cEsW, pgInput, essayInput, halfInput].forEach((el) => {
       el.addEventListener('input', calculateUAS);
@@ -549,6 +574,7 @@
         return;
       }
       injectUASScoreToRaport({
+        scope,
         nama_lengkap: nama,
         kelas: kelasInput.value.trim(),
         uas: calc.nilaiAkhir,
@@ -571,13 +597,28 @@
       }
     });
 
-    function refreshScope(newSession) {
+    function refreshScope(newSession, refreshOpts) {
       if (newSession) scopeSessions.set(scope, newSession);
       const activeSess = getScopeSession(scope);
+      const nextUserKey = String((activeSess && (activeSess.id_user || activeSess.username)) || '');
+      if (nextUserKey !== lastUserKey) {
+        lastUserKey = nextUserKey;
+        if (santriInput) santriInput.value = '';
+        if (pgInput) pgInput.value = '0';
+        if (essayInput) essayInput.value = '0';
+        if (halfInput) halfInput.value = '0';
+      }
       const dl = document.getElementById(`${scope}-uas-santri-datalist`);
       if (dl) dl.innerHTML = buildSantriDatalistOptions(scope, activeSess);
       syncUasClassSelect();
+      calculateUAS();
       renderUASHistory();
+      if (
+        !(refreshOpts && refreshOpts.skipFetch) &&
+        (!STATE.loaded.uas || (STATE.santri.length === 0 && getAllowedClasses(scope, activeSess).length > 0))
+      ) {
+        loadUASHistory(true, { force: false });
+      }
     }
 
     uasInstances.set(scope, { refreshScope });
@@ -591,29 +632,45 @@
   // KALKULATOR RAPORT + ASISTEN IMPOR NILAI AI + SETORAN KEPALA MADRASAH
   // =========================================================================
   function injectUASScoreToRaport(entry) {
-    const idx = STATE.raportRows.findIndex(
-      (r) => r.nama_santri.trim().toLowerCase() === entry.nama_lengkap.trim().toLowerCase()
+    const scope = (entry && entry.scope) || activeRaportScope || 'admin';
+    const activeSess = getScopeSession(scope);
+    const allowed = getAllowedClasses(scope, activeSess);
+    const santriPool =
+      scope === 'guru' ? API.filterByGuruScope(STATE.santri || [], activeSess, 'kelas') : (STATE.santri || []);
+    const matched = santriPool.find(
+      (s) => s.nama_lengkap.toLowerCase() === entry.nama_lengkap.trim().toLowerCase()
     );
+    const resolvedKelas =
+      String(entry.kelas || '').trim() ||
+      (matched ? matched.kelas : '') ||
+      (scope === 'guru' ? (allowed[0] || '') : '');
+
+    const idx = STATE.raportRows.findIndex((r) => {
+      if (r.nama_santri.trim().toLowerCase() !== entry.nama_lengkap.trim().toLowerCase()) return false;
+      if (scope === 'guru' && r.kelas && !API.isKelasAllowed(r.kelas, allowed)) return false;
+      return true;
+    });
+
     if (idx >= 0) {
       STATE.raportRows[idx].n_uas = clampNum(entry.uas, 0, 100);
-      if (entry.kelas && !STATE.raportRows[idx].kelas) {
-        STATE.raportRows[idx].kelas = entry.kelas;
+      STATE.raportRows[idx]._dirty = true;
+      if (resolvedKelas && !STATE.raportRows[idx].kelas) {
+        STATE.raportRows[idx].kelas = resolvedKelas;
       }
     } else {
-      const matched = (STATE.santri || []).find(
-        (s) => s.nama_lengkap.toLowerCase() === entry.nama_lengkap.trim().toLowerCase()
-      );
       STATE.raportRows.push({
         uid: `row-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
         id_raport: '',
         id_santri: matched ? matched.id_santri : '',
-        nama_santri: entry.nama_lengkap,
-        kelas: entry.kelas || (matched ? matched.kelas : ''),
+        nama_santri: matched ? matched.nama_lengkap : entry.nama_lengkap,
+        kelas: resolvedKelas,
         n_harian: 0,
         n_uas: clampNum(entry.uas, 0, 100),
         n_kehadiran: 100,
+        _dirty: true,
       });
     }
+    if (root.MDTA_CACHE) root.MDTA_CACHE.write('raportRows', STATE.raportRows);
     raportInstances.forEach((inst) => inst.renderRows());
   }
 
@@ -648,8 +705,12 @@
         }
         if (harianRaw !== null && harianRaw !== '') existing.n_harian = clampNum(harianRaw, 0, 100);
         if (uasRaw !== null && uasRaw !== '') existing.n_uas = clampNum(uasRaw, 0, 100);
-        if (absensiRaw !== null && absensiRaw !== '') existing.n_kehadiran = clampNum(absensiRaw, 0, 100);
+        if (absensiRaw !== null && absensiRaw !== '') {
+          existing.n_kehadiran = clampNum(absensiRaw, 0, 100);
+          existing._dirtyKehadiran = true;
+        }
         if (resolvedKelas && !existing.kelas) existing.kelas = resolvedKelas;
+        existing._dirty = true;
       } else {
         STATE.raportRows.push({
           uid: `row-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
@@ -660,6 +721,8 @@
           n_harian: harianRaw !== null && harianRaw !== '' ? clampNum(harianRaw, 0, 100) : 0,
           n_uas: uasRaw !== null && uasRaw !== '' ? clampNum(uasRaw, 0, 100) : 0,
           n_kehadiran: absensiRaw !== null && absensiRaw !== '' ? clampNum(absensiRaw, 0, 100) : 100,
+          _dirty: true,
+          _dirtyKehadiran: absensiRaw !== null && absensiRaw !== '',
         });
       }
       count++;
@@ -801,12 +864,13 @@
 
         UI.setButtonLoading(submitBtn, true, 'Mengekstrak via AI...');
         try {
+          const activeSess = getScopeSession(activeRaportScope || 'admin');
           const res = await API.importNilaiAI({
             rawText,
             filename: selectedFilePayload ? selectedFilePayload.filename : '',
             mimeType: selectedFilePayload ? selectedFilePayload.mimeType : '',
             base64Content: selectedFilePayload ? selectedFilePayload.base64Content : '',
-            diunggah_oleh: (session && (session.nama_lengkap || session.username)) || 'Guru',
+            diunggah_oleh: (activeSess && (activeSess.nama_lengkap || activeSess.username)) || 'Guru',
           });
           const d = res.data || res;
           const rows = Array.isArray(d.extracted)
@@ -1047,6 +1111,7 @@
     const printBtn = document.getElementById(`${scope}-raport-print`);
     const saveBtn = document.getElementById(`${scope}-raport-save-sheets`);
     const tbody = document.getElementById(`${scope}-raport-tbody`);
+    let raportSyncSeq = 0;
 
     function syncRaportClassFilterOptions() {
       const sess = getScopeSession(scope);
@@ -1064,7 +1129,7 @@
           .map((k) => `<option value="${UI.esc(k)}">${UI.esc(k)}</option>`)
           .join('');
         if (cur && API.isKelasAllowed(cur, allowed)) {
-          const matchedOpt = allowed.find((k) => API.normalizeKelas(k) === API.normalizeKelas(cur));
+          const matchedOpt = allowed.find((k) => normKelasKey(k) === normKelasKey(cur));
           kelasFilter.value = matchedOpt || allowed[0];
         } else {
           kelasFilter.value = allowed[0];
@@ -1098,7 +1163,7 @@
       }
       const filterK = kelasFilter.value;
       if (!filterK) return rows;
-      return rows.filter((r) => API.normalizeKelas(r.kelas) === API.normalizeKelas(filterK));
+      return rows.filter((r) => normKelasKey(r.kelas) === normKelasKey(filterK));
     }
 
     function buildRowKelasOptionsHtml(currentKelas) {
@@ -1106,22 +1171,32 @@
       const allowed = getAllowedClasses(scope, sess).slice();
       const curStr = String(currentKelas || '').trim();
       const opts = allowed.slice();
-      if (scope !== 'guru' && curStr && !opts.some((k) => API.normalizeKelas(k) === API.normalizeKelas(curStr))) {
+      if (scope !== 'guru' && curStr && !opts.some((k) => normKelasKey(k) === normKelasKey(curStr))) {
         opts.push(curStr);
       }
       if (opts.length === 0) {
         return '<option value="">Belum ada kelas</option>';
       }
-      const hasMatch = curStr && opts.some((k) => API.normalizeKelas(k) === API.normalizeKelas(curStr));
+      const hasMatch = curStr && opts.some((k) => normKelasKey(k) === normKelasKey(curStr));
       const placeholder = hasMatch ? '' : '<option value="">-- Pilih Kelas --</option>';
       return (
         placeholder +
         opts
           .map((k) => {
-            const selected = hasMatch && API.normalizeKelas(k) === API.normalizeKelas(curStr) ? ' selected' : '';
+            const selected = hasMatch && normKelasKey(k) === normKelasKey(curStr) ? ' selected' : '';
             return `<option value="${UI.esc(k)}"${selected}>${UI.esc(k)}</option>`;
           })
           .join('')
+      );
+    }
+
+    function isTbodyFocused() {
+      return Boolean(
+        typeof document !== 'undefined' &&
+        document.activeElement &&
+        tbody &&
+        typeof tbody.contains === 'function' &&
+        tbody.contains(document.activeElement)
       );
     }
 
@@ -1251,12 +1326,13 @@
         })
         .join('');
 
-      function handleRowFieldUpdate(el) {
+      function handleRowFieldUpdate(el, commitClamp) {
         const tr = el.closest('tr');
         const uid = tr ? tr.dataset.rowUid : '';
         const targetRow = STATE.raportRows.find((r) => r.uid === uid);
         if (!targetRow) return;
         const field = el.dataset.field;
+        targetRow._dirty = true;
         if (field === 'nama_santri') {
           targetRow.nama_santri = el.value;
           const liveSess = getScopeSession(scope);
@@ -1270,7 +1346,12 @@
             if ((!targetRow.kelas || scope === 'guru') && match.kelas) {
               targetRow.kelas = match.kelas;
               const kEl = tr.querySelector('[data-field="kelas"]');
-              if (kEl) kEl.value = match.kelas;
+              if (kEl) {
+                const matchOpt = Array.from(kEl.options || []).find(
+                  (o) => normKelasKey(o.value) === normKelasKey(match.kelas)
+                );
+                kEl.value = matchOpt ? matchOpt.value : match.kelas;
+              }
             }
           }
         } else if (field === 'kelas') {
@@ -1281,18 +1362,30 @@
             return;
           }
           targetRow.kelas = el.value;
+          if (root.MDTA_CACHE) root.MDTA_CACHE.write('raportRows', STATE.raportRows);
+          if (kelasFilter.value && normKelasKey(el.value) !== normKelasKey(kelasFilter.value)) {
+            renderRows();
+            return;
+          }
         } else {
+          if (field === 'n_kehadiran') {
+            targetRow._dirtyKehadiran = true;
+          }
           targetRow[field] = clampNum(el.value, 0, 100);
+          if (commitClamp && String(el.value).trim() !== String(targetRow[field])) {
+            el.value = String(targetRow[field]);
+          }
         }
         if (root.MDTA_CACHE) root.MDTA_CACHE.write('raportRows', STATE.raportRows);
         updateSummaryAndScores();
       }
 
       tbody.querySelectorAll('input[data-field]').forEach((inp) => {
-        inp.addEventListener('input', () => handleRowFieldUpdate(inp));
+        inp.addEventListener('input', () => handleRowFieldUpdate(inp, false));
+        inp.addEventListener('change', () => handleRowFieldUpdate(inp, true));
       });
       tbody.querySelectorAll('select[data-field]').forEach((sel) => {
-        sel.addEventListener('change', () => handleRowFieldUpdate(sel));
+        sel.addEventListener('change', () => handleRowFieldUpdate(sel, true));
       });
 
       tbody.querySelectorAll('button[data-delete-uid]').forEach((btn) => {
@@ -1311,11 +1404,12 @@
       updateSummaryAndScores();
     }
 
-    function mergeSantriAndRaportIntoRows(santriList, savedRaportList, rekapMap) {
+    function mergeSantriAndRaportIntoRows(santriList, savedRaportList, rekapMap, mergeOpts) {
+      const forceOverwriteDirty = Boolean(mergeOpts && mergeOpts.forceOverwriteDirty);
       const savedBySantri = new Map();
       (savedRaportList || []).forEach((sr) => {
         if (sr.id_santri) savedBySantri.set(sr.id_santri, sr);
-        savedBySantri.set(sr.nama_santri.trim().toLowerCase(), sr);
+        if (sr.nama_santri) savedBySantri.set(sr.nama_santri.trim().toLowerCase(), sr);
       });
 
       (santriList || []).forEach((s) => {
@@ -1331,15 +1425,24 @@
         );
 
         if (existing) {
-          existing.id_santri = s.id_santri;
+          existing.id_santri = s.id_santri || existing.id_santri;
           existing.kelas = s.kelas || existing.kelas;
+          const canOverwrite = !existing._dirty || forceOverwriteDirty;
           if (saved) {
             existing.id_raport = saved.id_raport || existing.id_raport;
-            if (!existing.n_harian) existing.n_harian = saved.n_harian;
-            if (!existing.n_uas) existing.n_uas = saved.n_uas;
+            if (canOverwrite) {
+              existing.n_harian = saved.n_harian;
+              existing.n_uas = saved.n_uas;
+            } else {
+              if (!existing.n_harian && saved.n_harian) existing.n_harian = saved.n_harian;
+              if (!existing.n_uas && saved.n_uas) existing.n_uas = saved.n_uas;
+            }
           }
-          if (pct !== undefined) existing.n_kehadiran = pct;
-          else if (saved && saved.n_kehadiran !== undefined) existing.n_kehadiran = saved.n_kehadiran;
+          if (pct !== undefined && (!existing._dirtyKehadiran || forceOverwriteDirty)) {
+            existing.n_kehadiran = pct;
+          } else if (saved && saved.n_kehadiran !== undefined && canOverwrite && !existing._dirtyKehadiran) {
+            existing.n_kehadiran = saved.n_kehadiran;
+          }
         } else {
           STATE.raportRows.push({
             uid: `row-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
@@ -1350,6 +1453,31 @@
             n_harian: saved ? saved.n_harian : 0,
             n_uas: saved ? saved.n_uas : 0,
             n_kehadiran: pct !== undefined ? pct : saved ? saved.n_kehadiran : 100,
+          });
+        }
+      });
+
+      (savedRaportList || []).forEach((sr) => {
+        if (!sr || !sr.nama_santri || sr.nama_santri === '-') return;
+        const normNama = sr.nama_santri.trim().toLowerCase();
+        const normKls = normKelasKey(sr.kelas);
+        const already = STATE.raportRows.find(
+          (r) =>
+            (sr.id_raport && r.id_raport && r.id_raport === sr.id_raport) ||
+            (sr.id_santri && r.id_santri && r.id_santri === sr.id_santri) ||
+            (r.nama_santri.trim().toLowerCase() === normNama &&
+              (!normKls || !r.kelas || normKelasKey(r.kelas) === normKls))
+        );
+        if (!already) {
+          STATE.raportRows.push({
+            uid: `row-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+            id_raport: sr.id_raport || '',
+            id_santri: sr.id_santri || '',
+            nama_santri: sr.nama_santri,
+            kelas: sr.kelas || '',
+            n_harian: sr.n_harian || 0,
+            n_uas: sr.n_uas || 0,
+            n_kehadiran: sr.n_kehadiran !== undefined ? sr.n_kehadiran : 100,
           });
         }
       });
@@ -1371,7 +1499,7 @@
         }
       }
 
-      if (!force && STATE.santri.length > 0 && (STATE.loaded.bootstrap || STATE.loaded.raport)) {
+      if (!force && STATE.santri.length > 0 && STATE.loaded.raport) {
         const scopedSantri =
           scope === 'guru' ? API.filterByGuruScope(STATE.santri, sess, 'kelas') : STATE.santri;
         const scopedSaved =
@@ -1380,11 +1508,17 @@
             : (STATE.nilaiRaportSaved || []);
         mergeSantriAndRaportIntoRows(scopedSantri, scopedSaved, null);
         if (CACHE) CACHE.write('raportRows', STATE.raportRows);
-        renderRows();
+        if (!isTbodyFocused()) {
+          renderRows();
+        } else {
+          updateSummaryAndScores();
+        }
         return;
       }
 
-      if (force || STATE.raportRows.length === 0) {
+      const mySeq = ++raportSyncSeq;
+      const showLoading = force || !silent || STATE.raportRows.length === 0;
+      if (showLoading) {
         UI.setButtonLoading(syncBtn, true, 'Menyinkronkan...');
       }
       try {
@@ -1392,6 +1526,7 @@
         let santriList = STATE.santri || [];
         if (force || santriList.length === 0 || !STATE.loaded.santri) {
           const santriRes = await API.getSantri();
+          if (mySeq !== raportSyncSeq) return;
           santriList = API.extractArray(santriRes, ['santri']).map(API.normalizeSantri);
           if (scope === 'guru') santriList = API.filterByGuruScope(santriList, sess, 'kelas');
           STATE.santri = santriList;
@@ -1404,6 +1539,7 @@
         let rekapMap = new Map();
         try {
           const rekapRes = await API.getRekapLaporan(now.getMonth() + 1, now.getFullYear());
+          if (mySeq !== raportSyncSeq) return;
           const rekapList = API.extractArray(rekapRes, ['rekap']).map(API.normalizeRekap);
           rekapList.forEach((rk) => {
             if (rk.total > 0) {
@@ -1416,9 +1552,10 @@
         }
 
         let savedRaportList = STATE.nilaiRaportSaved || [];
-        if (force || savedRaportList.length === 0) {
+        if (force || savedRaportList.length === 0 || !STATE.loaded.bootstrap) {
           try {
             const rptRes = await API.getNilaiRaport();
+            if (mySeq !== raportSyncSeq) return;
             savedRaportList = API.extractArray(rptRes, ['raport']).map(API.normalizeNilaiRaport);
             if (scope === 'guru') savedRaportList = API.filterByGuruScope(savedRaportList, sess, 'kelas');
             STATE.nilaiRaportSaved = savedRaportList;
@@ -1430,9 +1567,10 @@
           savedRaportList = API.filterByGuruScope(savedRaportList, sess, 'kelas');
         }
 
+        if (mySeq !== raportSyncSeq) return;
         if (santriList.length === 0 && savedRaportList.length === 0) {
           if (!silent) UI.toast('Database santri dan raport saat ini kosong.', 'warn');
-          renderRows();
+          if (!isTbodyFocused()) renderRows();
           return;
         }
 
@@ -1444,16 +1582,23 @@
         STATE.loaded.raport = true;
         if (CACHE) CACHE.write('raportRows', STATE.raportRows);
 
-        if (force || !CACHE || CACHE.hasChanged(prevRows, STATE.raportRows) || prevRows.length === 0) {
-          renderRows();
+        if (!silent || force || !isTbodyFocused()) {
+          if (force || !CACHE || CACHE.hasChanged(prevRows, STATE.raportRows) || prevRows.length === 0) {
+            renderRows();
+          }
+        } else {
+          updateSummaryAndScores();
         }
         if (!silent) {
           UI.toast(`${santriList.length} santri, data nilai, dan persentase kehadiran berhasil disinkronkan.`, 'success');
         }
       } catch (err) {
+        if (mySeq !== raportSyncSeq) return;
         if (!silent) UI.toast(err.message, 'error');
       } finally {
-        UI.setButtonLoading(syncBtn, false);
+        if (showLoading) {
+          UI.setButtonLoading(syncBtn, false);
+        }
       }
     }
 
@@ -1511,23 +1656,39 @@
         };
       });
 
+      raportSyncSeq++;
       const res = await API.saveNilaiRaport(itemsArray);
       const d = res.data || res;
+      const returnedItems = Array.isArray(d.items) ? d.items : [];
       const todayIso = UI.todayISO();
       const existingSaved = Array.isArray(STATE.nilaiRaportSaved) ? STATE.nilaiRaportSaved.slice() : [];
-      itemsArray.forEach((item) => {
+
+      itemsArray.forEach((item, idx) => {
+        const returned = returnedItems[idx];
+        if (returned && returned.id_raport) {
+          item.id_raport = returned.id_raport;
+        }
+        const rowRef = validRows[idx];
+        if (rowRef) {
+          if (item.id_raport) rowRef.id_raport = item.id_raport;
+          rowRef._dirty = false;
+          rowRef._dirtyKehadiran = false;
+        }
         const normItem = API.normalizeNilaiRaport(Object.assign({}, item, { updated_at: todayIso }));
         const matchIdx = existingSaved.findIndex((s) =>
           (normItem.id_raport && s.id_raport === normItem.id_raport) ||
           (s.nama_santri.toLowerCase() === normItem.nama_santri.toLowerCase() &&
-            API.normalizeKelas(s.kelas) === API.normalizeKelas(normItem.kelas) &&
+            normKelasKey(s.kelas) === normKelasKey(normItem.kelas) &&
             s.periode === normItem.periode)
         );
         if (matchIdx >= 0) existingSaved[matchIdx] = normItem;
         else existingSaved.push(normItem);
       });
       STATE.nilaiRaportSaved = existingSaved;
-      if (root.MDTA_CACHE) root.MDTA_CACHE.write('nilaiRaportSaved', existingSaved);
+      if (root.MDTA_CACHE) {
+        root.MDTA_CACHE.write('nilaiRaportSaved', existingSaved);
+        root.MDTA_CACHE.write('raportRows', STATE.raportRows);
+      }
       invalidateAdminReportCache();
       return {
         count: d.savedCount || itemsArray.length,
@@ -1538,6 +1699,7 @@
 
     [wHarian, wUas, wAbsensi].forEach((inp) => {
       inp.addEventListener('input', updateSummaryAndScores);
+      inp.addEventListener('change', updateSummaryAndScores);
     });
 
     resetWeightBtn.addEventListener('click', () => {
@@ -1570,6 +1732,7 @@
         n_harian: 0,
         n_uas: 0,
         n_kehadiran: 100,
+        _dirty: true,
       });
       if (root.MDTA_CACHE) root.MDTA_CACHE.write('raportRows', STATE.raportRows);
       renderRows();
@@ -1644,59 +1807,88 @@
       }
     });
 
-    function refreshScope(newSession) {
+    function refreshScope(newSession, refreshOpts) {
       if (newSession) scopeSessions.set(scope, newSession);
       const sess = getScopeSession(scope);
+      const allowed = getAllowedClasses(scope, sess);
       const signEl = document.getElementById(`${scope}-raport-print-sign-guru`);
       if (signEl) {
         signEl.textContent = sess.nama_lengkap || sess.username || '( ____________________ )';
       }
       if (scope === 'guru') {
-        const allowed = getAllowedClasses(scope, sess);
         STATE.raportRows = (STATE.raportRows || []).filter((r) => API.isKelasAllowed(r.kelas, allowed));
         const scopedSantri = API.filterByGuruScope(STATE.santri || [], sess, 'kelas');
         const scopedSaved = API.filterByGuruScope(STATE.nilaiRaportSaved || [], sess, 'kelas');
-        if (scopedSantri.length > 0) {
+        if (scopedSantri.length > 0 || scopedSaved.length > 0) {
           mergeSantriAndRaportIntoRows(scopedSantri, scopedSaved, null);
         }
         if (root.MDTA_CACHE) root.MDTA_CACHE.write('raportRows', STATE.raportRows);
-      } else if ((STATE.raportRows || []).length === 0 && (STATE.santri || []).length > 0) {
-        mergeSantriAndRaportIntoRows(STATE.santri, STATE.nilaiRaportSaved || [], null);
+      } else if ((STATE.santri || []).length > 0 || (STATE.nilaiRaportSaved || []).length > 0) {
+        mergeSantriAndRaportIntoRows(STATE.santri || [], STATE.nilaiRaportSaved || [], null);
         if (root.MDTA_CACHE) root.MDTA_CACHE.write('raportRows', STATE.raportRows);
       }
       syncRaportClassFilterOptions();
-      renderRows();
+      if (refreshOpts && refreshOpts.silentBackground && isTbodyFocused()) {
+        const dl = document.getElementById(`${scope}-raport-santri-list`);
+        if (dl) dl.innerHTML = buildSantriDatalistOptions(scope, sess);
+        updateSummaryAndScores();
+      } else {
+        renderRows();
+      }
+      if (
+        !(refreshOpts && refreshOpts.skipFetch) &&
+        !STATE.loaded.raport &&
+        (scope !== 'guru' || allowed.length > 0)
+      ) {
+        syncSantriAndKehadiran(true, { force: false });
+      }
     }
 
     raportInstances.set(scope, { renderRows, getWeights, refreshScope });
 
     const CACHE = root.MDTA_CACHE;
     if (CACHE) CACHE.hydrateState();
+    const liveSess = getScopeSession(scope);
+    const allowedOnMount = getAllowedClasses(scope, liveSess);
     if (scope === 'guru') {
-      const liveSess = getScopeSession(scope);
-      const allowed = getAllowedClasses(scope, liveSess);
-      STATE.raportRows = (STATE.raportRows || []).filter((r) => API.isKelasAllowed(r.kelas, allowed));
-      if (STATE.raportRows.length === 0 && STATE.santri.length > 0) {
-        const scopedSantri = API.filterByGuruScope(STATE.santri, liveSess, 'kelas');
-        const scopedSaved = API.filterByGuruScope(STATE.nilaiRaportSaved || [], liveSess, 'kelas');
+      STATE.raportRows = (STATE.raportRows || []).filter((r) => API.isKelasAllowed(r.kelas, allowedOnMount));
+      const scopedSantri = API.filterByGuruScope(STATE.santri || [], liveSess, 'kelas');
+      const scopedSaved = API.filterByGuruScope(STATE.nilaiRaportSaved || [], liveSess, 'kelas');
+      if (scopedSantri.length > 0 || scopedSaved.length > 0) {
         mergeSantriAndRaportIntoRows(scopedSantri, scopedSaved, null);
       }
       if (CACHE) CACHE.write('raportRows', STATE.raportRows);
-    } else if (STATE.raportRows.length === 0 && STATE.santri.length > 0) {
-      mergeSantriAndRaportIntoRows(STATE.santri, STATE.nilaiRaportSaved || [], null);
+    } else {
+      if ((STATE.santri || []).length > 0 || (STATE.nilaiRaportSaved || []).length > 0) {
+        mergeSantriAndRaportIntoRows(STATE.santri || [], STATE.nilaiRaportSaved || [], null);
+      }
       if (CACHE) CACHE.write('raportRows', STATE.raportRows);
     }
 
     renderRows();
 
-    if (STATE.raportRows.length === 0 && !STATE.loaded.raport && !STATE.loaded.bootstrap) {
+    if (!STATE.loaded.raport && (scope !== 'guru' || allowedOnMount.length > 0)) {
       syncSantriAndKehadiran(true, { force: false });
+    }
+  }
+
+  function refreshScope(scope, session, opts) {
+    const targetScope = scope || 'admin';
+    if (session) scopeSessions.set(targetScope, session);
+    const uasInst = uasInstances.get(targetScope);
+    if (uasInst && typeof uasInst.refreshScope === 'function') {
+      uasInst.refreshScope(session, opts);
+    }
+    const rptInst = raportInstances.get(targetScope);
+    if (rptInst && typeof rptInst.refreshScope === 'function') {
+      rptInst.refreshScope(session, opts);
     }
   }
 
   root.MDTA_CALC = {
     mountUAS,
     mountRaport,
+    refreshScope,
     getPredicate,
   };
 })(window);
