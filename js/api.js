@@ -448,6 +448,20 @@
         const found = tabs.find((t) => t.dataset.tab === name);
         if (found) activate(found, Boolean(emit));
       },
+      clearSelection: () => {
+        tabs.forEach((t) => {
+          t.setAttribute('aria-selected', 'false');
+          t.setAttribute('tabindex', '-1');
+          t.classList.remove('active');
+          const panelId = t.getAttribute('aria-controls');
+          if (panelId) {
+            const panel = document.getElementById(panelId);
+            if (panel) panel.hidden = true;
+          }
+        });
+        tablistEl.classList.remove('has-pill');
+        if (pill) pill.style.opacity = '0';
+      },
       reposition: () => {
         const current = tabs.find((t) => t.getAttribute('aria-selected') === 'true') || tabs[0];
         positionPill(current);

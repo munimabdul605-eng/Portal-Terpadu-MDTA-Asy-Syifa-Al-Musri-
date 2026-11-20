@@ -913,7 +913,11 @@ html.light .filter-chip[aria-pressed="true"] {
   font-size: 0.78rem;
   font-weight: 700;
   border: 1px solid;
-  white-space: nowrap;
+  white-space: normal;
+  max-width: 100%;
+  line-height: 1.3;
+  flex-wrap: wrap;
+  overflow-wrap: break-word;
 }
 
 .status-hadir {
@@ -1204,6 +1208,7 @@ html.light .filter-chip[aria-pressed="true"] {
 
 .score-big-box {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
@@ -1653,8 +1658,8 @@ html.light .filter-chip[aria-pressed="true"] {
   .tab-label-mobile {
     display: block;
     max-width: 100%;
-    overflow: hidden;
-    text-overflow: ellipsis;
+    font-size: 0.67rem;
+    letter-spacing: -0.01em;
     white-space: nowrap;
   }
   .portal-tablist .tab-btn[aria-selected="true"],
@@ -1663,10 +1668,74 @@ html.light .filter-chip[aria-pressed="true"] {
     color: var(--btn-primary-text);
   }
 
-  /* 3. Kartu Ringkasan 2x2 & Tombol Aksi Proporsional (>= 44px) */
+  /* 3. Kartu Ringkasan 2x2, Header Berimbang, & Anti-Clipping Mobile */
+  .page-header-row {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+    margin-bottom: 16px;
+  }
+  .admin-calc-switcher {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    width: 100%;
+    gap: 8px;
+  }
+  .admin-calc-btn {
+    width: 100%;
+    min-height: 44px;
+    justify-content: center;
+  }
+  .calc-view-backbar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .calc-view-backbar .btn {
+    width: 100%;
+    min-height: 44px;
+  }
+  .summary-mini-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
+  }
+  .summary-mini-card {
+    padding: 10px 8px;
+  }
+  .summary-mini-card .stat-label {
+    font-size: 0.72rem;
+    line-height: 1.25;
+  }
+  .summary-mini-card .stat-mini-val {
+    font-size: 1.2rem;
+  }
+  .surface-card,
+  .sub-surface,
+  .stat-card,
+  .kelas-report-block,
+  .kelas-manage-card,
+  .rekap-kelas-card,
+  .nilai-rekap-card,
+  .guru-banner,
+  .mobile-cards-table tbody tr {
+    max-width: 100%;
+    min-width: 0;
+    overflow: visible;
+  }
+  .surface-card *,
+  .mobile-cards-table tbody tr td {
+    min-width: 0;
+    max-width: 100%;
+    overflow-wrap: break-word;
+  }
   .surface-card {
-    padding: 16px;
+    padding: 15px 14px;
     border-radius: 16px;
+  }
+  .kelas-report-block,
+  .rekap-kelas-card,
+  .kelas-manage-card,
+  .guru-banner {
+    padding: 14px;
   }
   .login-card {
     padding: 20px;
@@ -1697,6 +1766,13 @@ html.light .filter-chip[aria-pressed="true"] {
   .status-choice-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+  .btn {
+    white-space: normal;
+    text-align: center;
+    line-height: 1.25;
+    max-width: 100%;
+    height: auto;
+  }
   .section-toolbar {
     flex-direction: column;
     align-items: stretch;
@@ -1716,15 +1792,28 @@ html.light .filter-chip[aria-pressed="true"] {
   .toolbar-actions > a.btn {
     flex: 1 1 calc(50% - 4px);
     min-height: 44px;
-    padding: 10px 12px;
+    padding: 10px 10px;
     white-space: normal;
     text-align: center;
   }
   .toolbar-actions > .status-badge {
-    flex: 0 0 auto;
+    flex: 0 1 auto;
   }
   .toolbar-actions > .filter-chip-row {
     flex: 1 1 100%;
+  }
+  .kelas-manage-card .toolbar-actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+  .kelas-manage-card .toolbar-actions > button[data-map-kelas] {
+    grid-column: 1 / -1;
+  }
+  .kelas-manage-card .toolbar-actions > .btn {
+    width: 100%;
+    min-height: 44px;
+    padding: 8px 10px;
   }
   #btn-submit-absensi-kepsek,
   [id$="-raport-submit-kepsek"],
@@ -1745,8 +1834,19 @@ html.light .filter-chip[aria-pressed="true"] {
   .drive-item > a.btn {
     width: 100%;
   }
+  .nilai-kpi-box {
+    padding: 8px 6px;
+    min-width: 0;
+  }
+  .nilai-kpi-val {
+    font-size: clamp(1rem, 4vw, 1.2rem);
+  }
+  .nilai-kpi-lbl {
+    font-size: 0.7rem;
+    line-height: 1.25;
+  }
 
-  /* 4. Konversi Tabel ke Kartu Vertikal (Tanpa Scroll Samping) */
+  /* 4. Konversi Tabel ke Kartu Vertikal (Tanpa Scroll Samping & Tanpa Terpotong) */
   .mobile-cards-wrap {
     border: none;
     background: transparent;
@@ -1820,6 +1920,7 @@ html.light .filter-chip[aria-pressed="true"] {
   .mobile-cards-santri td.snt-nama {
     grid-area: nama;
     font-size: 1rem;
+    overflow-wrap: anywhere;
   }
   .mobile-cards-santri td.snt-status {
     grid-area: status;
@@ -1839,6 +1940,7 @@ html.light .filter-chip[aria-pressed="true"] {
     grid-area: ttl;
     font-size: 0.82rem;
     color: var(--text-secondary);
+    overflow-wrap: anywhere;
   }
   .mobile-cards-santri td.snt-ttl::before {
     content: "TTL: ";
@@ -1866,6 +1968,7 @@ html.light .filter-chip[aria-pressed="true"] {
     grid-area: nik;
     font-size: 0.82rem;
     word-break: break-all;
+    overflow-wrap: anywhere;
   }
   .mobile-cards-santri td.snt-nik::before {
     content: "NIK: ";
@@ -1875,6 +1978,7 @@ html.light .filter-chip[aria-pressed="true"] {
     grid-area: wa;
     justify-self: start;
     font-size: 0.82rem;
+    overflow-wrap: anywhere;
   }
   .mobile-cards-santri td.snt-wa::before {
     content: "WA: ";
@@ -1883,6 +1987,9 @@ html.light .filter-chip[aria-pressed="true"] {
   .mobile-cards-santri td.snt-token {
     grid-area: token;
     font-size: 0.8rem;
+  }
+  .mobile-cards-santri td.snt-token code {
+    word-break: break-all;
   }
   .mobile-cards-santri td.snt-token::before {
     content: "Token: ";
@@ -2018,6 +2125,7 @@ html.light .filter-chip[aria-pressed="true"] {
   }
   .mobile-cards-users td.usr-nama {
     grid-area: nama;
+    overflow-wrap: anywhere;
   }
   .mobile-cards-users td.usr-status {
     grid-area: status;
@@ -2030,6 +2138,7 @@ html.light .filter-chip[aria-pressed="true"] {
     grid-area: kelas;
     font-size: 0.82rem;
     color: var(--text-secondary);
+    overflow-wrap: anywhere;
   }
   .mobile-cards-users td.usr-kelas::before {
     content: "Kelas Ampu: ";
@@ -2062,36 +2171,43 @@ html.light .filter-chip[aria-pressed="true"] {
     display: none;
   }
   .mobile-cards-rekap td.rkp-nama {
-    grid-column: 1 / 4;
+    grid-column: 1 / -1;
     grid-row: 1;
     font-size: 0.98rem;
-  }
-  .mobile-cards-rekap td.rkp-pct {
-    grid-column: 4 / 5;
-    grid-row: 1;
-    justify-self: end;
+    overflow-wrap: anywhere;
   }
   .mobile-cards-rekap td.rkp-id {
     grid-column: 1 / 3;
     grid-row: 2;
     font-size: 0.8rem;
     color: var(--text-muted);
+    align-self: center;
   }
   .mobile-cards-rekap td.rkp-id::before {
     content: "ID: ";
   }
-  .mobile-cards-rekap td.rkp-kelas {
+  .mobile-cards-rekap td.rkp-pct {
     grid-column: 3 / 5;
     grid-row: 2;
     justify-self: end;
+    align-self: center;
+  }
+  .mobile-cards-rekap td.rkp-kelas {
+    grid-column: 1 / -1;
+    grid-row: 3;
+    justify-self: start;
     font-size: 0.8rem;
     color: var(--text-secondary);
+  }
+  .mobile-cards-rekap td.rkp-kelas::before {
+    content: "Kelas: ";
+    color: var(--text-muted);
   }
   .mobile-cards-rekap td.rkp-h,
   .mobile-cards-rekap td.rkp-s,
   .mobile-cards-rekap td.rkp-i,
   .mobile-cards-rekap td.rkp-a {
-    grid-row: 3;
+    grid-row: 4;
     text-align: center;
     padding: 8px 4px;
     border-radius: var(--radius-sm);
@@ -2115,14 +2231,16 @@ html.light .filter-chip[aria-pressed="true"] {
   .mobile-cards-generic tbody tr {
     display: flex;
     flex-direction: column;
-    gap: 6px;
+    gap: 8px;
   }
   .mobile-cards-generic tbody td {
     display: flex;
-    align-items: center;
+    flex-wrap: wrap;
+    align-items: flex-start;
     justify-content: space-between;
-    gap: 10px;
+    gap: 4px 10px;
     font-size: 0.86rem;
+    text-align: right;
   }
   .mobile-cards-generic tbody td::before {
     content: attr(data-label);
@@ -2130,12 +2248,19 @@ html.light .filter-chip[aria-pressed="true"] {
     font-weight: 600;
     color: var(--text-muted);
     flex-shrink: 0;
+    text-align: left;
   }
   .mobile-cards-generic tbody td.mc-primary {
     order: -2;
+    justify-content: flex-start;
+    text-align: left;
     font-size: 0.96rem;
     padding-bottom: 6px;
     border-bottom: 1px solid var(--border-subtle);
+    overflow-wrap: anywhere;
+  }
+  .mobile-cards-generic tbody td.mc-primary::before {
+    display: none;
   }
 
   /* Modal Detail Nilai Cards */
@@ -2266,7 +2391,41 @@ html.light .filter-chip[aria-pressed="true"] {
   .kelas-report-header,
   .rekap-kelas-header {
     flex-direction: column;
-    align-items: flex-start;
+    align-items: stretch;
+  }
+  .kelas-header-main {
+    flex: 0 1 auto;
+    width: 100%;
+  }
+  .kelas-header-actions {
+    width: 100%;
+  }
+}
+
+@media (max-width: 420px) {
+  .summary-mini-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .summary-mini-grid > .summary-mini-card:last-child {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 390px) {
+  .mobile-cards-santri tbody tr {
+    grid-template-areas:
+      "check nama status"
+      "kelas kelas kelas"
+      "ttl ttl ttl"
+      "id id id"
+      "nis nis nis"
+      "nik nik nik"
+      "wa wa wa"
+      "token token token"
+      "actions actions actions";
+  }
+  .mobile-cards-santri td.snt-nis {
+    justify-self: start;
   }
 }
 
@@ -2747,6 +2906,110 @@ html.light .kelas-subtab[aria-pressed="true"] {
   gap: 10px;
   padding-bottom: 10px;
   border-bottom: 1px solid var(--border-subtle);
+}
+
+/* ==========================================================================
+   TATA LETAK PORTAL ADMIN TERPISAH & ANTI-CLIPPING KARTU
+   ========================================================================== */
+.page-header-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.page-header-title-wrap {
+  min-width: 0;
+  flex: 1 1 280px;
+}
+
+.admin-calc-switcher {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.admin-calc-btn[aria-pressed="true"] {
+  background-color: var(--btn-primary-bg);
+  color: var(--btn-primary-text);
+  border-color: var(--btn-primary-bg);
+}
+
+:root:not(.dark) .admin-calc-btn[aria-pressed="true"],
+:root:not(.dark) .admin-calc-btn[aria-pressed="true"] span,
+:root:not(.dark) .admin-calc-btn[aria-pressed="true"] svg,
+html.light .admin-calc-btn[aria-pressed="true"],
+html.light .admin-calc-btn[aria-pressed="true"] span,
+html.light .admin-calc-btn[aria-pressed="true"] svg {
+  color: #ffffff;
+}
+
+.calc-view-backbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 12px 16px;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-strong);
+  background-color: var(--bg-surface);
+}
+
+.summary-mini-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.summary-mini-card {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 14px 16px;
+  min-width: 0;
+}
+
+.stat-mini-val {
+  font-size: 1.55rem;
+  font-weight: 700;
+  line-height: 1.15;
+  color: var(--text-primary);
+}
+
+.kelas-header-main {
+  min-width: 0;
+  flex: 1 1 240px;
+}
+
+.kelas-header-actions {
+  flex-shrink: 0;
+}
+
+.kelas-card-head-main {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.guru-pill,
+.kelas-subtab,
+.stat-card,
+.surface-card,
+.sub-surface,
+.kelas-report-block,
+.kelas-manage-card,
+.rekap-kelas-card,
+.nilai-rekap-card,
+.absent-student-item,
+.drive-item,
+.guru-banner,
+.score-big-box {
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: break-word;
 }
 
 /* ==========================================================================

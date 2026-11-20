@@ -23,20 +23,20 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@500;600;700&family=Montserrat:wght@700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
 
-  <link rel="stylesheet" href="./css/tokens.css?v=20261120-6" />
-  <link rel="stylesheet" href="./css/style.css?v=20261120-6" />
+  <link rel="stylesheet" href="./css/tokens.css?v=20261120-7" />
+  <link rel="stylesheet" href="./css/style.css?v=20261120-7" />
 
   <script defer src="https://unpkg.com/lucide@0.468.0/dist/umd/lucide.min.js"></script>
   <script defer src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
   <script defer src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
   <script defer src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 
-  <script defer src="./js/config.js?v=20261120-6"></script>
-  <script defer src="./js/api.js?v=20261120-6"></script>
-  <script defer src="./js/calculators.js?v=20261120-6"></script>
-  <script defer src="./js/admin.js?v=20261120-6"></script>
-  <script defer src="./js/guru.js?v=20261120-6"></script>
-  <script defer src="./js/auth.js?v=20261120-6"></script>
+  <script defer src="./js/config.js?v=20261120-7"></script>
+  <script defer src="./js/api.js?v=20261120-7"></script>
+  <script defer src="./js/calculators.js?v=20261120-7"></script>
+  <script defer src="./js/admin.js?v=20261120-7"></script>
+  <script defer src="./js/guru.js?v=20261120-7"></script>
+  <script defer src="./js/auth.js?v=20261120-7"></script>
 </head>
 <body>
   <a href="#main-content" class="skip-link">Langsung ke konten utama</a>
@@ -181,12 +181,24 @@
     </section>
 
     <!-- =================================================================
-         PORTAL KEPALA MADRASAH / ADMIN (5 TAB)
+         PORTAL KEPALA MADRASAH / ADMIN (5 TAB UTAMA + 2 KALKULATOR)
          ================================================================= -->
     <section id="view-admin" class="view-panel" aria-labelledby="admin-portal-heading" hidden>
-      <div class="page-header no-print">
-        <span class="eyebrow-label">Kepala Madrasah &amp; Tata Usaha</span>
-        <h1 id="admin-portal-heading" class="heading-xl">Portal Kepala Madrasah MDTA</h1>
+      <div class="page-header page-header-row no-print">
+        <div class="page-header-title-wrap">
+          <span class="eyebrow-label">Kepala Madrasah &amp; Tata Usaha</span>
+          <h1 id="admin-portal-heading" class="heading-xl">Portal Kepala Madrasah MDTA</h1>
+        </div>
+        <div id="admin-calc-switcher" class="admin-calc-switcher" role="group" aria-label="Alat Hitung Penilaian">
+          <button id="btn-open-admin-uas" type="button" class="btn btn-secondary btn-sm admin-calc-btn" data-admin-calc="uas" aria-pressed="false">
+            <i data-lucide="calculator" aria-hidden="true"></i>
+            <span>Kalkulator UAS</span>
+          </button>
+          <button id="btn-open-admin-raport" type="button" class="btn btn-secondary btn-sm admin-calc-btn" data-admin-calc="raport" aria-pressed="false">
+            <i data-lucide="clipboard-list" aria-hidden="true"></i>
+            <span>Kalkulator Raport</span>
+          </button>
+        </div>
       </div>
 
       <div class="portal-tablist-wrap no-print">
@@ -207,15 +219,15 @@
             <span class="tab-label-desktop">Rekap Bulanan</span>
             <span class="tab-label-mobile">Rekap</span>
           </button>
-          <button type="button" role="tab" id="admin-tab-uas" class="tab-btn" data-tab="uas" aria-selected="false" aria-controls="admin-panel-uas" tabindex="-1">
-            <i data-lucide="calculator" aria-hidden="true"></i>
-            <span class="tab-label-desktop">Kalkulator UAS</span>
-            <span class="tab-label-mobile">UAS</span>
+          <button type="button" role="tab" id="admin-tab-kelas" class="tab-btn" data-tab="kelas" aria-selected="false" aria-controls="admin-panel-kelas" tabindex="-1">
+            <i data-lucide="book-open" aria-hidden="true"></i>
+            <span class="tab-label-desktop">Kelas &amp; Guru</span>
+            <span class="tab-label-mobile">Kelas</span>
           </button>
-          <button type="button" role="tab" id="admin-tab-raport" class="tab-btn" data-tab="raport" aria-selected="false" aria-controls="admin-panel-raport" tabindex="-1">
-            <i data-lucide="clipboard-list" aria-hidden="true"></i>
-            <span class="tab-label-desktop">Kalkulator Raport</span>
-            <span class="tab-label-mobile">Raport</span>
+          <button type="button" role="tab" id="admin-tab-akun" class="tab-btn" data-tab="akun" aria-selected="false" aria-controls="admin-panel-akun" tabindex="-1">
+            <i data-lucide="user-cog" aria-hidden="true"></i>
+            <span class="tab-label-desktop">Akun Guru</span>
+            <span class="tab-label-mobile">Akun</span>
           </button>
         </div>
       </div>
@@ -378,88 +390,44 @@
           </div>
         </section>
 
-        <!-- C. KELOLA KELAS RESMI & PEMETAAN GURU PENGAMPU -->
-        <section id="admin-kelas-management-section" class="surface-card stack-gap no-print">
+        <!-- C. RIWAYAT ABSENSI LENGKAP (FULL-WIDTH) -->
+        <section class="surface-card stack-gap no-print">
           <div class="card-spotlight-layer" aria-hidden="true"></div>
           <div class="section-toolbar" style="margin-bottom:0;">
             <div>
-              <h3 class="heading-md">Kelola Kelas &amp; Pemetaan Guru</h3>
-              <p class="text-muted" style="margin:4px 0 0;font-size:0.8125rem;">Kelola daftar kelas resmi dan guru pengampu langsung dari portal tanpa membuka Google Sheets.</p>
-            </div>
-            <button id="btn-add-kelas" type="button" class="btn btn-primary btn-sm">
-              <i data-lucide="folder-plus" aria-hidden="true"></i>
-              <span>Tambah Kelas</span>
-            </button>
-          </div>
-          <div id="admin-kelas-grid" class="kelas-manage-grid"></div>
-        </section>
-
-        <!-- D. RIWAYAT ABSENSI LENGKAP & KELOLA AKUN GURU -->
-        <div class="dashboard-split no-print">
-          <section class="surface-card stack-gap">
-            <div class="card-spotlight-layer" aria-hidden="true"></div>
-            <div class="section-toolbar" style="margin-bottom:0;">
               <h3 class="heading-md">Riwayat Lengkap Absensi</h3>
-              <div id="admin-riwayat-status-filters" class="filter-chip-row" role="group" aria-label="Filter status absensi">
-                <button type="button" class="filter-chip" data-status-filter="Semua" aria-pressed="true">Semua</button>
-                <button type="button" class="filter-chip" data-status-filter="Hadir" aria-pressed="false">Hadir</button>
-                <button type="button" class="filter-chip" data-status-filter="Sakit" aria-pressed="false">Sakit</button>
-                <button type="button" class="filter-chip" data-status-filter="Izin" aria-pressed="false">Izin</button>
-                <button type="button" class="filter-chip" data-status-filter="Alpa" aria-pressed="false">Alpa</button>
-              </div>
+              <p class="text-muted" style="margin:4px 0 0;font-size:0.8125rem;">Untuk mengatur daftar kelas &amp; guru pengampu buka tab <strong>Kelas &amp; Guru</strong>, atau tab <strong>Akun Guru</strong> untuk mengelola akun.</p>
             </div>
+            <div id="admin-riwayat-status-filters" class="filter-chip-row" role="group" aria-label="Filter status absensi">
+              <button type="button" class="filter-chip" data-status-filter="Semua" aria-pressed="true">Semua</button>
+              <button type="button" class="filter-chip" data-status-filter="Hadir" aria-pressed="false">Hadir</button>
+              <button type="button" class="filter-chip" data-status-filter="Sakit" aria-pressed="false">Sakit</button>
+              <button type="button" class="filter-chip" data-status-filter="Izin" aria-pressed="false">Izin</button>
+              <button type="button" class="filter-chip" data-status-filter="Alpa" aria-pressed="false">Alpa</button>
+            </div>
+          </div>
 
-            <div class="field-group">
-              <label class="field-label sr-only" for="admin-riwayat-search">Cari riwayat absensi</label>
-              <input id="admin-riwayat-search" type="search" class="input-control" placeholder="Cari nama santri, kelas, atau guru piket..." />
-            </div>
+          <div class="field-group">
+            <label class="field-label sr-only" for="admin-riwayat-search">Cari riwayat absensi</label>
+            <input id="admin-riwayat-search" type="search" class="input-control" placeholder="Cari nama santri, kelas, atau guru piket..." />
+          </div>
 
-            <div class="table-scroll mobile-cards-wrap">
-              <table class="data-table mobile-cards-table mobile-cards-generic">
-                <thead>
-                  <tr>
-                    <th>Tanggal &amp; Jam</th>
-                    <th>Nama Santri</th>
-                    <th>Kelas</th>
-                    <th>Status</th>
-                    <th>Metode</th>
-                    <th>Guru Piket</th>
-                  </tr>
-                </thead>
-                <tbody id="admin-riwayat-tbody"></tbody>
-              </table>
-            </div>
-          </section>
-
-          <section class="surface-card stack-gap">
-            <div class="card-spotlight-layer" aria-hidden="true"></div>
-            <div class="section-toolbar" style="margin-bottom:0;">
-              <div>
-                <h3 class="heading-md">Kelola Akun Guru &amp; Admin</h3>
-                <p class="text-muted" style="margin:4px 0 0;font-size:0.8125rem;">Atur akun masuk dan kelas ampu untuk Kepala Madrasah dan Guru.</p>
-              </div>
-              <button id="btn-add-user" type="button" class="btn btn-primary btn-sm">
-                <i data-lucide="user-plus" aria-hidden="true"></i>
-                <span>Tambah Pengguna</span>
-              </button>
-            </div>
-
-            <div class="table-scroll mobile-cards-wrap">
-              <table class="data-table mobile-cards-table mobile-cards-users">
-                <thead>
-                  <tr>
-                    <th>Nama &amp; Username</th>
-                    <th>Peran</th>
-                    <th>Kelas Ampu</th>
-                    <th>Status</th>
-                    <th style="width:96px;">Aksi</th>
-                  </tr>
-                </thead>
-                <tbody id="admin-users-tbody"></tbody>
-              </table>
-            </div>
-          </section>
-        </div>
+          <div class="table-scroll mobile-cards-wrap">
+            <table class="data-table mobile-cards-table mobile-cards-generic">
+              <thead>
+                <tr>
+                  <th>Tanggal &amp; Jam</th>
+                  <th>Nama Santri</th>
+                  <th>Kelas</th>
+                  <th>Status</th>
+                  <th>Metode</th>
+                  <th>Guru Piket</th>
+                </tr>
+              </thead>
+              <tbody id="admin-riwayat-tbody"></tbody>
+            </table>
+          </div>
+        </section>
       </div>
 
       <!-- TAB 2: DATABASE SANTRI -->
@@ -604,13 +572,141 @@
         </section>
       </div>
 
-      <!-- TAB 4: KALKULATOR UAS -->
-      <div id="admin-panel-uas" class="tab-panel" role="tabpanel" aria-labelledby="admin-tab-uas" hidden>
+      <!-- TAB 4: KELOLA KELAS & PEMETAAN GURU -->
+      <div id="admin-panel-kelas" class="tab-panel stack-gap" role="tabpanel" aria-labelledby="admin-tab-kelas" hidden>
+        <section id="admin-kelas-management-section" class="surface-card stack-gap no-print">
+          <div class="card-spotlight-layer" aria-hidden="true"></div>
+          <div class="section-toolbar" style="margin-bottom:0;">
+            <div>
+              <h2 class="heading-lg">Kelola Kelas &amp; Pemetaan Guru</h2>
+              <p class="text-muted" style="margin:4px 0 0;font-size:0.8125rem;">Atur daftar kelas resmi dan guru pengampu setiap kelas secara terpusat tanpa membuka Google Sheets.</p>
+            </div>
+            <div class="toolbar-actions">
+              <button id="btn-refresh-kelas" type="button" class="btn btn-secondary btn-sm">
+                <i data-lucide="refresh-cw" aria-hidden="true"></i>
+                <span>Muat Ulang</span>
+              </button>
+              <button id="btn-add-kelas" type="button" class="btn btn-primary btn-sm">
+                <i data-lucide="folder-plus" aria-hidden="true"></i>
+                <span>Tambah Kelas</span>
+              </button>
+            </div>
+          </div>
+
+          <div class="summary-mini-grid" aria-label="Ringkasan kelas dan guru">
+            <div class="sub-surface summary-mini-card">
+              <span class="stat-label">Total Kelas Aktif</span>
+              <strong id="kelas-stat-total" class="mono-num stat-mini-val">0</strong>
+            </div>
+            <div class="sub-surface summary-mini-card">
+              <span class="stat-label">Sudah Ada Guru</span>
+              <strong id="kelas-stat-mapped" class="mono-num stat-mini-val" style="color:var(--status-hadir-fg);">0</strong>
+            </div>
+            <div class="sub-surface summary-mini-card">
+              <span class="stat-label">Belum Ada Guru</span>
+              <strong id="kelas-stat-unmapped" class="mono-num stat-mini-val" style="color:var(--status-sakit-fg);">0</strong>
+            </div>
+          </div>
+
+          <div id="admin-kelas-grid" class="kelas-manage-grid"></div>
+        </section>
+      </div>
+
+      <!-- TAB 5: KELOLA AKUN GURU & ADMIN -->
+      <div id="admin-panel-akun" class="tab-panel stack-gap" role="tabpanel" aria-labelledby="admin-tab-akun" hidden>
+        <section id="admin-akun-management-section" class="surface-card stack-gap no-print">
+          <div class="card-spotlight-layer" aria-hidden="true"></div>
+          <div class="section-toolbar" style="margin-bottom:0;">
+            <div>
+              <h2 class="heading-lg">Kelola Akun Guru &amp; Admin</h2>
+              <p class="text-muted" style="margin:4px 0 0;font-size:0.8125rem;">Kelola akun masuk, kata sandi, dan pembagian kelas ampu untuk Kepala Madrasah maupun Guru.</p>
+            </div>
+            <div class="toolbar-actions">
+              <button id="btn-refresh-users" type="button" class="btn btn-secondary btn-sm">
+                <i data-lucide="refresh-cw" aria-hidden="true"></i>
+                <span>Muat Ulang</span>
+              </button>
+              <button id="btn-add-user" type="button" class="btn btn-primary btn-sm">
+                <i data-lucide="user-plus" aria-hidden="true"></i>
+                <span>Tambah Pengguna</span>
+              </button>
+            </div>
+          </div>
+
+          <div class="summary-mini-grid" aria-label="Ringkasan akun portal">
+            <div class="sub-surface summary-mini-card">
+              <span class="stat-label">Total Akun</span>
+              <strong id="users-stat-total" class="mono-num stat-mini-val">0</strong>
+            </div>
+            <div class="sub-surface summary-mini-card">
+              <span class="stat-label">Akun Guru</span>
+              <strong id="users-stat-guru" class="mono-num stat-mini-val" style="color:var(--status-izin-fg);">0</strong>
+            </div>
+            <div class="sub-surface summary-mini-card">
+              <span class="stat-label">Guru Belum Dipetakan</span>
+              <strong id="users-stat-unmapped" class="mono-num stat-mini-val" style="color:var(--status-sakit-fg);">0</strong>
+            </div>
+          </div>
+
+          <div class="form-grid">
+            <div class="field-group">
+              <label class="field-label" for="users-search-input">Cari Akun Guru / Admin</label>
+              <input id="users-search-input" type="search" class="input-control" placeholder="Ketik nama, username, atau kelas ampu..." />
+            </div>
+            <div class="field-group">
+              <label class="field-label" for="users-role-filter">Filter Peran</label>
+              <select id="users-role-filter" class="select-control">
+                <option value="Semua">Semua Peran</option>
+                <option value="guru">Guru Saja</option>
+                <option value="admin">Kepala Madrasah / Admin</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="table-scroll mobile-cards-wrap">
+            <table class="data-table mobile-cards-table mobile-cards-users">
+              <thead>
+                <tr>
+                  <th>Nama &amp; Username</th>
+                  <th>Peran</th>
+                  <th>Kelas Ampu</th>
+                  <th>Status</th>
+                  <th style="width:96px;">Aksi</th>
+                </tr>
+              </thead>
+              <tbody id="admin-users-tbody"></tbody>
+            </table>
+          </div>
+        </section>
+      </div>
+
+      <!-- MODUL KALKULATOR UAS (AKSES CEPAT HEADER, BUKAN DI TAB BAWAH) -->
+      <div id="admin-panel-uas" class="tab-panel stack-gap" role="region" aria-label="Kalkulator UAS" hidden>
+        <div class="calc-view-backbar no-print">
+          <button type="button" class="btn btn-secondary btn-sm" data-back-to-dashboard="true">
+            <i data-lucide="arrow-left" aria-hidden="true"></i>
+            <span>Kembali ke Beranda Laporan</span>
+          </button>
+          <button type="button" class="btn btn-secondary btn-sm" data-admin-calc="raport">
+            <i data-lucide="clipboard-list" aria-hidden="true"></i>
+            <span>Buka Kalkulator Raport</span>
+          </button>
+        </div>
         <div id="admin-uas-mount"></div>
       </div>
 
-      <!-- TAB 5: KALKULATOR RAPORT -->
-      <div id="admin-panel-raport" class="tab-panel" role="tabpanel" aria-labelledby="admin-tab-raport" hidden>
+      <!-- MODUL KALKULATOR RAPORT (AKSES CEPAT HEADER, BUKAN DI TAB BAWAH) -->
+      <div id="admin-panel-raport" class="tab-panel stack-gap" role="region" aria-label="Kalkulator Raport" hidden>
+        <div class="calc-view-backbar no-print">
+          <button type="button" class="btn btn-secondary btn-sm" data-back-to-dashboard="true">
+            <i data-lucide="arrow-left" aria-hidden="true"></i>
+            <span>Kembali ke Beranda Laporan</span>
+          </button>
+          <button type="button" class="btn btn-secondary btn-sm" data-admin-calc="uas">
+            <i data-lucide="calculator" aria-hidden="true"></i>
+            <span>Buka Kalkulator UAS</span>
+          </button>
+        </div>
         <div id="admin-raport-mount"></div>
       </div>
     </section>

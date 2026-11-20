@@ -26,6 +26,8 @@
     riwayatHarian: [],
     riwayatFilterStatus: 'Semua',
     riwayatQuery: '',
+    usersQuery: '',
+    usersRoleFilter: 'Semua',
     santriQuery: '',
     santriKelasFilter: '',
     currentQRData: null,
@@ -430,7 +432,7 @@
       container.innerHTML = UI.renderStateBox({
         type: 'empty',
         title: 'Belum ada data kelas terdaftar',
-        message: 'Tambahkan kelas di panel "Kelola Kelas & Pemetaan Guru" atau daftarkan santri terlebih dahulu.',
+        message: 'Tambahkan kelas di tab "Kelas & Guru" atau daftarkan santri di tab "Data Santri".',
       });
       UI.refreshIcons(container);
       return;
@@ -450,7 +452,7 @@
         return `
           <article class="kelas-report-block">
             <div class="kelas-report-header">
-              <div style="min-width:0;flex:1 1 240px;">
+              <div class="kelas-header-main">
                 <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
                   <h4 class="heading-md">${UI.esc(blk.kelas)}</h4>
                   <span class="status-badge status-izin mono-num">${Number(blk.jumlah_santri || 0)} santri aktif</span>
@@ -464,7 +466,7 @@
                   ${st.sudah_setor && st.nama_guru ? ` · Penyetor hari ini: <strong>${UI.esc(st.nama_guru)}</strong>` : ''}
                 </div>
               </div>
-              <div class="toolbar-actions" style="flex-shrink:0;">
+              <div class="toolbar-actions kelas-header-actions">
                 <button type="button" class="btn btn-secondary btn-sm" data-print-class-laporan="${blkIdx}">
                   <i data-lucide="printer" aria-hidden="true"></i>
                   <span>Cetak PDF Kelas</span>
@@ -794,16 +796,49 @@
 
   function renderUsersTable() {
     const tbody = document.getElementById('admin-users-tbody');
+    const allUsers = Array.isArray(STATE.users) ? STATE.users : [];
+    const totalEl = document.getElementById('users-stat-total');
+    const guruEl = document.getElementById('users-stat-guru');
+    const unmappedEl = document.getElementById('users-stat-unmapped');
+
+    const guruUsers = allUsers.filter((u) => String(u.role || '').toLowerCase() !== 'admin');
+    const unmappedGurus = guruUsers.filter((u) => {
+      const list = Array.isArray(u.kelas_ampu) ? u.kelas_ampu : API.parseKelasAmpu(u.kelas_ampu);
+      return list.length === 0;
+    });
+    if (totalEl) totalEl.textContent = String(allUsers.length);
+    if (guruEl) guruEl.textContent = String(guruUsers.length);
+    if (unmappedEl) unmappedEl.textContent = String(unmappedGurus.length);
+
     if (!tbody) return;
 
-    if (STATE.users.length === 0) {
+    const q = (localState.usersQuery || '').trim().toLowerCase();
+    const roleFilter = (localState.usersRoleFilter || 'Semua').toLowerCase();
+    const filteredUsers = allUsers.filter((u) => {
+      const r = String(u.role || 'guru').toLowerCase();
+      const matchRole = roleFilter === 'semua' || r === roleFilter;
+      const ampuText = Array.isArray(u.kelas_ampu)
+        ? u.kelas_ampu.join(', ')
+        : String(u.kelas_ampu_text || u.kelas_ampu || '');
+      const matchQ =
+        !q ||
+        String(u.nama_lengkap || '').toLowerCase().includes(q) ||
+        String(u.username || '').toLowerCase().includes(q) ||
+        ampuText.toLowerCase().includes(q);
+      return matchRole && matchQ;
+    });
+
+    if (filteredUsers.length === 0) {
       tbody.innerHTML = `
         <tr class="table-state-row">
           <td colspan="5">
             ${UI.renderStateBox({
               type: 'empty',
-              title: 'Daftar akun belum tersedia',
-              message: 'Klik "Tambah Pengguna" untuk mendaftarkan akun Kepala Madrasah atau Guru.',
+              title: allUsers.length === 0 ? 'Daftar akun belum tersedia' : 'Akun tidak ditemukan',
+              message:
+                allUsers.length === 0
+                  ? 'Klik "Tambah Pengguna" untuk mendaftarkan akun Kepala Madrasah atau Guru.'
+                  : 'Coba ubah kata kunci pencarian atau filter peran.',
             })}
           </td>
         </tr>
@@ -812,7 +847,7 @@
       return;
     }
 
-    tbody.innerHTML = STATE.users
+    tbody.innerHTML = filteredUsers
       .map((u) => {
         const isAdm = String(u.role || '').toLowerCase() === 'admin';
         const ampuList = Array.isArray(u.kelas_ampu) ? u.kelas_ampu : API.parseKelasAmpu(u.kelas_ampu);
@@ -1197,9 +1232,20 @@
   // =========================================================================
   function renderKelasManagement() {
     const grid = document.getElementById('admin-kelas-grid');
+    const classes = getOfficialClasses();
+
+    const activeClasses = classes.filter((c) => c.status !== 'nonaktif');
+    const mappedCount = activeClasses.filter((c) => getGurusForClass(c.nama_kelas).length > 0).length;
+    const unmappedCount = Math.max(0, activeClasses.length - mappedCount);
+    const totalEl = document.getElementById('kelas-stat-total');
+    const mappedEl = document.getElementById('kelas-stat-mapped');
+    const unmappedEl = document.getElementById('kelas-stat-unmapped');
+    if (totalEl) totalEl.textContent = String(activeClasses.length);
+    if (mappedEl) mappedEl.textContent = String(mappedCount);
+    if (unmappedEl) unmappedEl.textContent = String(unmappedCount);
+
     if (!grid) return;
 
-    const classes = getOfficialClasses();
     if (classes.length === 0) {
       grid.innerHTML = UI.renderStateBox({
         type: 'empty',
@@ -1226,7 +1272,7 @@
         return `
           <article class="kelas-manage-card">
             <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;">
-              <div>
+              <div class="kelas-card-head-main">
                 <h4 class="heading-md">${UI.esc(kls.nama_kelas)}</h4>
                 <div class="text-muted" style="font-size:0.78rem;margin-top:2px;">
                   ${kls.tingkat ? `${UI.esc(kls.tingkat)} · ` : ''}${countSantri} santri terdaftar
@@ -1255,6 +1301,7 @@
               </button>
               <button type="button" class="btn btn-danger btn-icon-sm" data-delete-kelas="${UI.esc(kls.id_kelas)}" data-kelas-nama="${UI.esc(kls.nama_kelas)}" aria-label="Hapus kelas ${UI.esc(kls.nama_kelas)}">
                 <i data-lucide="trash-2" aria-hidden="true"></i>
+                <span class="mobile-only-btn-label">Hapus</span>
               </button>
             </div>
           </article>
@@ -1379,6 +1426,7 @@
   }
 
   function bindKelasEvents() {
+    const refreshKelasBtn = document.getElementById('btn-refresh-kelas');
     const addKelasBtn = document.getElementById('btn-add-kelas');
     const closeKelasBtn = document.getElementById('btn-close-kelas-modal');
     const cancelKelasBtn = document.getElementById('btn-cancel-kelas-modal');
@@ -1390,6 +1438,7 @@
     const mapForm = document.getElementById('form-kelas-guru');
     const saveMapBtn = document.getElementById('btn-save-kelas-guru');
 
+    if (refreshKelasBtn) refreshKelasBtn.addEventListener('click', () => loadDashboard(true, { force: true }));
     if (addKelasBtn) addKelasBtn.addEventListener('click', () => openKelasModal(null));
     if (closeKelasBtn) closeKelasBtn.addEventListener('click', closeKelasModal);
     if (cancelKelasBtn) cancelKelasBtn.addEventListener('click', closeKelasModal);
@@ -1586,6 +1635,9 @@
     const filterTanggal = document.getElementById('kepsek-filter-tanggal');
     const filterKelas = document.getElementById('kepsek-filter-kelas');
     const searchInput = document.getElementById('admin-riwayat-search');
+    const refreshUsersBtn = document.getElementById('btn-refresh-users');
+    const usersSearchInput = document.getElementById('users-search-input');
+    const usersRoleFilter = document.getElementById('users-role-filter');
     const addUserBtn = document.getElementById('btn-add-user');
     const closeUserBtn = document.getElementById('btn-close-user-modal');
     const cancelUserBtn = document.getElementById('btn-cancel-user-modal');
@@ -1601,6 +1653,19 @@
     if (filterTanggal) filterTanggal.addEventListener('change', () => loadDashboard(false, { force: false }));
     if (filterKelas) filterKelas.addEventListener('change', () => loadDashboard(false, { force: false }));
     if (refreshBtn) refreshBtn.addEventListener('click', () => loadDashboard(true, { force: true }));
+    if (refreshUsersBtn) refreshUsersBtn.addEventListener('click', () => loadDashboard(true, { force: true }));
+    if (usersSearchInput) {
+      usersSearchInput.addEventListener('input', (e) => {
+        localState.usersQuery = e.target.value || '';
+        renderUsersTable();
+      });
+    }
+    if (usersRoleFilter) {
+      usersRoleFilter.addEventListener('change', (e) => {
+        localState.usersRoleFilter = e.target.value || 'Semua';
+        renderUsersTable();
+      });
+    }
     if (printAllBtn) {
       printAllBtn.addEventListener('click', () => {
         const tgl = (filterTanggal && filterTanggal.value) || UI.todayISO();
@@ -2506,7 +2571,7 @@
         (grp) => `
         <article class="rekap-kelas-card">
           <div class="rekap-kelas-header">
-            <div style="min-width:0;flex:1 1 240px;">
+            <div class="kelas-header-main">
               <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
                 <h3 class="heading-md">${UI.esc(grp.kelas)}</h3>
                 <span class="status-badge status-izin mono-num">${grp.rows.length} santri</span>
@@ -2518,7 +2583,7 @@
                 Guru Pengampu: <strong>${UI.esc(grp.guru_pengampu_names)}</strong> · H: ${grp.totalHadir} · S: ${grp.totalSakit} · I: ${grp.totalIzin} · A: ${grp.totalAlpa}
               </div>
             </div>
-            <div class="toolbar-actions" style="flex-shrink:0;">
+            <div class="toolbar-actions kelas-header-actions">
               <button type="button" class="btn btn-secondary btn-sm" data-export-rekap-kelas="${UI.esc(grp.kelas)}">
                 <i data-lucide="file-spreadsheet" aria-hidden="true"></i>
                 <span>CSV Kelas</span>
@@ -2961,8 +3026,49 @@
   }
 
   // =========================================================================
-  // INISIALISASI PORTAL KEPALA MADRASAH / ADMIN (5 TAB)
+  // INISIALISASI PORTAL KEPALA MADRASAH / ADMIN (5 TAB + 2 KALKULATOR)
   // =========================================================================
+  function closeAdminCalculators() {
+    const uasPanel = document.getElementById('admin-panel-uas');
+    const raportPanel = document.getElementById('admin-panel-raport');
+    if (uasPanel) uasPanel.hidden = true;
+    if (raportPanel) raportPanel.hidden = true;
+    document.querySelectorAll('#admin-calc-switcher .admin-calc-btn').forEach((btn) => {
+      btn.setAttribute('aria-pressed', 'false');
+    });
+  }
+
+  function openAdminCalculator(calcType) {
+    const target = calcType === 'raport' ? 'raport' : 'uas';
+    if (tabController && typeof tabController.clearSelection === 'function') {
+      tabController.clearSelection();
+    }
+    const uasPanel = document.getElementById('admin-panel-uas');
+    const raportPanel = document.getElementById('admin-panel-raport');
+    if (uasPanel) uasPanel.hidden = target !== 'uas';
+    if (raportPanel) raportPanel.hidden = target !== 'raport';
+
+    document.querySelectorAll('#admin-calc-switcher .admin-calc-btn').forEach((btn) => {
+      btn.setAttribute('aria-pressed', btn.dataset.adminCalc === target ? 'true' : 'false');
+    });
+
+    if (target === 'uas') {
+      root.MDTA_CALC.mountUAS(document.getElementById('admin-uas-mount'), {
+        scope: 'admin',
+        session: adminSession,
+      });
+    } else {
+      root.MDTA_CALC.mountRaport(document.getElementById('admin-raport-mount'), {
+        scope: 'admin',
+        session: adminSession,
+      });
+    }
+
+    if (typeof window !== 'undefined' && typeof window.scrollTo === 'function') {
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+  }
+
   function init(session) {
     adminSession = session || {};
     const tablist = document.getElementById('admin-tablist');
@@ -2974,7 +3080,18 @@
       bindSantriEvents();
       bindRekapEvents();
 
+      document.querySelectorAll('#view-admin [data-admin-calc]').forEach((btn) => {
+        btn.addEventListener('click', () => openAdminCalculator(btn.dataset.adminCalc));
+      });
+      document.querySelectorAll('#view-admin [data-back-to-dashboard]').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          closeAdminCalculators();
+          if (tabController) tabController.selectByName('dashboard', true);
+        });
+      });
+
       tabController = UI.initSlidingTabs(tablist, (tabName) => {
+        closeAdminCalculators();
         if (tabName === 'santri') {
           if (STATE.santri.length > 0) {
             syncClassFilterOptions();
@@ -2990,19 +3107,20 @@
           if (!STATE.loaded.rekap) {
             loadRekapLaporan(false);
           }
-        } else if (tabName === 'uas') {
-          root.MDTA_CALC.mountUAS(document.getElementById('admin-uas-mount'), {
-            scope: 'admin',
-            session: adminSession,
-          });
-        } else if (tabName === 'raport') {
-          root.MDTA_CALC.mountRaport(document.getElementById('admin-raport-mount'), {
-            scope: 'admin',
-            session: adminSession,
-          });
+        } else if (tabName === 'kelas') {
+          renderKelasManagement();
+          if (!STATE.loaded.bootstrap && (STATE.kelas || []).length === 0) {
+            loadDashboard(false, { force: false });
+          }
+        } else if (tabName === 'akun') {
+          renderUsersTable();
+          if (!STATE.loaded.bootstrap && (STATE.users || []).length === 0) {
+            loadDashboard(false, { force: false });
+          }
         }
       });
     } else if (tabController) {
+      closeAdminCalculators();
       tabController.selectByName('dashboard', false);
     }
 
