@@ -23,20 +23,20 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
 
-  <link rel="stylesheet" href="./css/tokens.css?v=20261120-22" />
-  <link rel="stylesheet" href="./css/style.css?v=20261120-22" />
+  <link rel="stylesheet" href="./css/tokens.css?v=20261120-23" />
+  <link rel="stylesheet" href="./css/style.css?v=20261120-23" />
 
   <script defer src="https://unpkg.com/lucide@0.468.0/dist/umd/lucide.min.js"></script>
   <script defer src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
   <script defer src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
   <script defer src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 
-  <script defer src="./js/config.js?v=20261120-22"></script>
-  <script defer src="./js/api.js?v=20261120-22"></script>
-  <script defer src="./js/calculators.js?v=20261120-22"></script>
-  <script defer src="./js/admin.js?v=20261120-22"></script>
-  <script defer src="./js/guru.js?v=20261120-22"></script>
-  <script defer src="./js/auth.js?v=20261120-22"></script>
+  <script defer src="./js/config.js?v=20261120-23"></script>
+  <script defer src="./js/api.js?v=20261120-23"></script>
+  <script defer src="./js/calculators.js?v=20261120-23"></script>
+  <script defer src="./js/admin.js?v=20261120-23"></script>
+  <script defer src="./js/guru.js?v=20261120-23"></script>
+  <script defer src="./js/auth.js?v=20261120-23"></script>
 </head>
 <body>
   <a href="#main-content" class="skip-link">Langsung ke konten utama</a>
@@ -773,6 +773,7 @@
                 <i data-lucide="camera-off" aria-hidden="true"></i>
                 <span>Hentikan Kamera</span>
               </button>
+              <select id="qr-kelas-select" class="select-control" aria-label="Pilih kelas untuk scan QR" style="max-width:190px;" hidden></select>
               <select id="qr-camera-select" class="select-control" aria-label="Pilih perangkat kamera" style="flex:1;min-width:170px;" hidden></select>
               <button id="btn-qr-sound-toggle" type="button" class="btn btn-secondary btn-icon" aria-pressed="false" aria-label="Suara pemindaian aktif, klik untuk bisukan" title="Suara Aktif (Klik untuk Bisu)" style="margin-left:auto;">
                 <i data-lucide="volume-2" aria-hidden="true"></i>

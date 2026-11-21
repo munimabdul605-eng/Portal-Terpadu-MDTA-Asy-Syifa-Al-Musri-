@@ -208,6 +208,21 @@
     } else {
       sel.value = kelasAmpu[0];
     }
+
+    const qrSel = document.getElementById('qr-kelas-select');
+    if (qrSel) {
+      const prevQr = qrSel.value;
+      qrSel.hidden = kelasAmpu.length <= 1;
+      qrSel.innerHTML = kelasAmpu
+        .map((k) => `<option value="${UI.esc(k)}">${UI.esc(k)}</option>`)
+        .join('');
+      if (prevQr && kelasAmpu.some((k) => normKelasKey(k) === normKelasKey(prevQr))) {
+        const exactQr = kelasAmpu.find((k) => normKelasKey(k) === normKelasKey(prevQr));
+        if (exactQr) qrSel.value = exactQr;
+      } else {
+        qrSel.value = kelasAmpu[0];
+      }
+    }
   }
 
   function updateAbsensiCountsUI() {
@@ -894,24 +909,36 @@
       return;
     }
 
-      const todayWib = UI.todayISO();
-      const waktu = UI.nowTimeHMS();
-      const payload = {
-        id_santri: matched ? matched.id_santri : '',
-        qr_token: token,
-        nama_santri: matched ? matched.nama_lengkap : '',
-        status: 'Hadir',
-        tanggal: todayWib,
-        waktu,
-        id_guru_piket: (guruSession && guruSession.id_user) || '',
-        nama_guru_piket: (guruSession && (guruSession.nama_lengkap || guruSession.username)) || 'Guru Piket',
-        metode: 'QR',
-        catatan: catatanDefault || `Scan QR (${token})`,
-      };
+    function resolveScannedKelas(santriKelasRaw, kelasAmpu) {
+      const santriClasses = API.parseKelasAmpu(santriKelasRaw);
+      const scoped = santriClasses.filter((k) => API.isKelasAllowed(k, kelasAmpu));
+      const qrSel = document.getElementById('qr-kelas-select');
+      const preferred = qrSel && !qrSel.hidden ? String(qrSel.value || '').trim() : '';
+      if (preferred && API.isKelasAllowed(preferred, scoped)) {
+        return scoped.find((k) => normKelasKey(k) === normKelasKey(preferred)) || preferred;
+      }
+      return scoped[0] || kelasAmpu[0] || santriClasses[0] || '-';
+    }
 
-      const lastBox = document.getElementById('qr-last-scan-result');
-      const resolvedKelas = matched ? matched.kelas : '-';
-      const initialNama = matched ? matched.nama_lengkap : token;
+    const todayWib = UI.todayISO();
+    const waktu = UI.nowTimeHMS();
+    const resolvedKelas = matched ? resolveScannedKelas(matched.kelas, kelasAmpu) : (kelasAmpu[0] || '-');
+    const initialNama = matched ? matched.nama_lengkap : token;
+    const payload = {
+      id_santri: matched ? matched.id_santri : '',
+      qr_token: token,
+      nama_santri: matched ? matched.nama_lengkap : '',
+      kelas: resolvedKelas !== '-' ? resolvedKelas : '',
+      status: 'Hadir',
+      tanggal: todayWib,
+      waktu,
+      id_guru_piket: (guruSession && guruSession.id_user) || '',
+      nama_guru_piket: (guruSession && (guruSession.nama_lengkap || guruSession.username)) || 'Guru Piket',
+      metode: 'QR',
+      catatan: catatanDefault || `Scan QR (${token})`,
+    };
+
+    const lastBox = document.getElementById('qr-last-scan-result');
 
     if (matched) {
       const tempId = `tmp-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;

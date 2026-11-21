@@ -1512,7 +1512,11 @@ function handleSavePresensi(data, rootScope) {
     const sId = String(santri.id_santri || '').trim();
     const sNama = String(santri.nama_lengkap || '').trim();
     const sNamaKey = sNama.toLowerCase();
-    const targetKelas = String(item.kelas || '').trim() || parseKelasAmpu(santri.kelas)[0] || String(santri.kelas || '').trim();
+    const santriClasses = parseKelasAmpu(santri.kelas);
+    const scopedSantriKelas = scope.isGuru
+      ? santriClasses.find(k => isKelasAllowed(k, scope.kelas_ampu))
+      : santriClasses[0];
+    const targetKelas = String(item.kelas || '').trim() || scopedSantriKelas || String(santri.kelas || '').trim();
     const targetKelasKey = normalizeKelasName(targetKelas);
 
     const existing = rows.find(r => {
@@ -1607,7 +1611,7 @@ function handleSavePresensi(data, rootScope) {
         id_santri: santri.id_santri,
         santri: santri.nama_lengkap,
         nama_santri: santri.nama_lengkap,
-        kelas: santri.kelas,
+        kelas: targetKelas,
         status: status,
         metode: metode,
         catatan: catatan,
