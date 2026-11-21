@@ -766,9 +766,9 @@
   }
 
   function isKelasAllowed(kelasVal, allowedList) {
-    const target = String(kelasVal || '').trim().toLowerCase();
-    if (!target || !Array.isArray(allowedList) || allowedList.length === 0) return false;
-    return allowedList.some((k) => String(k || '').trim().toLowerCase() === target);
+    const targets = parseKelasAmpu(kelasVal).map((k) => k.toLowerCase());
+    if (targets.length === 0 || !Array.isArray(allowedList) || allowedList.length === 0) return false;
+    return allowedList.some((k) => targets.includes(String(k || '').trim().toLowerCase()));
   }
 
   function isActiveSantri(santriObj) {
@@ -1370,6 +1370,7 @@
         typeof payload === 'object' && payload !== null ? payload : { id_kelas: payload }
       ),
     saveKelasMapping: (mappingData) => requestPost('saveKelasMapping', { data: mappingData }),
+    saveKelasSantri: (mappingData) => requestPost('saveKelasSantri', { data: mappingData }),
     bulkMoveSantriKelas: (moveData) => requestPost('bulkMoveSantriKelas', { data: moveData }),
 
     getSantri: () => requestGet('getSantri'),

@@ -23,20 +23,20 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
 
-  <link rel="stylesheet" href="./css/tokens.css?v=20261120-17" />
-  <link rel="stylesheet" href="./css/style.css?v=20261120-17" />
+  <link rel="stylesheet" href="./css/tokens.css?v=20261120-21" />
+  <link rel="stylesheet" href="./css/style.css?v=20261120-21" />
 
   <script defer src="https://unpkg.com/lucide@0.468.0/dist/umd/lucide.min.js"></script>
   <script defer src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
   <script defer src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
   <script defer src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 
-  <script defer src="./js/config.js?v=20261120-17"></script>
-  <script defer src="./js/api.js?v=20261120-17"></script>
-  <script defer src="./js/calculators.js?v=20261120-17"></script>
-  <script defer src="./js/admin.js?v=20261120-17"></script>
-  <script defer src="./js/guru.js?v=20261120-17"></script>
-  <script defer src="./js/auth.js?v=20261120-17"></script>
+  <script defer src="./js/config.js?v=20261120-21"></script>
+  <script defer src="./js/api.js?v=20261120-21"></script>
+  <script defer src="./js/calculators.js?v=20261120-21"></script>
+  <script defer src="./js/admin.js?v=20261120-21"></script>
+  <script defer src="./js/guru.js?v=20261120-21"></script>
+  <script defer src="./js/auth.js?v=20261120-21"></script>
 </head>
 <body>
   <a href="#main-content" class="skip-link">Langsung ke konten utama</a>
@@ -774,6 +774,9 @@
                 <span>Hentikan Kamera</span>
               </button>
               <select id="qr-camera-select" class="select-control" aria-label="Pilih perangkat kamera" style="flex:1;min-width:170px;" hidden></select>
+              <button id="btn-qr-sound-toggle" type="button" class="btn btn-secondary btn-icon" aria-pressed="false" aria-label="Suara pemindaian aktif, klik untuk bisukan" title="Suara Aktif (Klik untuk Bisu)" style="margin-left:auto;">
+                <i data-lucide="volume-2" aria-hidden="true"></i>
+              </button>
             </div>
 
             <div class="qr-viewport-shell">
@@ -1164,6 +1167,42 @@
           <button id="btn-save-kelas-guru" type="submit" class="btn btn-primary">
             <i data-lucide="save" aria-hidden="true"></i>
             <span>Simpan Pemetaan</span>
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- ===================================================================
+       MODAL ATUR ANGGOTA SANTRI KELAS (CHECKBOX + PENCARIAN)
+       =================================================================== -->
+  <div id="modal-kelas-santri" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="kelas-santri-modal-title" hidden>
+    <div class="modal-panel modal-panel-detail">
+      <div class="modal-header detail-modal-header">
+        <div style="min-width:0;flex:1;">
+          <span class="eyebrow-label">Anggota Kelas</span>
+          <h2 id="kelas-santri-modal-title" class="heading-md">Atur Santri Kelas</h2>
+          <p id="kelas-santri-subtitle" class="text-muted detail-modal-sub"></p>
+        </div>
+        <button id="btn-close-kelas-santri-modal" type="button" class="btn btn-secondary btn-icon modal-close-touch" aria-label="Tutup modal atur santri kelas">
+          <i data-lucide="x" aria-hidden="true"></i>
+        </button>
+      </div>
+      <form id="form-kelas-santri" class="modal-body detail-modal-body">
+        <input id="kelas-santri-target-nama" type="hidden" />
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
+          <div class="field-group" style="flex:1 1 220px;">
+            <label class="field-label sr-only" for="kelas-santri-search">Cari santri aktif</label>
+            <input id="kelas-santri-search" type="search" class="input-control" placeholder="Cari nama santri atau kelas..." />
+          </div>
+          <span id="kelas-santri-selected-count" class="status-badge status-izin mono-num">0 dipilih</span>
+        </div>
+        <div id="kelas-santri-checkboxes" class="kelas-checkbox-grid"></div>
+        <div class="modal-footer detail-modal-footer" style="padding:12px 0 0;border-top:none;">
+          <button id="btn-cancel-kelas-santri-modal" type="button" class="btn btn-secondary">Batal</button>
+          <button id="btn-save-kelas-santri" type="submit" class="btn btn-primary">
+            <i data-lucide="save" aria-hidden="true"></i>
+            <span>Simpan Anggota Kelas</span>
           </button>
         </div>
       </form>

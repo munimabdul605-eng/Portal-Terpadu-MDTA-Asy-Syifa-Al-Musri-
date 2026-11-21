@@ -77,7 +77,7 @@
       .filter((s) => {
         if (!API.isActiveSantri(s)) return false;
         if (scope === 'guru' && !API.isKelasAllowed(s.kelas, allowed)) return false;
-        if (filterKey && normKelasKey(s.kelas) !== filterKey) return false;
+        if (filterKey && !API.isKelasAllowed(s.kelas, [selectedKelas])) return false;
         return true;
       })
       .sort((a, b) => {
@@ -1165,10 +1165,12 @@
       }
 
       const idx = STATE.raportRows.findIndex((r) => {
+        const sameKelas = !resolvedKelas || !r.kelas || normKelasKey(r.kelas) === normKelasKey(resolvedKelas);
+        if (!sameKelas) return false;
         if (entry.id_santri && r.id_santri && r.id_santri === entry.id_santri) return true;
         if (r.nama_santri.trim().toLowerCase() !== nama.toLowerCase()) return false;
         if (scope === 'guru' && r.kelas && !API.isKelasAllowed(r.kelas, allowed)) return false;
-        return !resolvedKelas || !r.kelas || normKelasKey(r.kelas) === normKelasKey(resolvedKelas);
+        return true;
       });
 
       if (idx >= 0) {
@@ -1995,61 +1997,76 @@
     function mergeSantriAndRaportIntoRows(santriList, savedRaportList, rekapMap, mergeOpts) {
       const forceOverwriteDirty = Boolean(mergeOpts && mergeOpts.forceOverwriteDirty);
       const suppressSavedScores = Boolean((mergeOpts && mergeOpts.suppressSavedScores) || raportSessionReset);
+      const allowedClasses = mergeOpts && Array.isArray(mergeOpts.allowedClasses) ? mergeOpts.allowedClasses : null;
       const savedBySantri = new Map();
 
       if (!suppressSavedScores) {
         (savedRaportList || []).forEach((sr) => {
           if (!sr || !isValidNamaSantri(sr.nama_santri)) return;
-          if (sr.id_santri) savedBySantri.set(sr.id_santri, sr);
-          savedBySantri.set(sr.nama_santri.trim().toLowerCase(), sr);
+          const kKey = normKelasKey(sr.kelas);
+          if (sr.id_santri) savedBySantri.set(`${sr.id_santri}::${kKey}`, sr);
+          savedBySantri.set(`${sr.nama_santri.trim().toLowerCase()}::${kKey}`, sr);
         });
       }
 
       (santriList || []).forEach((s) => {
         if (!API.isActiveSantri(s)) return;
-        const pct = rekapMap
-          ? rekapMap.get(s.id_santri) ?? rekapMap.get(s.nama_lengkap.trim().toLowerCase())
-          : undefined;
-        const saved = suppressSavedScores
-          ? null
-          : (savedBySantri.get(s.id_santri) ?? savedBySantri.get(s.nama_lengkap.trim().toLowerCase()));
-        const existing = STATE.raportRows.find(
-          (r) =>
-            (r.id_santri && r.id_santri === s.id_santri) ||
-            r.nama_santri.trim().toLowerCase() === s.nama_lengkap.trim().toLowerCase()
-        );
-
-        if (existing) {
-          existing.id_santri = s.id_santri || existing.id_santri;
-          existing.kelas = s.kelas || existing.kelas;
-          const canOverwrite = !existing._dirty || forceOverwriteDirty;
-          if (saved && !suppressSavedScores) {
-            existing.id_raport = saved.id_raport || existing.id_raport;
-            if (canOverwrite) {
-              existing.n_harian = saved.n_harian;
-              existing.n_uas = saved.n_uas;
-            } else {
-              if (!existing.n_harian && saved.n_harian) existing.n_harian = saved.n_harian;
-              if (!existing.n_uas && saved.n_uas) existing.n_uas = saved.n_uas;
-            }
-          }
-          if (pct !== undefined && (!existing._dirtyKehadiran || forceOverwriteDirty)) {
-            existing.n_kehadiran = pct;
-          } else if (saved && !suppressSavedScores && saved.n_kehadiran !== undefined && canOverwrite && !existing._dirtyKehadiran) {
-            existing.n_kehadiran = saved.n_kehadiran;
-          }
-        } else {
-          STATE.raportRows.push({
-            uid: `row-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-            id_raport: saved ? saved.id_raport : '',
-            id_santri: s.id_santri,
-            nama_santri: s.nama_lengkap,
-            kelas: s.kelas,
-            n_harian: saved ? saved.n_harian : 0,
-            n_uas: saved ? saved.n_uas : 0,
-            n_kehadiran: pct !== undefined ? pct : (saved ? saved.n_kehadiran : 100),
-          });
+        let classList = API.parseKelasAmpu(s.kelas);
+        if (allowedClasses && allowedClasses.length > 0) {
+          classList = classList.filter((k) => API.isKelasAllowed(k, allowedClasses));
         }
+        if (classList.length === 0) classList = [String(s.kelas || '').trim()];
+
+        const namaLower = s.nama_lengkap.trim().toLowerCase();
+        classList.forEach((kelasName) => {
+          const kKey = normKelasKey(kelasName);
+          const pct = rekapMap
+            ? rekapMap.get(`${s.id_santri}::${kKey}`) ?? rekapMap.get(`${namaLower}::${kKey}`)
+            : undefined;
+          const saved = suppressSavedScores
+            ? null
+            : (savedBySantri.get(`${s.id_santri}::${kKey}`) ?? savedBySantri.get(`${namaLower}::${kKey}`));
+          const existing = STATE.raportRows.find((r) => {
+            const sameKelas = !kKey || !r.kelas || normKelasKey(r.kelas) === kKey;
+            if (!sameKelas) return false;
+            return (
+              (r.id_santri && r.id_santri === s.id_santri) ||
+              r.nama_santri.trim().toLowerCase() === namaLower
+            );
+          });
+
+          if (existing) {
+            existing.id_santri = s.id_santri || existing.id_santri;
+            existing.kelas = kelasName || existing.kelas;
+            const canOverwrite = !existing._dirty || forceOverwriteDirty;
+            if (saved && !suppressSavedScores) {
+              existing.id_raport = saved.id_raport || existing.id_raport;
+              if (canOverwrite) {
+                existing.n_harian = saved.n_harian;
+                existing.n_uas = saved.n_uas;
+              } else {
+                if (!existing.n_harian && saved.n_harian) existing.n_harian = saved.n_harian;
+                if (!existing.n_uas && saved.n_uas) existing.n_uas = saved.n_uas;
+              }
+            }
+            if (pct !== undefined && (!existing._dirtyKehadiran || forceOverwriteDirty)) {
+              existing.n_kehadiran = pct;
+            } else if (saved && !suppressSavedScores && saved.n_kehadiran !== undefined && canOverwrite && !existing._dirtyKehadiran) {
+              existing.n_kehadiran = saved.n_kehadiran;
+            }
+          } else {
+            STATE.raportRows.push({
+              uid: `row-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+              id_raport: saved ? saved.id_raport : '',
+              id_santri: s.id_santri,
+              nama_santri: s.nama_lengkap,
+              kelas: kelasName,
+              n_harian: saved ? saved.n_harian : 0,
+              n_uas: saved ? saved.n_uas : 0,
+              n_kehadiran: pct !== undefined ? pct : (saved ? saved.n_kehadiran : 100),
+            });
+          }
+        });
       });
 
       if (!suppressSavedScores) {
@@ -2165,8 +2182,9 @@
           const rekapList = API.extractArray(rekapRes, ['rekap']).map(API.normalizeRekap);
           rekapList.forEach((rk) => {
             if (rk.total > 0) {
-              if (rk.id_santri) rekapMap.set(rk.id_santri, rk.persentase);
-              rekapMap.set(rk.nama_lengkap.trim().toLowerCase(), rk.persentase);
+              const kKey = normKelasKey(rk.kelas);
+              if (rk.id_santri) rekapMap.set(`${rk.id_santri}::${kKey}`, rk.persentase);
+              rekapMap.set(`${rk.nama_lengkap.trim().toLowerCase()}::${kKey}`, rk.persentase);
             }
           });
         } catch (err) {
@@ -2202,6 +2220,7 @@
         mergeSantriAndRaportIntoRows(santriList, savedRaportList, rekapMap, {
           forceOverwriteDirty: force,
           suppressSavedScores: raportSessionReset,
+          allowedClasses: scope === 'guru' ? allowed : null,
         });
         pruneEmptyRaportRows(false);
         if (scope === 'guru') {

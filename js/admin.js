@@ -463,7 +463,7 @@
       });
       const classNilai = allNilai.filter((n) => String(n.kelas || '').toLowerCase() === kLower);
       const totalSantriAktif = (STATE.santri || []).filter(
-        (s) => String(s.kelas || '').toLowerCase() === kLower && String(s.status || 'aktif').toLowerCase() === 'aktif'
+        (s) => API.isKelasAllowed(k, API.parseKelasAmpu(s.kelas)) && String(s.status || 'aktif').toLowerCase() === 'aktif'
       ).length;
       const totalNilaiSantri = classNilai.reduce((s, n) => s + Number(n.jumlah_santri || 0), 0);
       const totalTuntas = classNilai.reduce((s, n) => s + Number(n.jumlah_tuntas || 0), 0);
@@ -1567,7 +1567,7 @@
     grid.innerHTML = classes
       .map((kls) => {
         const countSantri = (STATE.santri || []).filter(
-          (s) => String(s.kelas || '').trim().toLowerCase() === kls.nama_kelas.toLowerCase()
+          (s) => API.isKelasAllowed(kls.nama_kelas, API.parseKelasAmpu(s.kelas))
         ).length;
         const gurus = getGurusForClass(kls.nama_kelas);
         const guruHtml =
@@ -1603,6 +1603,10 @@
                 <i data-lucide="user-check" aria-hidden="true"></i>
                 <span>Atur Guru</span>
               </button>
+              <button type="button" class="btn btn-secondary btn-sm" data-manage-santri-kelas="${UI.esc(kls.nama_kelas)}">
+                <i data-lucide="users" aria-hidden="true"></i>
+                <span>Atur Santri</span>
+              </button>
               <button type="button" class="btn btn-secondary btn-sm" data-edit-kelas="${UI.esc(kls.id_kelas)}">
                 <i data-lucide="pencil" aria-hidden="true"></i>
                 <span>Edit</span>
@@ -1619,6 +1623,10 @@
 
     grid.querySelectorAll('button[data-map-kelas]').forEach((btn) => {
       btn.addEventListener('click', () => openKelasGuruModal(btn.dataset.mapKelas));
+    });
+
+    grid.querySelectorAll('button[data-manage-santri-kelas]').forEach((btn) => {
+      btn.addEventListener('click', () => openKelasSantriModal(btn.dataset.manageSantriKelas));
     });
 
     grid.querySelectorAll('button[data-edit-kelas]').forEach((btn) => {
@@ -1733,6 +1741,104 @@
     UI.openModal('modal-kelas-guru');
   }
 
+  function closeKelasSantriModal() {
+    localState.mappingSantriKelasName = '';
+    localState.mappingSantriSelectedIds = new Set();
+    const targetEl = document.getElementById('kelas-santri-target-nama');
+    const searchEl = document.getElementById('kelas-santri-search');
+    if (targetEl) targetEl.value = '';
+    if (searchEl) searchEl.value = '';
+    UI.closeModal('modal-kelas-santri');
+  }
+
+  function updateKelasSantriSelectedCount() {
+    const countEl = document.getElementById('kelas-santri-selected-count');
+    if (!countEl) return;
+    const total = localState.mappingSantriSelectedIds ? localState.mappingSantriSelectedIds.size : 0;
+    countEl.textContent = `${total} dipilih`;
+  }
+
+  function renderKelasSantriChecklist(query) {
+    const box = document.getElementById('kelas-santri-checkboxes');
+    if (!box) return;
+    const q = String(query || '').trim().toLowerCase();
+    const activeSantri = (STATE.santri || [])
+      .filter((s) => API.isActiveSantri(s) && s.id_santri)
+      .slice()
+      .sort((a, b) => String(a.nama_lengkap || '').localeCompare(String(b.nama_lengkap || ''), 'id'));
+
+    const filtered = activeSantri.filter((s) => {
+      if (!q) return true;
+      return (
+        String(s.nama_lengkap || '').toLowerCase().includes(q) ||
+        String(s.kelas || '').toLowerCase().includes(q) ||
+        String(s.id_santri || '').toLowerCase().includes(q)
+      );
+    });
+
+    if (activeSantri.length === 0) {
+      box.innerHTML = `<div class="text-muted" style="grid-column:1 / -1;font-size:0.84rem;">Belum ada santri berstatus Aktif. Tambahkan santri di tab Santri terlebih dahulu.</div>`;
+      updateKelasSantriSelectedCount();
+      return;
+    }
+
+    if (filtered.length === 0) {
+      box.innerHTML = `<div class="text-muted" style="grid-column:1 / -1;font-size:0.84rem;">Tidak ada santri aktif yang cocok dengan pencarian.</div>`;
+      updateKelasSantriSelectedCount();
+      return;
+    }
+
+    const selectedSet = localState.mappingSantriSelectedIds || new Set();
+    box.innerHTML = filtered
+      .map((s) => {
+        const sid = String(s.id_santri || '').trim();
+        const checked = selectedSet.has(sid);
+        const kelasMeta = s.kelas ? s.kelas : 'Belum ada kelas';
+        return `
+          <label class="kelas-checkbox-item">
+            <input type="checkbox" name="kelas-santri-id" value="${UI.esc(sid)}" ${checked ? 'checked' : ''} />
+            <span><strong>${UI.esc(s.nama_lengkap)}</strong><br><span class="text-muted" style="font-size:0.74rem;">${UI.esc(kelasMeta)}</span></span>
+          </label>
+        `;
+      })
+      .join('');
+
+    box.querySelectorAll('input[name="kelas-santri-id"]').forEach((cb) => {
+      cb.addEventListener('change', () => {
+        if (cb.checked) selectedSet.add(cb.value);
+        else selectedSet.delete(cb.value);
+        updateKelasSantriSelectedCount();
+      });
+    });
+
+    updateKelasSantriSelectedCount();
+  }
+
+  function openKelasSantriModal(kelasName) {
+    localState.mappingSantriKelasName = kelasName;
+    const selectedSet = new Set();
+    (STATE.santri || []).forEach((s) => {
+      if (!API.isActiveSantri(s) || !s.id_santri) return;
+      if (API.isKelasAllowed(kelasName, API.parseKelasAmpu(s.kelas))) {
+        selectedSet.add(String(s.id_santri).trim());
+      }
+    });
+    localState.mappingSantriSelectedIds = selectedSet;
+
+    const targetEl = document.getElementById('kelas-santri-target-nama');
+    const titleEl = document.getElementById('kelas-santri-modal-title');
+    const subEl = document.getElementById('kelas-santri-subtitle');
+    const searchEl = document.getElementById('kelas-santri-search');
+    if (targetEl) targetEl.value = kelasName;
+    if (titleEl) titleEl.textContent = `Atur Santri (${kelasName})`;
+    if (subEl) subEl.textContent = `Centang santri aktif yang terdaftar di kelas ${kelasName}. Kelas lain yang diikuti santri tetap dipertahankan.`;
+    if (searchEl) searchEl.value = '';
+
+    renderKelasSantriChecklist('');
+    UI.openModal('modal-kelas-santri');
+    if (searchEl && typeof searchEl.focus === 'function') searchEl.focus();
+  }
+
   function bindKelasEvents() {
     const refreshKelasBtn = document.getElementById('btn-refresh-kelas');
     const addKelasBtn = document.getElementById('btn-add-kelas');
@@ -1746,6 +1852,12 @@
     const mapForm = document.getElementById('form-kelas-guru');
     const saveMapBtn = document.getElementById('btn-save-kelas-guru');
 
+    const closeSantriMapBtn = document.getElementById('btn-close-kelas-santri-modal');
+    const cancelSantriMapBtn = document.getElementById('btn-cancel-kelas-santri-modal');
+    const santriMapSearch = document.getElementById('kelas-santri-search');
+    const santriMapForm = document.getElementById('form-kelas-santri');
+    const saveSantriMapBtn = document.getElementById('btn-save-kelas-santri');
+
     if (refreshKelasBtn) refreshKelasBtn.addEventListener('click', () => loadDashboard(true, { force: true }));
     if (addKelasBtn) addKelasBtn.addEventListener('click', () => openKelasModal(null));
     if (closeKelasBtn) closeKelasBtn.addEventListener('click', closeKelasModal);
@@ -1753,6 +1865,14 @@
 
     if (closeMapBtn) closeMapBtn.addEventListener('click', closeKelasGuruModal);
     if (cancelMapBtn) cancelMapBtn.addEventListener('click', closeKelasGuruModal);
+
+    if (closeSantriMapBtn) closeSantriMapBtn.addEventListener('click', closeKelasSantriModal);
+    if (cancelSantriMapBtn) cancelSantriMapBtn.addEventListener('click', closeKelasSantriModal);
+    if (santriMapSearch) {
+      santriMapSearch.addEventListener('input', (e) => {
+        renderKelasSantriChecklist(e.target.value || '');
+      });
+    }
 
     if (kelasForm) {
       kelasForm.addEventListener('submit', async (e) => {
@@ -1835,6 +1955,50 @@
           UI.toast(err.message, 'error');
         } finally {
           UI.setButtonLoading(saveMapBtn, false);
+        }
+      });
+    }
+
+    if (santriMapForm) {
+      santriMapForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const namaKelas =
+          localState.mappingSantriKelasName ||
+          (document.getElementById('kelas-santri-target-nama')?.value || '').trim();
+        if (!namaKelas) return;
+
+        const selectedIds = Array.from(localState.mappingSantriSelectedIds || []);
+        const selectedSet = new Set(selectedIds);
+
+        UI.setButtonLoading(saveSantriMapBtn, true, 'Menyimpan...');
+        try {
+          await API.saveKelasSantri({ nama_kelas: namaKelas, santri_ids: selectedIds });
+          STATE.santri = (STATE.santri || []).map((s) => {
+            if (!s.id_santri) return s;
+            const sid = String(s.id_santri).trim();
+            const shouldHave = selectedSet.has(sid);
+            const curList = API.parseKelasAmpu(s.kelas);
+            const hasNow = API.isKelasAllowed(namaKelas, curList);
+            let nextList = curList;
+            if (shouldHave && !hasNow) {
+              nextList = curList.concat([namaKelas]);
+            } else if (!shouldHave && hasNow) {
+              nextList = curList.filter((k) => k.toLowerCase() !== namaKelas.toLowerCase());
+            } else {
+              return s;
+            }
+            return Object.assign({}, s, { kelas: nextList.join(', ') });
+          });
+          if (root.MDTA_CACHE) root.MDTA_CACHE.write('santri', STATE.santri);
+          closeKelasSantriModal();
+          renderKelasManagement();
+          renderSantriTable();
+          UI.toast(`Anggota santri kelas "${namaKelas}" berhasil disimpan.`, 'success');
+          await loadDashboard(false, { force: true });
+        } catch (err) {
+          UI.toast(err.message, 'error');
+        } finally {
+          UI.setButtonLoading(saveSantriMapBtn, false);
         }
       });
     }
@@ -2303,7 +2467,7 @@
     const q = localState.santriQuery.trim().toLowerCase();
     const kelasF = localState.santriKelasFilter;
     const filtered = STATE.santri.filter((s) => {
-      const matchKelas = !kelasF || s.kelas === kelasF;
+      const matchKelas = !kelasF || API.isKelasAllowed(kelasF, API.parseKelasAmpu(s.kelas));
       const matchQ =
         !q ||
         s.nama_lengkap.toLowerCase().includes(q) ||
@@ -2764,7 +2928,7 @@
         const q = localState.santriQuery.trim().toLowerCase();
         const kelasF = localState.santriKelasFilter;
         const visible = STATE.santri.filter((s) => {
-          const matchKelas = !kelasF || s.kelas === kelasF;
+          const matchKelas = !kelasF || API.isKelasAllowed(kelasF, API.parseKelasAmpu(s.kelas));
           const matchQ =
             !q ||
             s.nama_lengkap.toLowerCase().includes(q) ||

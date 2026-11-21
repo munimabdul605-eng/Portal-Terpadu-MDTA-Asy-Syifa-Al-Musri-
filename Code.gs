@@ -411,9 +411,9 @@ function formatKelasAmpu(raw) {
 }
 
 function isKelasAllowed(kelasVal, allowedList) {
-  const target = normalizeKelasName(kelasVal);
-  if (!target || !Array.isArray(allowedList) || allowedList.length === 0) return false;
-  return allowedList.some(k => normalizeKelasName(k) === target);
+  const targets = parseKelasAmpu(kelasVal).map(k => normalizeKelasName(k)).filter(Boolean);
+  if (targets.length === 0 || !Array.isArray(allowedList) || allowedList.length === 0) return false;
+  return allowedList.some(k => targets.indexOf(normalizeKelasName(k)) >= 0);
 }
 
 /**
@@ -739,6 +739,11 @@ function doPost(e) {
         const res = handleSaveKelasMapping(payload.data);
         invalidateScriptCache();
         return jsonResponse(true, res, 'Pemetaan guru kelas berhasil disimpan.');
+      }
+      case 'saveKelasSantri': {
+        const res = handleSaveKelasSantri(payload.data);
+        invalidateScriptCache();
+        return jsonResponse(true, res, 'Anggota santri kelas berhasil disimpan.');
       }
       case 'bulkMoveSantriKelas': {
         const res = handleBulkMoveSantriKelas(payload.data);
@@ -1229,6 +1234,57 @@ function handleSaveKelasMapping(data) {
   return { nama_kelas: namaKelas, updatedCount: updatedCount };
 }
 
+function handleSaveKelasSantri(data) {
+  const rawKelas = String((data && data.nama_kelas) || '').trim();
+  if (!rawKelas) throw new Error('Nama kelas untuk pengaturan anggota santri wajib diisi.');
+
+  ensureKelasSheet();
+  const officialKelas = getSheetData('Kelas').find(
+    k => normalizeKelasName(k.nama_kelas) === normalizeKelasName(rawKelas)
+  );
+  const namaKelas = officialKelas ? String(officialKelas.nama_kelas || rawKelas).trim() : rawKelas;
+
+  ensureSantriSchema();
+  const { sheet, headers } = getSheetAndHeaders('Santri');
+  const kelasCol = headers.findIndex(h => h.toLowerCase() === 'kelas') + 1;
+  if (kelasCol <= 0) throw new Error('Kolom kelas tidak ditemukan pada sheet Santri.');
+
+  const targetSantriIds = new Set(
+    (Array.isArray(data && data.santri_ids) ? data.santri_ids : [])
+      .map(id => String(id || '').trim())
+      .filter(Boolean)
+  );
+
+  const rows = getSheetData('Santri');
+  let updatedCount = 0;
+  const targetNorm = normalizeKelasName(namaKelas);
+
+  rows.forEach(s => {
+    const sid = String(s.id_santri || '').trim();
+    if (!sid) return;
+
+    const shouldAssign = targetSantriIds.has(sid);
+    const currentList = parseKelasAmpu(s.kelas);
+    const hasClass = isKelasAllowed(namaKelas, currentList);
+    let nextList = currentList;
+
+    if (shouldAssign && !hasClass) {
+      nextList = currentList.concat([namaKelas]);
+    } else if (!shouldAssign && hasClass) {
+      nextList = currentList.filter(k => normalizeKelasName(k) !== targetNorm);
+    } else {
+      return;
+    }
+
+    sheet.getRange(s._rowIndex, kelasCol).setValue(formatKelasAmpu(nextList));
+    updatedCount++;
+  });
+
+  delete _requestSheetData['Santri'];
+  bumpSyncVersion();
+  return { nama_kelas: namaKelas, updatedCount: updatedCount };
+}
+
 function handleBulkMoveSantriKelas(data) {
   const ids = Array.isArray(data && data.ids)
     ? data.ids.map(x => String(x || '').trim()).filter(Boolean)
@@ -1456,9 +1512,13 @@ function handleSavePresensi(data, rootScope) {
     const sId = String(santri.id_santri || '').trim();
     const sNama = String(santri.nama_lengkap || '').trim();
     const sNamaKey = sNama.toLowerCase();
+    const targetKelas = String(item.kelas || '').trim() || parseKelasAmpu(santri.kelas)[0] || String(santri.kelas || '').trim();
+    const targetKelasKey = normalizeKelasName(targetKelas);
 
     const existing = rows.find(r => {
       if (formatDateOnlyWIB(r.tanggal) !== tanggal) return false;
+      const rKelasKey = normalizeKelasName(r.kelas);
+      if (targetKelasKey && rKelasKey && rKelasKey !== targetKelasKey) return false;
       const rId = String(r.id_santri || '').trim();
       if (sId && rId && rId === sId) return true;
       return Boolean(sNamaKey && String(r.nama_santri || '').trim().toLowerCase() === sNamaKey);
@@ -1474,7 +1534,7 @@ function handleSavePresensi(data, rootScope) {
         waktu,
         santri.id_santri,
         santri.nama_lengkap,
-        santri.kelas,
+        targetKelas,
         status,
         idGuruPiket,
         namaGuruPiket,
@@ -1487,7 +1547,7 @@ function handleSavePresensi(data, rootScope) {
       existing.waktu = waktu;
       existing.id_santri = santri.id_santri;
       existing.nama_santri = santri.nama_lengkap;
-      existing.kelas = santri.kelas;
+      existing.kelas = targetKelas;
       existing.status = status;
       existing.id_guru_piket = idGuruPiket;
       existing.nama_guru_piket = namaGuruPiket;
@@ -1501,7 +1561,7 @@ function handleSavePresensi(data, rootScope) {
         id_santri: santri.id_santri,
         santri: santri.nama_lengkap,
         nama_santri: santri.nama_lengkap,
-        kelas: santri.kelas,
+        kelas: targetKelas,
         status: status,
         metode: metode,
         catatan: catatan,
@@ -1517,7 +1577,7 @@ function handleSavePresensi(data, rootScope) {
         waktu,
         santri.id_santri,
         santri.nama_lengkap,
-        santri.kelas,
+        targetKelas,
         status,
         idGuruPiket,
         namaGuruPiket,
@@ -1532,7 +1592,7 @@ function handleSavePresensi(data, rootScope) {
         waktu: waktu,
         id_santri: santri.id_santri,
         nama_santri: santri.nama_lengkap,
-        kelas: santri.kelas,
+        kelas: targetKelas,
         status: status,
         id_guru_piket: idGuruPiket,
         nama_guru_piket: namaGuruPiket,
@@ -1646,6 +1706,8 @@ function handleGetRekapLaporan(bulan, tahun, scope) {
   const presensi = filterRowsByGuruScope(getSheetData('Presensi'), scope, 'kelas');
   const targetBulan = bulan ? String(bulan).padStart(2, '0') : null;
   const targetTahun = tahun ? String(tahun) : null;
+  const isGuruScope = Boolean(scope && scope.isGuru);
+  const allowedClasses = isGuruScope && Array.isArray(scope.kelas_ampu) ? scope.kelas_ampu : [];
 
   const filteredPresensi = presensi.filter(p => {
     const tglStr = formatDateOnlyWIB(p.tanggal);
@@ -1655,8 +1717,59 @@ function handleGetRekapLaporan(bulan, tahun, scope) {
     return true;
   });
 
-  return santriList.map(s => {
-    const logs = filteredPresensi.filter(p => p.id_santri === s.id_santri);
+  const entryMap = new Map();
+  const santriById = new Map();
+
+  santriList.forEach(s => {
+    const sid = String(s.id_santri || '').trim();
+    if (sid) santriById.set(sid, s);
+    let classes = parseKelasAmpu(s.kelas);
+    if (isGuruScope) {
+      classes = classes.filter(k => isKelasAllowed(k, allowedClasses));
+    }
+    if (classes.length === 0) classes = ['Tanpa Kelas'];
+    classes.forEach(klsName => {
+      const kKey = normalizeKelasName(klsName) || 'tanpa kelas';
+      const compositeKey = (sid || String(s.nama_lengkap || '').trim().toLowerCase()) + '::' + kKey;
+      if (!entryMap.has(compositeKey)) {
+        entryMap.set(compositeKey, {
+          id_santri: sid,
+          nama_lengkap: s.nama_lengkap,
+          kelas: klsName,
+          kelasKey: kKey
+        });
+      }
+    });
+  });
+
+  filteredPresensi.forEach(p => {
+    const sid = String(p.id_santri || '').trim();
+    const klsName = String(p.kelas || '').trim() || 'Tanpa Kelas';
+    const kKey = normalizeKelasName(klsName) || 'tanpa kelas';
+    if (isGuruScope && !isKelasAllowed(klsName, allowedClasses)) return;
+    const compositeKey = (sid || String(p.nama_santri || '').trim().toLowerCase()) + '::' + kKey;
+    if (!entryMap.has(compositeKey)) {
+      const sRef = sid ? santriById.get(sid) : null;
+      entryMap.set(compositeKey, {
+        id_santri: sid,
+        nama_lengkap: (sRef && sRef.nama_lengkap) || p.nama_santri || '-',
+        kelas: klsName,
+        kelasKey: kKey
+      });
+    }
+  });
+
+  const out = [];
+  entryMap.forEach(entry => {
+    const logs = filteredPresensi.filter(p => {
+      const pSid = String(p.id_santri || '').trim();
+      const pKelasKey = normalizeKelasName(p.kelas) || 'tanpa kelas';
+      const matchSantri = entry.id_santri
+        ? pSid === entry.id_santri
+        : String(p.nama_santri || '').trim().toLowerCase() === String(entry.nama_lengkap || '').trim().toLowerCase();
+      return matchSantri && pKelasKey === entry.kelasKey;
+    });
+
     const count = { Hadir: 0, Sakit: 0, Izin: 0, Alpa: 0 };
     logs.forEach(l => {
       if (Object.prototype.hasOwnProperty.call(count, l.status)) count[l.status]++;
@@ -1664,18 +1777,20 @@ function handleGetRekapLaporan(bulan, tahun, scope) {
     const total = count.Hadir + count.Sakit + count.Izin + count.Alpa;
     const persentase = total > 0 ? Math.round((count.Hadir / total) * 100) : 0;
 
-    return {
-      id_santri: s.id_santri,
-      nama_lengkap: s.nama_lengkap,
-      kelas: s.kelas,
+    out.push({
+      id_santri: entry.id_santri,
+      nama_lengkap: entry.nama_lengkap,
+      kelas: entry.kelas,
       hadir: count.Hadir,
       sakit: count.Sakit,
       izin: count.Izin,
       alpa: count.Alpa,
       total: total,
       persentase: persentase
-    };
+    });
   });
+
+  return out;
 }
 
 function handleSaveNilaiUAS(data, rootScope) {
@@ -2303,12 +2418,13 @@ function handleGetRekapKepsek(tanggalParam, kelasParam) {
   santriList.forEach(s => {
     const id = String(s.id_santri || '').trim();
     const nama = String(s.nama_lengkap || '').trim();
-    const k = String(s.kelas || '').trim();
     if (id) santriById[id] = s;
     if (nama) santriByName[nama.toLowerCase()] = s;
-    if (k && String(s.status || 'aktif').toLowerCase() === 'aktif') {
-      registerClassName(k);
-      kelasCountMap[k] = (kelasCountMap[k] || 0) + 1;
+    if (String(s.status || 'aktif').toLowerCase() === 'aktif') {
+      parseKelasAmpu(s.kelas).forEach(k => {
+        registerClassName(k);
+        kelasCountMap[k] = (kelasCountMap[k] || 0) + 1;
+      });
     }
   });
 
