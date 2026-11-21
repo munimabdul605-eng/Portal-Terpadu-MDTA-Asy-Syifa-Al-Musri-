@@ -1,8 +1,8 @@
 /**
  * Portal Guru (3 Tab) - Terhubung ke Code.gs & Database Sistem MDTA
  * Header Banner "GURU PIKET" dengan nama guru yang login.
- * 1. Tab Presensi: Halaman utama Scan QR + Daftar Presensi Hari Ini,
- *    dengan tombol/toggle ke halaman khusus Absensi Manual (Daftar Kelas).
+ * 1. Tab Presensi: Pemindaian QR-Code + Daftar Presensi Hari Ini,
+ *    dengan tombol tunggal Absensi Manual yang membuka popup daftar santri kelas.
  * 2. Tab Kalkulator UAS (berbagi modul MDTA_CALC, otomatis tampil di Beranda Laporan).
  * 3. Tab Kalkulator Raport (berbagi modul MDTA_CALC, otomatis tampil di Beranda Laporan).
  */
@@ -24,7 +24,7 @@
   let lastScanToken = '';
   let lastScanTime = 0;
 
-  let presensiMode = 'qr';
+  let manualModalOpen = false;
   let activeDateWib = UI.todayISO();
   const manualDraftMap = new Map();
   const sessionPresensiLogs = [];
@@ -92,7 +92,7 @@
     if (tglInp) tglInp.value = todayWib;
 
     renderSessionLogs();
-    if (presensiMode === 'manual') {
+    if (manualModalOpen) {
       renderManualRoster();
     }
 
@@ -245,7 +245,7 @@
               message:
                 getGuruKelasAmpu().length === 0
                   ? 'Akun Anda belum dipetakan ke kelas mana pun. Hubungi Admin.'
-                  : 'Pindai kartu QR santri atau klik "Buka Presensi Manual (Daftar Kelas)" untuk mengabsen satu kelas sekaligus.',
+                  : 'Pindai kartu QR santri atau klik "Absensi Manual" di atas untuk mengabsen satu kelas sekaligus.',
             })}
           </td>
         </tr>
@@ -428,11 +428,10 @@
                 <div style="min-width:0;flex:1;">
                   <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
                     <strong class="manual-roster-name">${UI.esc(s.nama_lengkap)}</strong>
-                    ${
-                      stState.recordedToday
-                        ? '<span class="status-badge status-hadir">Tercatat</span>'
-                        : ''
-                    }
+                    ${stState.recordedToday
+            ? '<span class="status-badge status-hadir">Tercatat</span>'
+            : ''
+          }
                   </div>
                   <div class="text-muted" style="font-size:0.78rem;">${UI.esc(subParts.join(' · ') || '-')}</div>
                 </div>
@@ -505,27 +504,42 @@
     UI.refreshIcons(listEl);
   }
 
-  function setPresensiMode(mode) {
-    presensiMode = mode === 'manual' ? 'manual' : 'qr';
-    const isManual = presensiMode === 'manual';
-
-    const qrView = document.getElementById('guru-presensi-qr-view');
-    const manualView = document.getElementById('guru-presensi-manual-view');
+  function syncPresensiModeButtons(isManualOpen) {
     const qrBtn = document.getElementById('btn-guru-mode-qr');
     const manualBtn = document.getElementById('btn-guru-mode-manual');
+    if (qrBtn) qrBtn.setAttribute('aria-pressed', isManualOpen ? 'false' : 'true');
+    if (manualBtn) manualBtn.setAttribute('aria-pressed', isManualOpen ? 'true' : 'false');
+  }
 
-    if (qrView) qrView.hidden = isManual;
-    if (manualView) manualView.hidden = !isManual;
-    if (qrBtn) qrBtn.setAttribute('aria-pressed', isManual ? 'false' : 'true');
-    if (manualBtn) manualBtn.setAttribute('aria-pressed', isManual ? 'true' : 'false');
+  function openManualPresensiModal() {
+    checkGuruDayRollover({ triggerFetch: false });
+    stopQRScanner();
+    const tglInp = document.getElementById('manual-presensi-tanggal');
+    if (tglInp && !tglInp.value) tglInp.value = UI.todayISO();
+    populateManualKelasSelect();
+    updateGuruSyncStatusBanner();
+    renderManualRoster();
+    manualModalOpen = true;
+    syncPresensiModeButtons(true);
+    UI.openModal('modal-presensi-manual', {
+      onClose: () => {
+        manualModalOpen = false;
+        syncPresensiModeButtons(false);
+      },
+    });
+  }
 
-    if (isManual) {
-      stopQRScanner();
-      const tglInp = document.getElementById('manual-presensi-tanggal');
-      if (tglInp && !tglInp.value) tglInp.value = UI.todayISO();
-      populateManualKelasSelect();
-      updateGuruSyncStatusBanner();
-      renderManualRoster();
+  function closeManualPresensiModal() {
+    manualModalOpen = false;
+    syncPresensiModeButtons(false);
+    UI.closeModal('modal-presensi-manual');
+  }
+
+  function setPresensiMode(mode) {
+    if (mode === 'manual') {
+      openManualPresensiModal();
+    } else {
+      closeManualPresensiModal();
     }
   }
 
@@ -603,7 +617,7 @@
     populateManualKelasSelect();
     if (dataChanged || Array.isArray(bundle.kelas_ampu)) {
       renderSessionLogs();
-      if (presensiMode === 'manual') {
+      if (manualModalOpen) {
         renderManualRoster();
       }
     }
@@ -645,7 +659,7 @@
       }
       populateManualKelasSelect();
       renderSessionLogs();
-      if (presensiMode === 'manual') {
+      if (manualModalOpen) {
         renderManualRoster();
       }
     }
@@ -660,11 +674,11 @@
     try {
       const bundle = CACHE
         ? await CACHE.fetchBootstrapSmart({
-            role: 'guru',
-            tanggal: today,
-            id_user: (guruSession && guruSession.id_user) || '',
-            username: (guruSession && guruSession.username) || '',
-          })
+          role: 'guru',
+          tanggal: today,
+          id_user: (guruSession && guruSession.id_user) || '',
+          username: (guruSession && guruSession.username) || '',
+        })
         : {};
       applyGuruBootstrapData(bundle, opts);
     } catch (err) {
@@ -866,14 +880,14 @@
 
     if (typeof root.Html5Qrcode !== 'function') {
       showCameraFallback(
-        'Library pemindai kamera html5-qrcode tidak tersedia. Gunakan Input Token QR Manual di bawah atau buka halaman Absensi Manual.'
+        'Library pemindai kamera html5-qrcode tidak tersedia. Klik tombol "Absensi Manual" di atas untuk mencatat kehadiran santri.'
       );
       return;
     }
 
     if (!navigator.mediaDevices || typeof navigator.mediaDevices.getUserMedia !== 'function') {
       showCameraFallback(
-        'Peramban atau koneksi (non-HTTPS) saat ini tidak mendukung akses kamera. Gunakan Input Token QR Manual atau halaman Absensi Manual.'
+        'Peramban atau koneksi (non-HTTPS) saat ini tidak mendukung akses kamera. Klik tombol "Absensi Manual" di atas untuk mencatat kehadiran santri.'
       );
       return;
     }
@@ -921,7 +935,7 @@
           },
         },
         (decodedText) => submitQRTokenPresensi(decodedText, 'Scan kamera QR'),
-        () => {}
+        () => { }
       );
 
       scannerRunning = true;
@@ -930,31 +944,31 @@
       scannerRunning = false;
       updateScannerButtons(false);
       const rawMsg = String((err && err.message) || err || '');
-      let humanMsg = 'Kamera tidak dapat diakses. Gunakan Input Token QR Manual atau buka Absensi Manual.';
+      let humanMsg = 'Kamera tidak dapat diakses. Klik tombol "Absensi Manual" di atas untuk mencatat kehadiran santri.';
       if (/NotAllowedError|Permission|denied/i.test(rawMsg)) {
         humanMsg =
-          'Izin akses kamera ditolak oleh pengguna atau browser. Berikan izin kamera pada setelan browser atau buka Absensi Manual.';
+          'Izin akses kamera ditolak oleh pengguna atau browser. Berikan izin kamera pada setelan browser atau klik "Absensi Manual" di atas.';
       } else if (/NotFoundError|no camera|terdeteksi/i.test(rawMsg)) {
         humanMsg =
-          'Perangkat kamera tidak ditemukan. Gunakan Input Token QR Manual atau buka Absensi Manual.';
+          'Perangkat kamera tidak ditemukan. Klik tombol "Absensi Manual" di atas untuk mencatat kehadiran santri.';
       } else if (rawMsg) {
-        humanMsg = `Kamera gagal dimulai (${rawMsg}). Gunakan Absensi Manual.`;
+        humanMsg = `Kamera gagal dimulai (${rawMsg}). Klik "Absensi Manual" di atas untuk mencatat kehadiran santri.`;
       }
       showCameraFallback(humanMsg);
-      UI.toast('Pemindaian kamera tidak tersedia, fallback manual diaktifkan.', 'warn');
+      UI.toast('Pemindaian kamera tidak tersedia, silakan gunakan Absensi Manual.', 'warn');
     } finally {
       UI.setButtonLoading(startBtn, false);
     }
   }
 
   // =========================================================================
-  // HALAMAN KHUSUS ABSENSI MANUAL (BATCH PER KELAS AMPU) & BERSIHKAN LOG
+  // POPUP ABSENSI MANUAL (BATCH PER KELAS AMPU) & BERSIHKAN LOG HARIAN
   // =========================================================================
   function bindPresensiManualEvents() {
     const modeQrBtn = document.getElementById('btn-guru-mode-qr');
     const modeManualBtn = document.getElementById('btn-guru-mode-manual');
-    const openManualBtn = document.getElementById('btn-open-presensi-manual');
-    const backQrBtn = document.getElementById('btn-guru-back-to-qr');
+    const closeManualBtn = document.getElementById('btn-close-manual-modal');
+    const cancelManualBtn = document.getElementById('btn-cancel-manual-modal');
     const kelasSel = document.getElementById('manual-santri-kelas');
     const tanggalInp = document.getElementById('manual-presensi-tanggal');
     const markAllBtn = document.getElementById('btn-manual-mark-all-hadir');
@@ -965,10 +979,10 @@
       tanggalInp.value = UI.todayISO();
     }
 
-    if (modeQrBtn) modeQrBtn.addEventListener('click', () => setPresensiMode('qr'));
-    if (modeManualBtn) modeManualBtn.addEventListener('click', () => setPresensiMode('manual'));
-    if (openManualBtn) openManualBtn.addEventListener('click', () => setPresensiMode('manual'));
-    if (backQrBtn) backQrBtn.addEventListener('click', () => setPresensiMode('qr'));
+    if (modeQrBtn) modeQrBtn.addEventListener('click', () => closeManualPresensiModal());
+    if (modeManualBtn) modeManualBtn.addEventListener('click', () => openManualPresensiModal());
+    if (closeManualBtn) closeManualBtn.addEventListener('click', () => closeManualPresensiModal());
+    if (cancelManualBtn) cancelManualBtn.addEventListener('click', () => closeManualPresensiModal());
 
     if (kelasSel) {
       kelasSel.addEventListener('change', () => renderManualRoster());
@@ -1093,6 +1107,7 @@
           invalidateAdminReportCache();
           renderSessionLogs();
           renderManualRoster();
+          closeManualPresensiModal();
           UI.toast(
             `${d.savedCount || savedItems.length} presensi kelas ${selectedKelas} berhasil disimpan dan tersinkron ke Admin.`,
             'success'
@@ -1137,7 +1152,7 @@
           invalidateAdminReportCache();
 
           renderSessionLogs();
-          if (presensiMode === 'manual') {
+          if (manualModalOpen) {
             renderManualRoster();
           }
           UI.toast(
@@ -1157,10 +1172,6 @@
     const startBtn = document.getElementById('btn-qr-start');
     const stopBtn = document.getElementById('btn-qr-stop');
     const camSelect = document.getElementById('qr-camera-select');
-    const fallbackManualForm = document.getElementById('form-qr-token-fallback');
-    const fallbackTokenInput = document.getElementById('qr-token-manual-input');
-    const focusManualBtn = document.getElementById('btn-focus-manual-presensi');
-    const openManualFallbackBtn = document.getElementById('btn-show-token-fallback');
 
     if (startBtn) startBtn.addEventListener('click', startQRScanner);
     if (stopBtn) stopBtn.addEventListener('click', stopQRScanner);
@@ -1171,34 +1182,6 @@
           await stopQRScanner();
           startQRScanner();
         }
-      });
-    }
-
-    if (openManualFallbackBtn) {
-      openManualFallbackBtn.addEventListener('click', () => {
-        showCameraFallback(
-          'Mode input token manual diaktifkan. Masukkan kode token kartu QR santri di bawah atau buka Absensi Manual.'
-        );
-        if (fallbackTokenInput) fallbackTokenInput.focus();
-      });
-    }
-
-    if (fallbackManualForm) {
-      fallbackManualForm.addEventListener('submit', async (e) => {
-        e.preventDefault();
-        const token = fallbackTokenInput ? fallbackTokenInput.value.trim() : '';
-        if (!token) {
-          UI.toast('Masukkan kode token QR santri terlebih dahulu.', 'warn');
-          return;
-        }
-        await submitQRTokenPresensi(token, `Input token QR (${token})`);
-        if (fallbackTokenInput) fallbackTokenInput.value = '';
-      });
-    }
-
-    if (focusManualBtn) {
-      focusManualBtn.addEventListener('click', () => {
-        setPresensiMode('manual');
       });
     }
   }
@@ -1304,7 +1287,7 @@
 
     updateBanner(guruSession);
     populateManualKelasSelect();
-    setPresensiMode('qr');
+    closeManualPresensiModal();
     const tablist = document.getElementById('guru-tablist');
 
     if (!initialized) {
@@ -1315,6 +1298,7 @@
       tabController = UI.initSlidingTabs(tablist, (tabName) => {
         if (tabName !== 'presensi') {
           stopQRScanner();
+          closeManualPresensiModal();
         }
         if (tabName === 'uas') {
           root.MDTA_CALC.mountUAS(document.getElementById('guru-uas-mount'), {
@@ -1337,6 +1321,7 @@
   }
 
   function cleanup() {
+    closeManualPresensiModal();
     stopQRScanner();
     stopGuruLiveSync();
   }

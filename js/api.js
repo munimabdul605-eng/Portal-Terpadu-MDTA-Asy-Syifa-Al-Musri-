@@ -304,9 +304,17 @@
     ).filter((el) => el.offsetParent !== null);
   }
 
-  function openModal(modalId) {
+  function openModal(modalId, opts) {
     const backdrop = document.getElementById(modalId);
     if (!backdrop) return;
+
+    const existingIdx = modalStack.findIndex((m) => m.id === modalId);
+    if (existingIdx >= 0 && !backdrop.hidden) {
+      if (opts && typeof opts.onClose === 'function') {
+        modalStack[existingIdx].onClose = opts.onClose;
+      }
+      return;
+    }
 
     const prevFocus = document.activeElement;
     backdrop.hidden = false;
@@ -339,7 +347,13 @@
       }
     }
 
-    const entry = { id: modalId, prevFocus, onKeyDown, onBackdropClick };
+    const entry = {
+      id: modalId,
+      prevFocus,
+      onKeyDown,
+      onBackdropClick,
+      onClose: opts && typeof opts.onClose === 'function' ? opts.onClose : null,
+    };
     modalStack.push(entry);
     backdrop.addEventListener('keydown', onKeyDown);
     backdrop.addEventListener('click', onBackdropClick);
@@ -357,16 +371,20 @@
 
     backdrop.hidden = true;
     const idx = modalStack.findIndex((m) => m.id === modalId);
+    let closedEntry = null;
     if (idx >= 0) {
-      const entry = modalStack.splice(idx, 1)[0];
-      backdrop.removeEventListener('keydown', entry.onKeyDown);
-      backdrop.removeEventListener('click', entry.onBackdropClick);
-      if (entry.prevFocus && typeof entry.prevFocus.focus === 'function') {
-        entry.prevFocus.focus();
+      closedEntry = modalStack.splice(idx, 1)[0];
+      backdrop.removeEventListener('keydown', closedEntry.onKeyDown);
+      backdrop.removeEventListener('click', closedEntry.onBackdropClick);
+      if (closedEntry.prevFocus && typeof closedEntry.prevFocus.focus === 'function') {
+        closedEntry.prevFocus.focus();
       }
     }
     if (modalStack.length === 0) {
       document.body.classList.remove('modal-open');
+    }
+    if (closedEntry && typeof closedEntry.onClose === 'function') {
+      closedEntry.onClose();
     }
   }
 

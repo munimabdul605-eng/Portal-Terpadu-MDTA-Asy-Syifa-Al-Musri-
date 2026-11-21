@@ -23,20 +23,20 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
 
-  <link rel="stylesheet" href="./css/tokens.css?v=20261120-14" />
-  <link rel="stylesheet" href="./css/style.css?v=20261120-14" />
+  <link rel="stylesheet" href="./css/tokens.css?v=20261120-15" />
+  <link rel="stylesheet" href="./css/style.css?v=20261120-15" />
 
   <script defer src="https://unpkg.com/lucide@0.468.0/dist/umd/lucide.min.js"></script>
   <script defer src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
   <script defer src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
   <script defer src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 
-  <script defer src="./js/config.js?v=20261120-14"></script>
-  <script defer src="./js/api.js?v=20261120-14"></script>
-  <script defer src="./js/calculators.js?v=20261120-14"></script>
-  <script defer src="./js/admin.js?v=20261120-14"></script>
-  <script defer src="./js/guru.js?v=20261120-14"></script>
-  <script defer src="./js/auth.js?v=20261120-14"></script>
+  <script defer src="./js/config.js?v=20261120-15"></script>
+  <script defer src="./js/api.js?v=20261120-15"></script>
+  <script defer src="./js/calculators.js?v=20261120-15"></script>
+  <script defer src="./js/admin.js?v=20261120-15"></script>
+  <script defer src="./js/guru.js?v=20261120-15"></script>
+  <script defer src="./js/auth.js?v=20261120-15"></script>
 </head>
 <body>
   <a href="#main-content" class="skip-link">Langsung ke konten utama</a>
@@ -751,38 +751,26 @@
         </div>
       </div>
 
-      <!-- TAB 1: PRESENSI (SCAN QR RINGKAS + HALAMAN KHUSUS ABSENSI MANUAL) -->
+      <!-- TAB 1: PRESENSI (SCAN QR RINGKAS + POPUP ABSENSI MANUAL) -->
       <div id="guru-panel-presensi" class="tab-panel stack-gap" role="tabpanel" aria-labelledby="guru-tab-presensi">
-        <div id="guru-presensi-mode-bar" class="presensi-mode-bar" role="group" aria-label="Mode presensi">
+        <div id="guru-presensi-mode-bar" class="presensi-mode-bar" role="group" aria-label="Opsi presensi">
           <button id="btn-guru-mode-qr" type="button" class="report-mode-btn" data-presensi-mode="qr" aria-pressed="true">
             <i data-lucide="qr-code" aria-hidden="true"></i>
-            <span>Mode Scan QR</span>
+            <span>Scan QR</span>
           </button>
           <button id="btn-guru-mode-manual" type="button" class="report-mode-btn" data-presensi-mode="manual" aria-pressed="false">
             <i data-lucide="clipboard-list" aria-hidden="true"></i>
-            <span>Mode Absensi Manual</span>
+            <span>Absensi Manual</span>
           </button>
         </div>
 
-        <!-- VIEW A: HALAMAN UTAMA SCAN QR + DAFTAR PRESENSI HARI INI -->
+        <!-- VIEW UTAMA: SCAN QR + DAFTAR PRESENSI HARI INI -->
         <div id="guru-presensi-qr-view" class="stack-gap">
           <section class="surface-card stack-gap">
             <div class="card-spotlight-layer" aria-hidden="true"></div>
-            <div class="section-toolbar" style="margin-bottom:0;">
-              <div>
-                <h2 class="heading-lg">Pemindaian QR-Code</h2>
-                <p class="text-muted" style="margin:4px 0 0;font-size:0.8125rem;">Arahkan kartu QR santri ke kamera atau buka Absensi Manual untuk daftar kelas lengkap.</p>
-              </div>
-              <div class="toolbar-actions">
-                <button id="btn-open-presensi-manual" type="button" class="btn btn-primary btn-sm">
-                  <i data-lucide="users" aria-hidden="true"></i>
-                  <span>Buka Presensi Manual (Daftar Kelas)</span>
-                </button>
-                <button id="btn-show-token-fallback" type="button" class="btn btn-secondary btn-sm">
-                  <i data-lucide="keyboard" aria-hidden="true"></i>
-                  <span>Token Manual</span>
-                </button>
-              </div>
+            <div>
+              <h2 class="heading-lg">Pemindaian QR-Code</h2>
+              <p class="text-muted" style="margin:4px 0 0;font-size:0.8125rem;">Arahkan kartu QR santri ke kamera untuk mencatat kehadiran otomatis.</p>
             </div>
 
             <div class="toolbar-actions">
@@ -806,30 +794,15 @@
                 <p class="text-muted" style="margin:0;font-size:0.84rem;">Klik "Mulai Kamera" untuk mengaktifkan pemindaian QR-Code kartu santri.</p>
               </div>
 
-              <!-- Fallback jika izin kamera ditolak / tidak tersedia -->
+              <!-- Informasi jika izin kamera ditolak / tidak tersedia -->
               <div id="qr-camera-fallback" style="width:100%;text-align:left;" hidden>
-                <div class="inline-alert inline-alert-warn" role="alert" style="margin-bottom:12px;">
+                <div class="inline-alert inline-alert-warn" role="alert" style="margin-bottom:0;">
                   <i data-lucide="video-off" aria-hidden="true" style="width:18px;height:18px;flex-shrink:0;margin-top:2px;"></i>
                   <div>
                     <strong style="display:block;margin-bottom:2px;">Kamera Tidak Dapat Digunakan</strong>
-                    <span id="qr-fallback-reason">Izin kamera ditolak atau perangkat kamera tidak tersedia.</span>
+                    <span id="qr-fallback-reason">Kamera tidak tersedia atau izin ditolak. Klik tombol "Absensi Manual" di atas untuk mencatat kehadiran kelas.</span>
                   </div>
                 </div>
-                <form id="form-qr-token-fallback" class="stack-gap" style="gap:10px;">
-                  <div class="field-group">
-                    <label class="field-label" for="qr-token-manual-input">Input Token QR / ID Santri Secara Manual</label>
-                    <input id="qr-token-manual-input" type="text" class="input-control mono-num" placeholder="Contoh: QR-MDTA-S001" />
-                  </div>
-                  <div class="toolbar-actions">
-                    <button type="submit" class="btn btn-primary btn-sm">
-                      <i data-lucide="check" aria-hidden="true"></i>
-                      <span>Catat Hadir via Token</span>
-                    </button>
-                    <button id="btn-focus-manual-presensi" type="button" class="btn btn-secondary btn-sm">
-                      <span>Buka Absensi Manual</span>
-                    </button>
-                  </div>
-                </form>
               </div>
             </div>
 
@@ -882,57 +855,6 @@
                 </thead>
                 <tbody id="guru-session-log-tbody"></tbody>
               </table>
-            </div>
-          </section>
-        </div>
-
-        <!-- VIEW B: HALAMAN KHUSUS ABSENSI MANUAL (DAFTAR LENGKAP KELAS AMPU) -->
-        <div id="guru-presensi-manual-view" class="stack-gap" hidden>
-          <div class="calc-view-backbar">
-            <button id="btn-guru-back-to-qr" type="button" class="btn btn-secondary btn-sm">
-              <i data-lucide="arrow-left" aria-hidden="true"></i>
-              <span>Kembali ke Scan QR</span>
-            </button>
-            <span id="guru-santri-sync-status" class="text-muted" style="font-size:0.84rem;">Menyiapkan daftar santri kelas ampu...</span>
-          </div>
-
-          <section class="surface-card stack-gap">
-            <div class="card-spotlight-layer" aria-hidden="true"></div>
-            <div class="section-toolbar" style="margin-bottom:0;">
-              <div>
-                <h2 class="heading-lg">Absensi Manual Kelas Ampu</h2>
-                <p class="text-muted" style="margin:4px 0 0;font-size:0.8125rem;">Daftar santri aktif dimuat langsung dari pemetaan kelas Admin. Pilih status per santri atau tandai semua hadir sekaligus.</p>
-              </div>
-            </div>
-
-            <div class="form-grid-2">
-              <div class="field-group">
-                <label class="field-label" for="manual-santri-kelas">Kelas Ampu</label>
-                <select id="manual-santri-kelas" class="select-control"></select>
-              </div>
-              <div class="field-group">
-                <label class="field-label" for="manual-presensi-tanggal">Tanggal Presensi</label>
-                <input id="manual-presensi-tanggal" type="date" class="input-control" />
-              </div>
-            </div>
-
-            <div class="section-toolbar" style="margin-bottom:0;">
-              <span id="manual-roster-summary" class="text-secondary" style="font-size:0.85rem;">0 santri aktif</span>
-              <div class="toolbar-actions">
-                <button id="btn-manual-mark-all-hadir" type="button" class="btn btn-accent btn-sm">
-                  <i data-lucide="check-check" aria-hidden="true"></i>
-                  <span>Tandai Semua Hadir</span>
-                </button>
-              </div>
-            </div>
-
-            <div id="guru-manual-roster-list" class="manual-roster-list"></div>
-
-            <div class="manual-submit-bar">
-              <button id="btn-submit-presensi-manual" type="button" class="btn btn-primary" style="width:100%;">
-                <i data-lucide="save" aria-hidden="true"></i>
-                <span>Simpan Semua Presensi Kelas</span>
-              </button>
             </div>
           </section>
         </div>
@@ -1416,6 +1338,55 @@
           </div>
         </div>
       </form>
+    </div>
+  </div>
+
+  <!-- ===================================================================
+       MODAL POPUP ABSENSI MANUAL KELAS (PORTAL GURU)
+       =================================================================== -->
+  <div id="modal-presensi-manual" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="manual-presensi-modal-title" hidden>
+    <div class="modal-panel modal-panel-manual">
+      <div class="modal-header manual-modal-header">
+        <div style="min-width:0;flex:1;">
+          <h2 id="manual-presensi-modal-title" class="heading-md">Absensi Manual Kelas</h2>
+          <p id="guru-santri-sync-status" class="text-muted manual-modal-sub">Menyiapkan daftar santri kelas ampu...</p>
+        </div>
+        <button id="btn-close-manual-modal" type="button" class="btn btn-secondary btn-icon" aria-label="Tutup popup absensi manual">
+          <i data-lucide="x" aria-hidden="true"></i>
+        </button>
+      </div>
+
+      <div class="manual-modal-toolbar">
+        <div class="manual-modal-controls">
+          <div class="field-group">
+            <label class="field-label" for="manual-santri-kelas">Kelas Ampu</label>
+            <select id="manual-santri-kelas" class="select-control"></select>
+          </div>
+          <div class="field-group">
+            <label class="field-label" for="manual-presensi-tanggal">Tanggal Presensi</label>
+            <input id="manual-presensi-tanggal" type="date" class="input-control" />
+          </div>
+        </div>
+        <div class="manual-modal-quickbar">
+          <span id="manual-roster-summary" class="text-secondary manual-roster-summary">0 santri aktif</span>
+          <button id="btn-manual-mark-all-hadir" type="button" class="btn btn-accent btn-sm">
+            <i data-lucide="check-check" aria-hidden="true"></i>
+            <span>Tandai Semua Hadir</span>
+          </button>
+        </div>
+      </div>
+
+      <div class="modal-body manual-modal-body">
+        <div id="guru-manual-roster-list" class="manual-roster-list"></div>
+      </div>
+
+      <div class="modal-footer manual-modal-footer">
+        <button id="btn-cancel-manual-modal" type="button" class="btn btn-secondary">Tutup</button>
+        <button id="btn-submit-presensi-manual" type="button" class="btn btn-primary">
+          <i data-lucide="save" aria-hidden="true"></i>
+          <span>Simpan Semua Presensi</span>
+        </button>
+      </div>
     </div>
   </div>
 
