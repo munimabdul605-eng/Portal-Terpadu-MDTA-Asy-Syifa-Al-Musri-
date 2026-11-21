@@ -755,12 +755,26 @@ function doPost(e) {
         return jsonResponse(true, res, 'Data santri dihapus.');
       }
       case 'savePresensi': {
-        const res = handleSavePresensi(attachScopeContext(payload.data, rootScope));
-        return jsonResponse(true, res, 'Presensi berhasil dicatat.');
+        const res = handleSavePresensi(payload.data, rootScope);
+        return jsonResponse(true, res, Array.isArray(payload.data) ? 'Presensi kelas berhasil disimpan.' : 'Presensi berhasil dicatat.');
+      }
+      case 'clearPresensiHarian': {
+        const res = handleClearPresensiHarian(payload, rootScope);
+        return jsonResponse(true, res, 'Log presensi harian berhasil dibersihkan.');
       }
       case 'saveNilaiUAS': {
-        const res = handleSaveNilaiUAS(attachScopeContext(payload.data, rootScope));
-        return jsonResponse(true, res, 'Nilai UAS tersimpan.');
+        const res = handleSaveNilaiUAS(payload.data, rootScope);
+        return jsonResponse(
+          true,
+          res,
+          Array.isArray(payload.data)
+            ? 'Semua nilai UAS berhasil disimpan.'
+            : (res && res.updated ? 'Nilai UAS diperbarui.' : 'Nilai UAS tersimpan.')
+        );
+      }
+      case 'deleteNilaiUAS': {
+        const res = handleDeleteNilaiUAS(payload, rootScope);
+        return jsonResponse(true, res, 'Nilai UAS berhasil dihapus.');
       }
       case 'saveNilaiRaport': {
         const res = handleSaveNilaiRaport(payload.data, rootScope);
@@ -842,7 +856,11 @@ function handleGetUsers() {
 }
 
 function handleGetNilaiRaport(scope) {
-  const rows = filterRowsByGuruScope(getSheetData('Nilai_Raport'), scope, 'kelas');
+  const rows = filterRowsByGuruScope(getSheetData('Nilai_Raport'), scope, 'kelas')
+    .filter(r => {
+      const nama = String(r.nama_santri || '').trim();
+      return Boolean(nama && nama !== '-');
+    });
   return rows.map(r => {
     const resolved = resolveRaportRowValues(r);
     return {
@@ -869,14 +887,24 @@ function handleGetDashboard() {
   const presensi = getSheetData('Presensi');
   const users = handleGetUsers();
   const santri = getSheetData('Santri');
+  const todayWib = Utilities.formatDate(new Date(), 'Asia/Jakarta', 'yyyy-MM-dd');
 
   const summary = { Hadir: 0, Sakit: 0, Izin: 0, Alpa: 0 };
   presensi.forEach(p => {
+    if (formatDateOnlyWIB(p.tanggal) !== todayWib) return;
     if (Object.prototype.hasOwnProperty.call(summary, p.status)) summary[p.status]++;
   });
 
-  const recentPresensi = presensi.slice().reverse().slice(0, 50);
+  const recentPresensi = presensi
+    .slice()
+    .reverse()
+    .slice(0, 50)
+    .map(p => Object.assign({}, p, {
+      tanggal: formatDateOnlyWIB(p.tanggal),
+      waktu: formatTimeOnlyWIB(p.waktu)
+    }));
   return {
+    tanggal: todayWib,
     summary: summary,
     total_santri: santri.length,
     total_presensi: presensi.length,
@@ -1370,54 +1398,247 @@ function handleSaveSantri(data) {
   };
 }
 
-function handleSavePresensi(data) {
+function handleSavePresensi(data, rootScope) {
+  const isBatch = Array.isArray(data);
+  const rawItems = isBatch ? data : [data];
+  if (rawItems.length === 0) {
+    throw new Error('Daftar presensi yang dikirim kosong.');
+  }
+
   const { sheet } = getSheetAndHeaders('Presensi');
   const rows = getSheetData('Presensi');
   const santriList = getSheetData('Santri');
 
-  const santri = santriList.find(s =>
-    (data.id_santri && String(s.id_santri).trim() === String(data.id_santri).trim()) ||
-    (data.qr_token && String(s.qr_token).trim().toLowerCase() === String(data.qr_token).trim().toLowerCase()) ||
-    (data.nama_santri && String(s.nama_lengkap).trim().toLowerCase() === String(data.nama_santri).trim().toLowerCase())
-  );
+  const scopeBase = (rootScope && (rootScope.role || rootScope.id_user || rootScope.username))
+    ? rootScope
+    : (isBatch ? (rawItems[0] || {}) : (data || {}));
+  const scope = resolveGuruScope(attachScopeContext(isBatch ? {} : (data || {}), scopeBase));
 
-  if (!santri) throw new Error('Data santri tidak ditemukan di database.');
+  if (scope.isGuru && scope.kelas_ampu.length === 0) {
+    throw new Error('Akun guru Anda belum dipetakan ke kelas mana pun. Hubungi Kepala Madrasah / Admin untuk mengatur kelas ampu.');
+  }
 
-  const scope = resolveGuruScope(data);
-  if (scope.isGuru) {
-    if (scope.kelas_ampu.length === 0) {
-      throw new Error('Akun guru Anda belum dipetakan ke kelas mana pun. Hubungi Kepala Madrasah / Admin untuk mengatur kelas ampu.');
+  // Validasi seluruh item terlebih dahulu agar batch bersifat atomik
+  const prepared = rawItems.map(rawItem => {
+    const item = rawItem || {};
+    const santri = santriList.find(s =>
+      (item.id_santri && String(s.id_santri).trim() === String(item.id_santri).trim()) ||
+      (item.qr_token && String(s.qr_token).trim().toLowerCase() === String(item.qr_token).trim().toLowerCase()) ||
+      (item.nama_santri && String(s.nama_lengkap).trim().toLowerCase() === String(item.nama_santri).trim().toLowerCase())
+    );
+    if (!santri) {
+      throw new Error('Data santri tidak ditemukan di database.');
     }
-    if (!isKelasAllowed(santri.kelas, scope.kelas_ampu)) {
+    if (scope.isGuru && !isKelasAllowed(santri.kelas, scope.kelas_ampu)) {
       throw new Error(
         'Akses ditolak: Santri "' + santri.nama_lengkap + '" berada di ' + (santri.kelas || 'Tanpa Kelas') +
         ', di luar kelas ampu Anda (' + scope.kelas_ampu.join(', ') + ').'
       );
     }
-  }
+    return { item, santri };
+  });
 
+  const usedIds = new Set(rows.map(r => String(r.id_presensi || '').trim()).filter(Boolean));
   const now = new Date();
-  const tanggal = data.tanggal || Utilities.formatDate(now, 'Asia/Jakarta', 'yyyy-MM-dd');
-  const waktu = data.waktu || Utilities.formatDate(now, 'Asia/Jakarta', 'HH:mm:ss');
-  const newId = generateUniqueSequentialId(rows, 'id_presensi', 'PRS-', 4);
+  const defaultTanggal = Utilities.formatDate(now, 'Asia/Jakarta', 'yyyy-MM-dd');
+  const defaultWaktu = Utilities.formatDate(now, 'Asia/Jakarta', 'HH:mm:ss');
 
-  sheet.appendRow([
-    newId,
-    tanggal,
-    waktu,
-    santri.id_santri,
-    santri.nama_lengkap,
-    santri.kelas,
-    data.status || 'Hadir',
-    data.id_guru_piket || '',
-    data.nama_guru_piket || '',
-    data.metode || 'Manual',
-    data.catatan || ''
-  ]);
+  let createdCount = 0;
+  let updatedCount = 0;
+  const savedItems = [];
+
+  prepared.forEach(({ item, santri }) => {
+    const tanggal = formatDateOnlyWIB(item.tanggal) || defaultTanggal;
+    const waktu = formatTimeOnlyWIB(item.waktu) || defaultWaktu;
+    const status = String(item.status || 'Hadir').trim() || 'Hadir';
+    const metode = String(item.metode || 'Manual').trim() || 'Manual';
+    const catatan = String(item.catatan || '').trim();
+    const sId = String(santri.id_santri || '').trim();
+    const sNama = String(santri.nama_lengkap || '').trim();
+    const sNamaKey = sNama.toLowerCase();
+
+    const existing = rows.find(r => {
+      if (formatDateOnlyWIB(r.tanggal) !== tanggal) return false;
+      const rId = String(r.id_santri || '').trim();
+      if (sId && rId && rId === sId) return true;
+      return Boolean(sNamaKey && String(r.nama_santri || '').trim().toLowerCase() === sNamaKey);
+    });
+
+    if (existing) {
+      const finalId = String(existing.id_presensi || '').trim() || generateUniqueSequentialId(rows, 'id_presensi', 'PRS-', 4, usedIds);
+      const idGuruPiket = item.id_guru_piket !== undefined && item.id_guru_piket !== '' ? item.id_guru_piket : (existing.id_guru_piket || '');
+      const namaGuruPiket = item.nama_guru_piket !== undefined && item.nama_guru_piket !== '' ? item.nama_guru_piket : (existing.nama_guru_piket || '');
+      const rowValues = [
+        finalId,
+        tanggal,
+        waktu,
+        santri.id_santri,
+        santri.nama_lengkap,
+        santri.kelas,
+        status,
+        idGuruPiket,
+        namaGuruPiket,
+        metode,
+        catatan
+      ];
+      sheet.getRange(existing._rowIndex, 1, 1, rowValues.length).setValues([rowValues]);
+      existing.id_presensi = finalId;
+      existing.tanggal = tanggal;
+      existing.waktu = waktu;
+      existing.id_santri = santri.id_santri;
+      existing.nama_santri = santri.nama_lengkap;
+      existing.kelas = santri.kelas;
+      existing.status = status;
+      existing.id_guru_piket = idGuruPiket;
+      existing.nama_guru_piket = namaGuruPiket;
+      existing.metode = metode;
+      existing.catatan = catatan;
+      updatedCount++;
+      savedItems.push({
+        id_presensi: finalId,
+        tanggal: tanggal,
+        waktu: waktu,
+        id_santri: santri.id_santri,
+        santri: santri.nama_lengkap,
+        nama_santri: santri.nama_lengkap,
+        kelas: santri.kelas,
+        status: status,
+        metode: metode,
+        catatan: catatan,
+        updated: true
+      });
+    } else {
+      const newId = generateUniqueSequentialId(rows, 'id_presensi', 'PRS-', 4, usedIds);
+      const idGuruPiket = item.id_guru_piket || '';
+      const namaGuruPiket = item.nama_guru_piket || '';
+      const rowValues = [
+        newId,
+        tanggal,
+        waktu,
+        santri.id_santri,
+        santri.nama_lengkap,
+        santri.kelas,
+        status,
+        idGuruPiket,
+        namaGuruPiket,
+        metode,
+        catatan
+      ];
+      sheet.appendRow(rowValues);
+      rows.push({
+        _rowIndex: sheet.getLastRow(),
+        id_presensi: newId,
+        tanggal: tanggal,
+        waktu: waktu,
+        id_santri: santri.id_santri,
+        nama_santri: santri.nama_lengkap,
+        kelas: santri.kelas,
+        status: status,
+        id_guru_piket: idGuruPiket,
+        nama_guru_piket: namaGuruPiket,
+        metode: metode,
+        catatan: catatan
+      });
+      createdCount++;
+      savedItems.push({
+        id_presensi: newId,
+        tanggal: tanggal,
+        waktu: waktu,
+        id_santri: santri.id_santri,
+        santri: santri.nama_lengkap,
+        nama_santri: santri.nama_lengkap,
+        kelas: santri.kelas,
+        status: status,
+        metode: metode,
+        catatan: catatan,
+        updated: false
+      });
+    }
+  });
+
   delete _requestSheetData['Presensi'];
   bumpSyncVersion();
 
-  return { id_presensi: newId, santri: santri.nama_lengkap, kelas: santri.kelas, status: data.status || 'Hadir' };
+  if (!isBatch) {
+    return Object.assign({}, savedItems[0], {
+      savedCount: 1,
+      createdCount: createdCount,
+      updatedCount: updatedCount,
+      items: savedItems
+    });
+  }
+
+  return {
+    savedCount: savedItems.length,
+    createdCount: createdCount,
+    updatedCount: updatedCount,
+    items: savedItems
+  };
+}
+
+function handleClearPresensiHarian(payload, rootScope) {
+  const src = (payload && payload.data && typeof payload.data === 'object') ? payload.data : (payload || {});
+  const targetTanggal = formatDateOnlyWIB(src.tanggal || (payload && payload.tanggal)) ||
+    Utilities.formatDate(new Date(), 'Asia/Jakarta', 'yyyy-MM-dd');
+  const rawKelas = String(src.kelas || (payload && payload.kelas) || '').trim();
+  const hasKelasFilter = Boolean(rawKelas && rawKelas.toLowerCase() !== 'semua kelas');
+
+  const scope = resolveGuruScope(attachScopeContext(src, rootScope));
+  if (scope.isGuru) {
+    if (scope.kelas_ampu.length === 0) {
+      throw new Error('Akun guru Anda belum dipetakan ke kelas mana pun.');
+    }
+    if (hasKelasFilter && !isKelasAllowed(rawKelas, scope.kelas_ampu)) {
+      throw new Error(
+        'Akses ditolak: Anda hanya dapat membersihkan log presensi kelas ampu Anda (' + scope.kelas_ampu.join(', ') + ').'
+      );
+    }
+  }
+
+  const { sheet } = getSheetAndHeaders('Presensi');
+  const rows = getSheetData('Presensi');
+  const matches = rows.filter(r => {
+    if (formatDateOnlyWIB(r.tanggal) !== targetTanggal) return false;
+    if (scope.isGuru && !isKelasAllowed(r.kelas, scope.kelas_ampu)) return false;
+    if (hasKelasFilter && normalizeKelasName(r.kelas) !== normalizeKelasName(rawKelas)) return false;
+    return true;
+  });
+
+  matches
+    .slice()
+    .sort((a, b) => b._rowIndex - a._rowIndex)
+    .forEach(r => sheet.deleteRow(r._rowIndex));
+
+  const ss = getSpreadsheet();
+  const logSheet = ss.getSheetByName('Log_Setoran');
+  if (logSheet) {
+    const logRows = getSheetData('Log_Setoran');
+    const logMatches = logRows.filter(l => {
+      if (String(l.jenis_laporan || '').trim().toLowerCase() !== 'absensi harian') return false;
+      if (formatDateOnlyWIB(l.tanggal) !== targetTanggal) return false;
+      const k = String(l.kelas || '').trim();
+      if (scope.isGuru) {
+        if (!k || k.toLowerCase() === 'semua kelas') return false;
+        if (!isKelasAllowed(k, scope.kelas_ampu)) return false;
+      }
+      if (hasKelasFilter && normalizeKelasName(k) !== normalizeKelasName(rawKelas)) return false;
+      return true;
+    });
+    logMatches
+      .slice()
+      .sort((a, b) => b._rowIndex - a._rowIndex)
+      .forEach(l => logSheet.deleteRow(l._rowIndex));
+  }
+
+  delete _requestSheetData['Presensi'];
+  delete _requestSheetData['Log_Setoran'];
+  bumpSyncVersion();
+
+  return {
+    deletedCount: matches.length,
+    tanggal: targetTanggal,
+    kelas: hasKelasFilter ? rawKelas : (scope.isGuru ? scope.kelas_ampu.join(', ') : 'Semua Kelas')
+  };
 }
 
 function handleGetRekapLaporan(bulan, tahun, scope) {
@@ -1457,48 +1678,247 @@ function handleGetRekapLaporan(bulan, tahun, scope) {
   });
 }
 
-function handleSaveNilaiUAS(data) {
+function handleSaveNilaiUAS(data, rootScope) {
+  const isBatch = Array.isArray(data);
+  const rawItems = isBatch ? data : [data];
+  if (rawItems.length === 0) {
+    throw new Error('Tidak ada data nilai UAS untuk disimpan.');
+  }
+
   const { sheet } = getSheetAndHeaders('Nilai_UAS');
   const rows = getSheetData('Nilai_UAS');
   const santriList = getSheetData('Santri');
-  const matched = santriList.find(s =>
-    (data.id_santri && String(s.id_santri).trim() === String(data.id_santri).trim()) ||
-    (data.nama_santri && String(s.nama_lengkap).trim().toLowerCase() === String(data.nama_santri).trim().toLowerCase())
-  );
-  const targetKelas = String((data && data.kelas) || (matched && matched.kelas) || '').trim();
 
-  const scope = resolveGuruScope(data);
+  const scopeBase = (rootScope && (rootScope.role || rootScope.id_user || rootScope.username))
+    ? rootScope
+    : (isBatch ? (rawItems[0] || {}) : (data || {}));
+  const scope = resolveGuruScope(attachScopeContext(isBatch ? {} : (data || {}), scopeBase));
+
+  if (scope.isGuru && scope.kelas_ampu.length === 0) {
+    throw new Error('Akun guru Anda belum dipetakan ke kelas mana pun.');
+  }
+
+  function findExistingUasRow(item, matched, targetKelas, targetPeriode) {
+    const incomingId = String((item && item.id_uas) || '').trim();
+    if (incomingId) {
+      const byId = rows.find(r => String(r.id_uas || '').trim() === incomingId);
+      if (byId) return byId;
+    }
+    const targetIdSantri = String((item && item.id_santri) || (matched && matched.id_santri) || '').trim();
+    const targetNama = String((item && item.nama_santri) || (matched && matched.nama_lengkap) || '').trim().toLowerCase();
+    const targetKelasKey = normalizeKelasName(targetKelas);
+    if (!targetIdSantri && !targetNama) return null;
+
+    return rows.find(r => {
+      const rPeriode = String(r.periode || 'Ganjil 2026/2027').trim();
+      if (rPeriode !== targetPeriode) return false;
+      const rKelasKey = normalizeKelasName(r.kelas || '');
+      if (targetIdSantri && String(r.id_santri || '').trim() === targetIdSantri) {
+        return !targetKelasKey || !rKelasKey || rKelasKey === targetKelasKey;
+      }
+      return (
+        targetNama &&
+        String(r.nama_santri || '').trim().toLowerCase() === targetNama &&
+        rKelasKey === targetKelasKey
+      );
+    }) || null;
+  }
+
+  // Validasi atomik seluruh item sebelum menulis
+  const prepared = rawItems.map(rawItem => {
+    const item = rawItem || {};
+    const matched = santriList.find(s =>
+      (item.id_santri && String(s.id_santri).trim() === String(item.id_santri).trim()) ||
+      (item.nama_santri && String(s.nama_lengkap).trim().toLowerCase() === String(item.nama_santri).trim().toLowerCase())
+    );
+    const targetPeriode = String(item.periode || 'Ganjil 2026/2027').trim() || 'Ganjil 2026/2027';
+    const tentativeKelas = String(item.kelas || (matched && matched.kelas) || '').trim();
+    const existing = findExistingUasRow(item, matched, tentativeKelas, targetPeriode);
+    const targetKelas = String(tentativeKelas || (existing && existing.kelas) || '').trim();
+    const namaSantri = String(item.nama_santri || (matched && matched.nama_lengkap) || (existing && existing.nama_santri) || '').trim();
+
+    if (!namaSantri) {
+      throw new Error('Nama santri pada data nilai UAS wajib diisi.');
+    }
+
+    if (scope.isGuru) {
+      if (!targetKelas || !isKelasAllowed(targetKelas, scope.kelas_ampu)) {
+        throw new Error(
+          'Akses ditolak: Anda hanya dapat menyimpan nilai UAS untuk kelas ampu Anda (' + scope.kelas_ampu.join(', ') + ').'
+        );
+      }
+      if (existing && existing.kelas && !isKelasAllowed(existing.kelas, scope.kelas_ampu)) {
+        throw new Error(
+          'Akses ditolak: Anda hanya dapat memperbarui nilai UAS untuk kelas ampu Anda (' + scope.kelas_ampu.join(', ') + ').'
+        );
+      }
+    }
+
+    return { item, matched, targetKelas, targetPeriode, namaSantri };
+  });
+
+  const usedIds = new Set(rows.map(r => String(r.id_uas || '').trim()).filter(Boolean));
+  const now = Utilities.formatDate(new Date(), 'Asia/Jakarta', 'yyyy-MM-dd');
+  let createdCount = 0;
+  let updatedCount = 0;
+  const savedItems = [];
+
+  prepared.forEach(({ item, matched, targetKelas, targetPeriode, namaSantri }) => {
+    const existing = findExistingUasRow(item, matched, targetKelas, targetPeriode);
+    const resolvedIdSantri = String(item.id_santri || (matched ? matched.id_santri : '') || (existing ? existing.id_santri : '') || '').trim();
+    const resolvedSkema = String(item.skema_soal || (existing ? existing.skema_soal : '') || '');
+    const pgBenar = Number(item.pg_benar || 0);
+    const essayBenar = Number(item.essay_benar || 0);
+    const setengahBenar = Number(item.setengah_benar || 0);
+    const nilaiUas = Number(item.nilai_uas || 0);
+    const idGuru = String(item.id_guru || (existing ? existing.id_guru : '') || (scope.id_user || ''));
+
+    if (existing) {
+      const finalId = String(existing.id_uas || '').trim() || generateUniqueSequentialId(rows, 'id_uas', 'UAS-', 3, usedIds);
+      const rowValues = [
+        finalId,
+        resolvedIdSantri,
+        namaSantri,
+        targetKelas,
+        targetPeriode,
+        resolvedSkema,
+        pgBenar,
+        essayBenar,
+        setengahBenar,
+        nilaiUas,
+        idGuru,
+        now
+      ];
+      sheet.getRange(existing._rowIndex, 1, 1, rowValues.length).setValues([rowValues]);
+      existing.id_uas = finalId;
+      existing.id_santri = resolvedIdSantri;
+      existing.nama_santri = namaSantri;
+      existing.kelas = targetKelas;
+      existing.periode = targetPeriode;
+      existing.skema_soal = resolvedSkema;
+      existing.pg_benar = pgBenar;
+      existing.essay_benar = essayBenar;
+      existing.setengah_benar = setengahBenar;
+      existing.nilai_uas = nilaiUas;
+      existing.id_guru = idGuru;
+      existing.updated_at = now;
+      updatedCount++;
+      savedItems.push({
+        id_uas: finalId,
+        id_santri: resolvedIdSantri,
+        nama_santri: namaSantri,
+        kelas: targetKelas,
+        periode: targetPeriode,
+        skema_soal: resolvedSkema,
+        pg_benar: pgBenar,
+        essay_benar: essayBenar,
+        setengah_benar: setengahBenar,
+        nilai_uas: nilaiUas,
+        id_guru: idGuru,
+        updated_at: now,
+        updated: true
+      });
+    } else {
+      const newId = generateUniqueSequentialId(rows, 'id_uas', 'UAS-', 3, usedIds);
+      const rowValues = [
+        newId,
+        resolvedIdSantri,
+        namaSantri,
+        targetKelas,
+        targetPeriode,
+        resolvedSkema,
+        pgBenar,
+        essayBenar,
+        setengahBenar,
+        nilaiUas,
+        idGuru,
+        now
+      ];
+      sheet.appendRow(rowValues);
+      rows.push({
+        _rowIndex: sheet.getLastRow(),
+        id_uas: newId,
+        id_santri: resolvedIdSantri,
+        nama_santri: namaSantri,
+        kelas: targetKelas,
+        periode: targetPeriode,
+        skema_soal: resolvedSkema,
+        pg_benar: pgBenar,
+        essay_benar: essayBenar,
+        setengah_benar: setengahBenar,
+        nilai_uas: nilaiUas,
+        id_guru: idGuru,
+        updated_at: now
+      });
+      createdCount++;
+      savedItems.push({
+        id_uas: newId,
+        id_santri: resolvedIdSantri,
+        nama_santri: namaSantri,
+        kelas: targetKelas,
+        periode: targetPeriode,
+        skema_soal: resolvedSkema,
+        pg_benar: pgBenar,
+        essay_benar: essayBenar,
+        setengah_benar: setengahBenar,
+        nilai_uas: nilaiUas,
+        id_guru: idGuru,
+        updated_at: now,
+        updated: false
+      });
+    }
+  });
+
+  delete _requestSheetData['Nilai_UAS'];
+  bumpSyncVersion();
+
+  if (!isBatch) {
+    return {
+      id_uas: savedItems[0].id_uas,
+      updated: savedItems[0].updated,
+      savedCount: 1,
+      createdCount: createdCount,
+      updatedCount: updatedCount,
+      items: savedItems
+    };
+  }
+
+  return {
+    savedCount: savedItems.length,
+    createdCount: createdCount,
+    updatedCount: updatedCount,
+    items: savedItems
+  };
+}
+
+function handleDeleteNilaiUAS(payload, rootScope) {
+  const targetId = String((payload && (payload.id_uas || (payload.data && payload.data.id_uas))) || '').trim();
+  if (!targetId) {
+    throw new Error('ID nilai UAS tidak valid.');
+  }
+  const { sheet } = getSheetAndHeaders('Nilai_UAS');
+  const rows = getSheetData('Nilai_UAS');
+  const found = rows.find(r => String(r.id_uas || '').trim() === targetId);
+  if (!found) {
+    throw new Error('Data nilai UAS tidak ditemukan.');
+  }
+
+  const scope = resolveGuruScope(attachScopeContext(payload || {}, rootScope));
   if (scope.isGuru) {
     if (scope.kelas_ampu.length === 0) {
       throw new Error('Akun guru Anda belum dipetakan ke kelas mana pun.');
     }
-    if (!targetKelas || !isKelasAllowed(targetKelas, scope.kelas_ampu)) {
+    if (!found.kelas || !isKelasAllowed(found.kelas, scope.kelas_ampu)) {
       throw new Error(
-        'Akses ditolak: Anda hanya dapat menyimpan nilai UAS untuk kelas ampu Anda (' + scope.kelas_ampu.join(', ') + ').'
+        'Akses ditolak: Anda hanya dapat menghapus nilai UAS untuk kelas ampu Anda (' + scope.kelas_ampu.join(', ') + ').'
       );
     }
   }
 
-  const now = Utilities.formatDate(new Date(), 'Asia/Jakarta', 'yyyy-MM-dd');
-  const newId = generateUniqueSequentialId(rows, 'id_uas', 'UAS-', 3);
-
-  sheet.appendRow([
-    newId,
-    data.id_santri || (matched ? matched.id_santri : ''),
-    data.nama_santri,
-    targetKelas,
-    data.periode || 'Ganjil 2026/2027',
-    data.skema_soal,
-    Number(data.pg_benar || 0),
-    Number(data.essay_benar || 0),
-    Number(data.setengah_benar || 0),
-    Number(data.nilai_uas || 0),
-    data.id_guru || '',
-    now
-  ]);
+  sheet.deleteRow(found._rowIndex);
   delete _requestSheetData['Nilai_UAS'];
   bumpSyncVersion();
-  return { id_uas: newId };
+  return { deletedId: targetId };
 }
 
 function handleSaveNilaiRaport(items, metaCtx) {
@@ -2244,6 +2664,10 @@ function handleGetPresensiByDate(tanggalParam, scope) {
   const targetTanggal = formatDateOnlyWIB(tanggalParam) || Utilities.formatDate(new Date(), 'Asia/Jakarta', 'yyyy-MM-dd');
   return filterRowsByGuruScope(getSheetData('Presensi'), scope, 'kelas')
     .filter(p => formatDateOnlyWIB(p.tanggal) === targetTanggal)
+    .map(p => Object.assign({}, p, {
+      tanggal: formatDateOnlyWIB(p.tanggal),
+      waktu: formatTimeOnlyWIB(p.waktu)
+    }))
     .reverse();
 }
 

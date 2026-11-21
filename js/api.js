@@ -47,41 +47,77 @@
     }
   }
 
+  function parseDateInputWIB(dateInput) {
+    if (!dateInput) return new Date();
+    const s = String(dateInput).trim();
+    if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
+      return new Date(`${s}T12:00:00+07:00`);
+    }
+    return new Date(dateInput);
+  }
+
   function formatDateId(dateInput) {
-    const d = dateInput ? new Date(dateInput) : new Date();
+    const d = parseDateInputWIB(dateInput);
     if (Number.isNaN(d.getTime())) return String(dateInput || '-');
     return d.toLocaleDateString('id-ID', {
       weekday: 'long',
       day: 'numeric',
       month: 'long',
       year: 'numeric',
+      timeZone: 'Asia/Jakarta',
     });
   }
 
   function formatDateShort(dateInput) {
     if (!dateInput) return '-';
-    const d = new Date(dateInput);
+    const d = parseDateInputWIB(dateInput);
     if (Number.isNaN(d.getTime())) return String(dateInput);
     return d.toLocaleDateString('id-ID', {
       day: '2-digit',
       month: 'short',
       year: 'numeric',
+      timeZone: 'Asia/Jakarta',
     });
   }
 
   function todayISO() {
     const now = new Date();
-    const y = now.getFullYear();
-    const m = String(now.getMonth() + 1).padStart(2, '0');
-    const d = String(now.getDate()).padStart(2, '0');
+    try {
+      const formatted = new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'Asia/Jakarta',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+      }).format(now);
+      if (/^\d{4}-\d{2}-\d{2}$/.test(formatted)) return formatted;
+    } catch (err) {
+      // Fallback UTC+7 jika Intl timeZone tidak didukung
+    }
+    const wib = new Date(now.getTime() + 7 * 3600 * 1000);
+    const y = wib.getUTCFullYear();
+    const m = String(wib.getUTCMonth() + 1).padStart(2, '0');
+    const d = String(wib.getUTCDate()).padStart(2, '0');
     return `${y}-${m}-${d}`;
   }
 
   function nowTimeHMS() {
     const now = new Date();
-    const hh = String(now.getHours()).padStart(2, '0');
-    const mm = String(now.getMinutes()).padStart(2, '0');
-    const ss = String(now.getSeconds()).padStart(2, '0');
+    try {
+      const formatted = new Intl.DateTimeFormat('en-GB', {
+        timeZone: 'Asia/Jakarta',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: false,
+      }).format(now);
+      if (/^\d{2}:\d{2}:\d{2}$/.test(formatted)) return formatted;
+    } catch (err) {
+      // Fallback UTC+7 jika Intl timeZone tidak didukung
+    }
+    const wib = new Date(now.getTime() + 7 * 3600 * 1000);
+    const hh = String(wib.getUTCHours()).padStart(2, '0');
+    const mm = String(wib.getUTCMinutes()).padStart(2, '0');
+    const ss = String(wib.getUTCSeconds()).padStart(2, '0');
     return `${hh}:${mm}:${ss}`;
   }
 
@@ -544,7 +580,9 @@
   ]);
   const GURU_SCOPED_POST_ACTIONS = new Set([
     'savePresensi',
+    'clearPresensiHarian',
     'saveNilaiUAS',
+    'deleteNilaiUAS',
     'saveNilaiRaport',
     'submitLaporanGuru',
   ]);
@@ -713,6 +751,14 @@
     const target = String(kelasVal || '').trim().toLowerCase();
     if (!target || !Array.isArray(allowedList) || allowedList.length === 0) return false;
     return allowedList.some((k) => String(k || '').trim().toLowerCase() === target);
+  }
+
+  function isActiveSantri(santriObj) {
+    if (!santriObj || typeof santriObj !== 'object') return false;
+    const nama = String(santriObj.nama_lengkap || santriObj.nama || '').trim();
+    if (!nama || nama === '-') return false;
+    const st = String(santriObj.status || 'aktif').trim().toLowerCase();
+    return !st || st === 'aktif';
   }
 
   function filterByGuruScope(list, session, classField) {
@@ -1110,9 +1156,13 @@
         st.rekapKepsekKey = c.data.key || '';
       }
     }
+    const isValidNama = (r) => {
+      const n = String((r && r.nama_santri) || '').trim();
+      return Boolean(n && n !== '-');
+    };
     if ((!st.nilaiRaportSaved || st.nilaiRaportSaved.length === 0)) {
       const c = readCache('nilaiRaportSaved');
-      if (c && Array.isArray(c.data)) st.nilaiRaportSaved = c.data;
+      if (c && Array.isArray(c.data)) st.nilaiRaportSaved = c.data.filter(isValidNama);
     }
     if ((!st.dokumenArsip || st.dokumenArsip.length === 0)) {
       const c = readCache('dokumenArsip');
@@ -1128,11 +1178,19 @@
     }
     if ((!st.presensiToday || st.presensiToday.length === 0)) {
       const c = readCache('presensiToday');
-      if (c && Array.isArray(c.data)) st.presensiToday = c.data;
+      if (c && Array.isArray(c.data)) {
+        const todayWib = todayISO();
+        const cacheDate = c.ts ? normalizeISODate(new Date(c.ts)) : '';
+        st.presensiToday = c.data.filter((r) => {
+          const itemDate = normalizeISODate(r && r.tanggal);
+          if (itemDate) return itemDate === todayWib;
+          return cacheDate === todayWib;
+        });
+      }
     }
     if ((!st.raportRows || st.raportRows.length === 0)) {
       const c = readCache('raportRows');
-      if (c && Array.isArray(c.data)) st.raportRows = c.data;
+      if (c && Array.isArray(c.data)) st.raportRows = c.data.filter(isValidNama);
     }
   }
 
@@ -1262,6 +1320,7 @@
     parseKelasAmpu,
     formatKelasAmpu,
     isKelasAllowed,
+    isActiveSantri,
     filterByGuruScope,
     normalizeKelas,
     getOfficialKelasNames,
@@ -1301,11 +1360,13 @@
 
     getPresensi: () => requestGet('getPresensi'),
     savePresensi: (presensiData) => requestPost('savePresensi', { data: presensiData }),
+    clearPresensiHarian: (params) => requestPost('clearPresensiHarian', params || {}),
 
     getRekapLaporan: (bulan, tahun) => requestGet('getRekapLaporan', { bulan, tahun }),
 
     getNilaiUAS: () => requestGet('getNilaiUAS'),
     saveNilaiUAS: (uasData) => requestPost('saveNilaiUAS', { data: uasData }),
+    deleteNilaiUAS: (idUas) => requestPost('deleteNilaiUAS', { id_uas: idUas }),
 
     getNilaiRaport: () => requestGet('getNilaiRaport'),
     saveNilaiRaport: (itemsArray) => requestPost('saveNilaiRaport', { data: itemsArray }),

@@ -27,6 +27,7 @@
   let syncUnsupported = false;
 
   const localState = {
+    activeDateWib: UI.todayISO(),
     localSyncTs: null,
     riwayatHarian: [],
     riwayatFilterStatus: 'Semua',
@@ -1278,7 +1279,9 @@
     }
 
     if (Array.isArray(bundle.nilai_raport)) {
-      STATE.nilaiRaportSaved = bundle.nilai_raport.map(API.normalizeNilaiRaport);
+      STATE.nilaiRaportSaved = bundle.nilai_raport
+        .map(API.normalizeNilaiRaport)
+        .filter((r) => String(r.nama_santri || '').trim() && String(r.nama_santri).trim() !== '-');
       if (CACHE) CACHE.write('nilaiRaportSaved', STATE.nilaiRaportSaved);
     }
 
@@ -1879,8 +1882,47 @@
 
     const closeDetailBtn = document.getElementById('btn-close-detail-nilai');
     const tutupDetailBtn = document.getElementById('btn-tutup-detail-nilai');
+    const clearDailyBtn = document.getElementById('btn-admin-clear-presensi-harian');
 
     if (filterTanggal && !filterTanggal.value) filterTanggal.value = UI.todayISO();
+    if (clearDailyBtn) {
+      clearDailyBtn.addEventListener('click', async () => {
+        const tanggalInp = document.getElementById('kepsek-filter-tanggal');
+        const kelasSel = document.getElementById('kepsek-filter-kelas');
+        const targetTanggal = (tanggalInp && tanggalInp.value) || UI.todayISO();
+        const targetKelas = (kelasSel && kelasSel.value) || '';
+        const scopeLabel = targetKelas ? `kelas ${targetKelas}` : 'semua kelas';
+
+        const confirmed = await UI.confirmDialog({
+          title: 'Bersihkan Log Presensi Harian',
+          message: `Hapus seluruh catatan presensi tanggal ${UI.formatDateShort(targetTanggal)} untuk ${scopeLabel}? Data tanggal sebelumnya untuk Rekap Bulanan dan persentase kehadiran Raport tetap aman.`,
+          confirmLabel: 'Bersihkan Log Harian',
+          danger: true,
+        });
+        if (!confirmed) return;
+
+        UI.setButtonLoading(clearDailyBtn, true, 'Membersihkan...');
+        try {
+          const res = await API.clearPresensiHarian({ tanggal: targetTanggal, kelas: targetKelas });
+          const d = res.data || res || {};
+          STATE.rekapKepsek = null;
+          STATE.rekapKepsekKey = '';
+          if (root.MDTA_CACHE) {
+            root.MDTA_CACHE.remove('rekapKepsek');
+            root.MDTA_CACHE.remove('dashboard');
+          }
+          await loadDashboard(false, { force: true });
+          UI.toast(
+            `Log presensi ${UI.formatDateShort(targetTanggal)} (${scopeLabel}) dibersihkan (${d.deletedCount ?? 0} catatan dihapus). Rekap bulanan tetap aman.`,
+            'success'
+          );
+        } catch (err) {
+          UI.toast(`Gagal membersihkan log harian: ${err.message}`, 'error');
+        } finally {
+          UI.setButtonLoading(clearDailyBtn, false);
+        }
+      });
+    }
     if (filterTanggal) {
       filterTanggal.addEventListener('change', () => {
         localState.kepsekModeLocked = false;
@@ -3537,7 +3579,33 @@
     }
   }
 
+  function checkAdminDayRollover(opts) {
+    const todayWib = UI.todayISO();
+    if (todayWib === localState.activeDateWib) return false;
+    const prevDay = localState.activeDateWib;
+    localState.activeDateWib = todayWib;
+
+    const tanggalInp = document.getElementById('kepsek-filter-tanggal');
+    const wasOnPrevToday = !tanggalInp || !tanggalInp.value || tanggalInp.value === prevDay;
+    if (tanggalInp && wasOnPrevToday) {
+      tanggalInp.value = todayWib;
+    }
+
+    STATE.rekapKepsek = null;
+    STATE.rekapKepsekKey = '';
+    if (root.MDTA_CACHE) {
+      root.MDTA_CACHE.remove('rekapKepsek');
+      root.MDTA_CACHE.remove('dashboard');
+    }
+
+    if (!(opts && opts.skipLoad)) {
+      loadDashboard(false, { force: true });
+    }
+    return true;
+  }
+
   async function pollSyncVersion() {
+    if (checkAdminDayRollover()) return;
     if (!syncActive || syncUnsupported || syncCheckInFlight || syncRefreshInFlight) return;
     if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
     const adminView = document.getElementById('view-admin');
@@ -3571,9 +3639,10 @@
       clearSyncTimer();
       updateLiveSyncBadge('paused');
     } else {
+      const rolledOver = checkAdminDayRollover();
       updateLiveSyncBadge('active');
       scheduleLiveSyncInterval();
-      pollSyncVersion();
+      if (!rolledOver) pollSyncVersion();
     }
   }
 
@@ -3606,6 +3675,12 @@
     localState.rekapHasSearched = false;
     localState.rekapSearchQuery = '';
     localState.localSyncTs = STATE.localSyncTs || null;
+    checkAdminDayRollover({ skipLoad: true });
+    const kepsekTglInp = document.getElementById('kepsek-filter-tanggal');
+    if (kepsekTglInp && (!initialized || !kepsekTglInp.value)) {
+      kepsekTglInp.value = UI.todayISO();
+      localState.activeDateWib = kepsekTglInp.value;
+    }
     const rekapSearchInp = document.getElementById('rekap-search-input');
     if (rekapSearchInp) rekapSearchInp.value = '';
     const rekapKelasSel = document.getElementById('rekap-kelas-filter');
