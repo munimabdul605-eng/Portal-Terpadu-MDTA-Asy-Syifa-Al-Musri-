@@ -23,20 +23,20 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
 
-  <link rel="stylesheet" href="./css/tokens.css?v=20261120-15" />
-  <link rel="stylesheet" href="./css/style.css?v=20261120-15" />
+  <link rel="stylesheet" href="./css/tokens.css?v=20261120-16" />
+  <link rel="stylesheet" href="./css/style.css?v=20261120-16" />
 
   <script defer src="https://unpkg.com/lucide@0.468.0/dist/umd/lucide.min.js"></script>
   <script defer src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
   <script defer src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
   <script defer src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 
-  <script defer src="./js/config.js?v=20261120-15"></script>
-  <script defer src="./js/api.js?v=20261120-15"></script>
-  <script defer src="./js/calculators.js?v=20261120-15"></script>
-  <script defer src="./js/admin.js?v=20261120-15"></script>
-  <script defer src="./js/guru.js?v=20261120-15"></script>
-  <script defer src="./js/auth.js?v=20261120-15"></script>
+  <script defer src="./js/config.js?v=20261120-16"></script>
+  <script defer src="./js/api.js?v=20261120-16"></script>
+  <script defer src="./js/calculators.js?v=20261120-16"></script>
+  <script defer src="./js/admin.js?v=20261120-16"></script>
+  <script defer src="./js/guru.js?v=20261120-16"></script>
+  <script defer src="./js/auth.js?v=20261120-16"></script>
 </head>
 <body>
   <a href="#main-content" class="skip-link">Langsung ke konten utama</a>
@@ -1357,18 +1357,11 @@
       </div>
 
       <div class="manual-modal-toolbar">
-        <div class="manual-modal-controls">
-          <div class="field-group">
-            <label class="field-label" for="manual-santri-kelas">Kelas Ampu</label>
+        <div class="manual-modal-quickbar">
+          <div id="manual-kelas-filter-wrap" class="manual-kelas-filter" hidden>
+            <label class="sr-only" for="manual-santri-kelas">Pilih Kelas Ampu</label>
             <select id="manual-santri-kelas" class="select-control"></select>
           </div>
-          <div class="field-group">
-            <label class="field-label" for="manual-presensi-tanggal">Tanggal Presensi</label>
-            <input id="manual-presensi-tanggal" type="date" class="input-control" />
-          </div>
-        </div>
-        <div class="manual-modal-quickbar">
-          <span id="manual-roster-summary" class="text-secondary manual-roster-summary">0 santri aktif</span>
           <button id="btn-manual-mark-all-hadir" type="button" class="btn btn-accent btn-sm">
             <i data-lucide="check-check" aria-hidden="true"></i>
             <span>Tandai Semua Hadir</span>
