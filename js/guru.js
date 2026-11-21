@@ -810,35 +810,36 @@
       try {
         const now = ctx.currentTime;
         if (isError) {
-          const osc = ctx.createOscillator();
-          const gain = ctx.createGain();
-          osc.type = 'triangle';
-          osc.frequency.setValueAtTime(280, now);
-          osc.frequency.exponentialRampToValueAtTime(200, now + 0.18);
-          gain.gain.setValueAtTime(0.001, now);
-          gain.gain.linearRampToValueAtTime(0.18, now + 0.02);
-          gain.gain.exponentialRampToValueAtTime(0.001, now + 0.18);
-          osc.connect(gain);
-          gain.connect(ctx.destination);
-          osc.start(now);
-          osc.stop(now + 0.19);
-        } else {
           [
-            { freq: 880, start: 0, dur: 0.06 },
-            { freq: 1320, start: 0.065, dur: 0.075 },
+            { freq: 320, start: 0, dur: 0.09 },
+            { freq: 220, start: 0.11, dur: 0.12 },
           ].forEach((note) => {
             const osc = ctx.createOscillator();
             const gain = ctx.createGain();
-            osc.type = 'sine';
+            osc.type = 'square';
             osc.frequency.setValueAtTime(note.freq, now + note.start);
             gain.gain.setValueAtTime(0.001, now + note.start);
-            gain.gain.linearRampToValueAtTime(0.16, now + note.start + 0.01);
+            gain.gain.linearRampToValueAtTime(0.42, now + note.start + 0.008);
             gain.gain.exponentialRampToValueAtTime(0.001, now + note.start + note.dur);
             osc.connect(gain);
             gain.connect(ctx.destination);
             osc.start(now + note.start);
             osc.stop(now + note.start + note.dur + 0.01);
           });
+        } else {
+          // Nada beep nyaring khas scanner barcode (square wave 2600 Hz, singkat & tegas)
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+          osc.type = 'square';
+          osc.frequency.setValueAtTime(2600, now);
+          gain.gain.setValueAtTime(0.001, now);
+          gain.gain.linearRampToValueAtTime(0.55, now + 0.005);
+          gain.gain.setValueAtTime(0.55, now + 0.075);
+          gain.gain.exponentialRampToValueAtTime(0.001, now + 0.095);
+          osc.connect(gain);
+          gain.connect(ctx.destination);
+          osc.start(now);
+          osc.stop(now + 0.105);
         }
       } catch (e) {
         // Abaikan error Web Audio bila diblokir
