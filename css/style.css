@@ -1998,11 +1998,6 @@ html.light .filter-chip[aria-pressed="true"] {
     grid-template-areas:
       "check nama status"
       "kelas kelas kelas"
-      "ttl ttl ttl"
-      "id id nis"
-      "nik nik nik"
-      "wa wa wa"
-      "token token token"
       "actions actions actions";
     gap: 8px 10px;
     align-items: center;
@@ -2030,65 +2025,6 @@ html.light .filter-chip[aria-pressed="true"] {
     color: var(--text-muted);
     font-weight: 500;
   }
-  .mobile-cards-santri td.snt-ttl {
-    grid-area: ttl;
-    font-size: 0.82rem;
-    color: var(--text-secondary);
-    overflow-wrap: anywhere;
-  }
-  .mobile-cards-santri td.snt-ttl::before {
-    content: "TTL: ";
-    color: var(--text-muted);
-    font-weight: 500;
-  }
-  .mobile-cards-santri td.snt-id {
-    grid-area: id;
-    font-size: 0.82rem;
-  }
-  .mobile-cards-santri td.snt-id::before {
-    content: "ID: ";
-    color: var(--text-muted);
-  }
-  .mobile-cards-santri td.snt-nis {
-    grid-area: nis;
-    justify-self: end;
-    font-size: 0.82rem;
-  }
-  .mobile-cards-santri td.snt-nis::before {
-    content: "NIS: ";
-    color: var(--text-muted);
-  }
-  .mobile-cards-santri td.snt-nik {
-    grid-area: nik;
-    font-size: 0.82rem;
-    word-break: break-all;
-    overflow-wrap: anywhere;
-  }
-  .mobile-cards-santri td.snt-nik::before {
-    content: "NIK: ";
-    color: var(--text-muted);
-  }
-  .mobile-cards-santri td.snt-wa {
-    grid-area: wa;
-    justify-self: start;
-    font-size: 0.82rem;
-    overflow-wrap: anywhere;
-  }
-  .mobile-cards-santri td.snt-wa::before {
-    content: "WA: ";
-    color: var(--text-muted);
-  }
-  .mobile-cards-santri td.snt-token {
-    grid-area: token;
-    font-size: 0.8rem;
-  }
-  .mobile-cards-santri td.snt-token code {
-    word-break: break-all;
-  }
-  .mobile-cards-santri td.snt-token::before {
-    content: "Token: ";
-    color: var(--text-muted);
-  }
   .mobile-cards-santri td.snt-actions {
     grid-area: actions;
     padding-top: 10px;
@@ -2097,7 +2033,7 @@ html.light .filter-chip[aria-pressed="true"] {
   }
   .mobile-cards-santri .table-actions-cell {
     display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 8px;
     width: 100%;
   }
@@ -2258,8 +2194,9 @@ html.light .filter-chip[aria-pressed="true"] {
   /* Rekap Bulanan Cards */
   .mobile-cards-rekap tbody tr {
     display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-    gap: 8px;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 6px 10px;
+    align-items: center;
   }
   .mobile-cards-rekap td.rkp-no {
     display: none;
@@ -2270,55 +2207,22 @@ html.light .filter-chip[aria-pressed="true"] {
     font-size: 0.98rem;
     overflow-wrap: anywhere;
   }
-  .mobile-cards-rekap td.rkp-id {
-    grid-column: 1 / 3;
-    grid-row: 2;
-    font-size: 0.8rem;
-    color: var(--text-muted);
-    align-self: center;
-  }
-  .mobile-cards-rekap td.rkp-id::before {
-    content: "ID: ";
-  }
-  .mobile-cards-rekap td.rkp-pct {
-    grid-column: 3 / 5;
-    grid-row: 2;
-    justify-self: end;
-    align-self: center;
-  }
   .mobile-cards-rekap td.rkp-kelas {
-    grid-column: 1 / -1;
-    grid-row: 3;
+    grid-column: 1 / 2;
+    grid-row: 2;
     justify-self: start;
-    font-size: 0.8rem;
+    font-size: 0.82rem;
     color: var(--text-secondary);
   }
   .mobile-cards-rekap td.rkp-kelas::before {
     content: "Kelas: ";
     color: var(--text-muted);
   }
-  .mobile-cards-rekap td.rkp-h,
-  .mobile-cards-rekap td.rkp-s,
-  .mobile-cards-rekap td.rkp-i,
-  .mobile-cards-rekap td.rkp-a {
-    grid-row: 4;
-    text-align: center;
-    padding: 8px 4px;
-    border-radius: var(--radius-sm);
-    background-color: var(--bg-subsurface);
-    border: 1px solid var(--border-subtle);
-    font-weight: 700;
-  }
-  .mobile-cards-rekap td.rkp-h::before,
-  .mobile-cards-rekap td.rkp-s::before,
-  .mobile-cards-rekap td.rkp-i::before,
-  .mobile-cards-rekap td.rkp-a::before {
-    content: attr(data-label);
-    display: block;
-    font-size: 0.68rem;
-    font-weight: 600;
-    color: var(--text-muted);
-    margin-bottom: 2px;
+  .mobile-cards-rekap td.rkp-pct {
+    grid-column: 2 / 3;
+    grid-row: 2;
+    justify-self: end;
+    align-self: center;
   }
 
   /* Riwayat Absensi & Presensi Hari Ini Cards */
@@ -2667,20 +2571,9 @@ html.light .filter-chip[aria-pressed="true"] {
 }
 
 @media (max-width: 390px) {
-  .mobile-cards-santri tbody tr {
-    grid-template-areas:
-      "check nama status"
-      "kelas kelas kelas"
-      "ttl ttl ttl"
-      "id id id"
-      "nis nis nis"
-      "nik nik nik"
-      "wa wa wa"
-      "token token token"
-      "actions actions actions";
-  }
-  .mobile-cards-santri td.snt-nis {
-    justify-self: start;
+  .mobile-cards-santri .table-actions-cell {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 6px;
   }
 }
 
@@ -3673,6 +3566,185 @@ html.light .presensi-mode-bar .report-mode-btn[aria-pressed="true"] {
   display: flex;
   flex-wrap: wrap;
   gap: 10px;
+}
+
+/* ==========================================================================
+   RINGKAS + MODAL DETAIL LENGKAP (DESKTOP & MOBILE BOTTOM-SHEET)
+   ========================================================================== */
+.clickable-row {
+  cursor: pointer;
+  transition: background-color 0.16s var(--ease-smooth);
+}
+
+.clickable-row:hover {
+  background-color: var(--bg-subsurface);
+}
+
+.clickable-row:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: -2px;
+}
+
+.row-primary-with-hint {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.row-chevron-hint {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  color: var(--text-muted);
+  opacity: 0.72;
+}
+
+.modal-panel-detail {
+  max-width: 540px;
+}
+
+.detail-modal-header {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  flex-shrink: 0;
+  align-items: center;
+  background-color: var(--bg-surface);
+}
+
+.detail-modal-sub {
+  margin: 2px 0 0;
+  font-size: 0.82rem;
+  line-height: 1.45;
+}
+
+.modal-close-touch {
+  min-width: 44px;
+  min-height: 44px;
+}
+
+.detail-modal-body {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.detail-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px 16px;
+}
+
+.detail-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+  border-radius: var(--radius-md);
+  background-color: var(--bg-subsurface);
+  border: 1px solid var(--border-subtle);
+  min-width: 0;
+}
+
+.detail-field-full {
+  grid-column: 1 / -1;
+}
+
+.detail-label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  line-height: 1.35;
+}
+
+.detail-value {
+  font-size: 0.92rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.detail-value-action {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.detail-code-pill {
+  font-size: 0.82rem;
+  padding: 4px 8px;
+  border-radius: 6px;
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+}
+
+.detail-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.detail-section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.detail-section-title {
+  margin: 0;
+  font-size: 0.88rem;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.detail-history-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.detail-history-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: var(--radius-md);
+  background-color: var(--bg-subsurface);
+  border: 1px solid var(--border-subtle);
+}
+
+@media (max-width: 768px) {
+  .modal-panel-detail {
+    width: 96vw;
+    max-width: 96vw;
+    max-height: 88vh;
+    max-height: 88dvh;
+    border-radius: 18px;
+    margin-top: auto;
+  }
+  .detail-grid {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 10px;
+  }
+  .detail-kpi-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+  .detail-modal-footer {
+    flex-direction: column-reverse;
+    gap: 8px;
+  }
+  .detail-modal-footer > .btn {
+    width: 100%;
+    min-height: 44px;
+  }
 }
 
 /* ==========================================================================

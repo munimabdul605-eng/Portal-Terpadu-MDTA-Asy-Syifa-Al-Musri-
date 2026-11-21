@@ -885,6 +885,60 @@
     UI.openModal('modal-detail-nilai');
   }
 
+  function openRiwayatDetailModal(row) {
+    if (!row) return;
+    const eyebrowEl = document.getElementById('detail-rekap-eyebrow');
+    const titleEl = document.getElementById('detail-rekap-modal-title');
+    const subEl = document.getElementById('detail-rekap-subtitle');
+    const bodyEl = document.getElementById('detail-rekap-body');
+    if (!bodyEl) return;
+
+    if (eyebrowEl) eyebrowEl.textContent = 'Detail Riwayat Presensi';
+    if (titleEl) titleEl.textContent = row.nama_santri || '-';
+    if (subEl) subEl.textContent = `${row.kelas || '-'} · ${row.tanggal || '-'}`;
+
+    const badgeCls = statusBadgeClass(row.status);
+    const nilaiHtml = buildSantriGradeHistoryHtml(row.id_santri, row.nama_santri);
+
+    bodyEl.innerHTML = `
+      <div class="detail-grid">
+        <div class="detail-field">
+          <span class="detail-label">Nama Santri</span>
+          <strong class="detail-value">${UI.esc(row.nama_santri || '-')}</strong>
+        </div>
+        <div class="detail-field">
+          <span class="detail-label">Kelas</span>
+          <strong class="detail-value">${UI.esc(row.kelas || '-')}</strong>
+        </div>
+        <div class="detail-field">
+          <span class="detail-label">Tanggal</span>
+          <strong class="detail-value mono-num">${UI.esc(row.tanggal || '-')}</strong>
+        </div>
+        <div class="detail-field">
+          <span class="detail-label">Waktu Catat</span>
+          <strong class="detail-value mono-num">${UI.esc(row.waktu || '-')}</strong>
+        </div>
+        <div class="detail-field">
+          <span class="detail-label">Status Kehadiran</span>
+          <div class="detail-value"><span class="status-badge ${badgeCls}">${UI.esc(row.status || '-')}</span></div>
+        </div>
+        <div class="detail-field">
+          <span class="detail-label">Metode &amp; Guru Piket</span>
+          <strong class="detail-value">${UI.esc(row.metode || '-')} · ${UI.esc(row.nama_guru_piket || '-')}</strong>
+        </div>
+        ${row.catatan ? `
+        <div class="detail-field detail-field-full">
+          <span class="detail-label">Keterangan</span>
+          <strong class="detail-value">${UI.esc(row.catatan)}</strong>
+        </div>` : ''}
+      </div>
+      ${nilaiHtml}
+    `;
+
+    UI.openModal('modal-detail-rekap');
+    UI.refreshIcons(bodyEl);
+  }
+
   function renderRiwayatTable() {
     const tbody = document.getElementById('admin-riwayat-tbody');
     if (!tbody) return;
@@ -905,7 +959,7 @@
     if (filtered.length === 0) {
       tbody.innerHTML = `
         <tr class="table-state-row">
-          <td colspan="6">
+          <td colspan="3">
             ${UI.renderStateBox({
               type: 'empty',
               title: 'Belum ada catatan presensi yang cocok',
@@ -923,18 +977,36 @@
 
     tbody.innerHTML = filtered
       .map(
-        (r) => `
-        <tr>
-          <td class="mono-num" data-label="Tanggal &amp; Jam">${UI.esc(r.tanggal || '-')}${r.waktu ? ` <span class="text-muted">${UI.esc(r.waktu)}</span>` : ''}</td>
-          <td class="mc-primary" data-label="Nama Santri"><strong>${UI.esc(r.nama_santri)}</strong></td>
+        (r, idx) => `
+        <tr class="clickable-row" data-riwayat-idx="${idx}" tabindex="0">
+          <td class="mc-primary" data-label="Nama Santri">
+            <div class="row-primary-with-hint">
+              <strong>${UI.esc(r.nama_santri)}</strong>
+              <i data-lucide="chevron-right" class="row-chevron-hint" aria-hidden="true"></i>
+            </div>
+          </td>
           <td data-label="Kelas">${UI.esc(r.kelas)}</td>
           <td class="mc-status" data-label="Status"><span class="status-badge ${statusBadgeClass(r.status)}">${UI.esc(r.status)}</span></td>
-          <td data-label="Metode">${UI.esc(r.metode)}</td>
-          <td data-label="Guru Piket">${UI.esc(r.nama_guru_piket)}</td>
         </tr>
       `
       )
       .join('');
+
+    tbody.querySelectorAll('tr[data-riwayat-idx]').forEach((tr) => {
+      const openRow = () => {
+        const idx = Number(tr.dataset.riwayatIdx);
+        if (filtered[idx]) openRiwayatDetailModal(filtered[idx]);
+      };
+      tr.addEventListener('click', openRow);
+      tr.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          openRow();
+        }
+      });
+    });
+
+    UI.refreshIcons(tbody);
   }
 
   function renderUsersTable() {
@@ -1955,6 +2027,13 @@
     if (closeDetailBtn) closeDetailBtn.addEventListener('click', () => UI.closeModal('modal-detail-nilai'));
     if (tutupDetailBtn) tutupDetailBtn.addEventListener('click', () => UI.closeModal('modal-detail-nilai'));
 
+    const closeDetailSantriBtn = document.getElementById('btn-close-detail-santri');
+    const closeDetailRekapBtn = document.getElementById('btn-close-detail-rekap');
+    const tutupDetailRekapBtn = document.getElementById('btn-detail-rekap-tutup');
+    if (closeDetailSantriBtn) closeDetailSantriBtn.addEventListener('click', () => UI.closeModal('modal-detail-santri'));
+    if (closeDetailRekapBtn) closeDetailRekapBtn.addEventListener('click', () => UI.closeModal('modal-detail-rekap'));
+    if (tutupDetailRekapBtn) tutupDetailRekapBtn.addEventListener('click', () => UI.closeModal('modal-detail-rekap'));
+
     if (searchInput) {
       searchInput.addEventListener('input', (e) => {
         localState.riwayatQuery = e.target.value || '';
@@ -2088,6 +2167,134 @@
     }
   }
 
+  async function confirmAndDeleteSantri(s) {
+    if (!s) return false;
+    const ok = await UI.confirmDialog({
+      title: 'Hapus Data Santri',
+      message: `Data santri "${s.nama_lengkap}" (${s.id_santri}) akan dihapus permanen. Lanjutkan?`,
+      confirmLabel: 'Hapus Santri',
+      danger: true,
+    });
+    if (!ok) return false;
+
+    const prevSantri = [...STATE.santri];
+    STATE.santri = STATE.santri.filter((item) => item !== s);
+    if (s.id_santri) localState.selectedSantriIds.delete(s.id_santri);
+    if (root.MDTA_CACHE) root.MDTA_CACHE.write('santri', STATE.santri);
+    renderSantriTable();
+    renderKelasManagement();
+    UI.toast(`Data santri "${s.nama_lengkap}" dihapus.`, 'success');
+
+    try {
+      await API.deleteSantri(s.id_santri);
+      return true;
+    } catch (err) {
+      STATE.santri = prevSantri;
+      if (root.MDTA_CACHE) root.MDTA_CACHE.write('santri', STATE.santri);
+      renderSantriTable();
+      renderKelasManagement();
+      UI.toast(`Gagal menghapus "${s.nama_lengkap}": ${err.message}`, 'error');
+      return false;
+    }
+  }
+
+  function openSantriDetailModal(s) {
+    if (!s) return;
+    const titleEl = document.getElementById('detail-santri-modal-title');
+    const subEl = document.getElementById('detail-santri-subtitle');
+    const bodyEl = document.getElementById('detail-santri-body');
+    const editBtn = document.getElementById('btn-detail-santri-edit');
+    const delBtn = document.getElementById('btn-detail-santri-hapus');
+    if (!bodyEl) return;
+
+    const ttlText = s.ttl && s.ttl !== '-' ? s.ttl : API.formatTTL(s.tempat_lahir, s.tanggal_lahir);
+    const waUrl = API.formatWhatsAppUrl(s.no_wa_ortu, `Assalamu'alaikum Bapak/Ibu wali santri ${s.nama_lengkap}.`);
+    const isAktif = String(s.status || '').toLowerCase() === 'aktif';
+
+    if (titleEl) titleEl.textContent = s.nama_lengkap || '-';
+    if (subEl) subEl.textContent = `${s.kelas || '-'} · ${s.id_santri || '-'}`;
+
+    bodyEl.innerHTML = `
+      <div class="detail-grid">
+        <div class="detail-field">
+          <span class="detail-label">ID Santri</span>
+          <strong class="detail-value mono-num">${UI.esc(s.id_santri || '-')}</strong>
+        </div>
+        <div class="detail-field">
+          <span class="detail-label">NIS</span>
+          <strong class="detail-value mono-num">${UI.esc(s.nis || '-')}</strong>
+        </div>
+        <div class="detail-field">
+          <span class="detail-label">NIK</span>
+          <strong class="detail-value mono-num">${UI.esc(s.nik || '-')}</strong>
+        </div>
+        <div class="detail-field">
+          <span class="detail-label">Status</span>
+          <div class="detail-value">
+            <span class="status-badge ${isAktif ? 'status-hadir' : 'status-sakit'}">${isAktif ? 'Aktif' : UI.esc(s.status || '-')}</span>
+          </div>
+        </div>
+        <div class="detail-field detail-field-full">
+          <span class="detail-label">Nama Lengkap</span>
+          <strong class="detail-value">${UI.esc(s.nama_lengkap || '-')}</strong>
+        </div>
+        <div class="detail-field">
+          <span class="detail-label">Kelas</span>
+          <strong class="detail-value">${UI.esc(s.kelas || '-')}</strong>
+        </div>
+        <div class="detail-field">
+          <span class="detail-label">Tempat &amp; Tanggal Lahir</span>
+          <strong class="detail-value">${UI.esc(ttlText || '-')}</strong>
+        </div>
+        <div class="detail-field detail-field-full">
+          <span class="detail-label">No. WhatsApp Orang Tua</span>
+          <div class="detail-value detail-value-action">
+            <strong class="mono-num">${UI.esc(s.no_wa_ortu || '-')}</strong>
+            ${waUrl
+              ? `<a href="${UI.esc(waUrl)}" target="_blank" rel="noopener noreferrer" class="btn btn-secondary btn-sm">
+                   <i data-lucide="message-circle" aria-hidden="true"></i>
+                   <span>Hubungi WA</span>
+                 </a>`
+              : ''}
+          </div>
+        </div>
+        <div class="detail-field detail-field-full">
+          <span class="detail-label">Token QR</span>
+          <div class="detail-value detail-value-action">
+            <code class="mono-num detail-code-pill">${UI.esc(s.qr_token || '-')}</code>
+            <button id="btn-detail-open-qr" type="button" class="btn btn-secondary btn-sm">
+              <i data-lucide="qr-code" aria-hidden="true"></i>
+              <span>Buka Kartu QR</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    `;
+
+    const qrBtn = document.getElementById('btn-detail-open-qr');
+    if (qrBtn) {
+      qrBtn.onclick = () => {
+        UI.closeModal('modal-detail-santri');
+        openQRModal(s);
+      };
+    }
+    if (editBtn) {
+      editBtn.onclick = () => {
+        UI.closeModal('modal-detail-santri');
+        openSantriModal(s);
+      };
+    }
+    if (delBtn) {
+      delBtn.onclick = async () => {
+        UI.closeModal('modal-detail-santri');
+        await confirmAndDeleteSantri(s);
+      };
+    }
+
+    UI.openModal('modal-detail-santri');
+    UI.refreshIcons(bodyEl);
+  }
+
   function renderSantriTable() {
     const tbody = document.getElementById('admin-santri-tbody');
     const countEl = document.getElementById('santri-count-label');
@@ -2120,7 +2327,7 @@
       updateBulkSantriBar(filtered);
       tbody.innerHTML = `
         <tr class="table-state-row">
-          <td colspan="11">
+          <td colspan="5">
             ${UI.renderStateBox({
               type: 'empty',
               title: STATE.santri.length === 0 ? 'Belum ada data santri' : 'Santri tidak ditemukan',
@@ -2140,20 +2347,18 @@
       .map((s) => {
         const sid = s.id_santri || s.qr_token;
         const isChecked = s.id_santri && localState.selectedSantriIds.has(s.id_santri);
-        const ttlText = s.ttl && s.ttl !== '-' ? s.ttl : API.formatTTL(s.tempat_lahir, s.tanggal_lahir);
         return `
-        <tr>
+        <tr class="clickable-row" data-santri-row="${UI.esc(sid)}" tabindex="0">
           <td class="snt-check" data-label="Pilih">
             <input type="checkbox" class="santri-row-checkbox" data-select-santri="${UI.esc(s.id_santri || '')}" aria-label="Pilih ${UI.esc(s.nama_lengkap)}" ${isChecked ? 'checked' : ''} ${!s.id_santri ? 'disabled' : ''} />
           </td>
-          <td class="mono-num snt-id" data-label="ID Santri">${UI.esc(s.id_santri || '-')}</td>
-          <td class="mono-num snt-nis" data-label="NIS">${UI.esc(s.nis || '-')}</td>
-          <td class="mono-num snt-nik" data-label="NIK">${UI.esc(s.nik || '-')}</td>
-          <td class="snt-nama" data-label="Nama Santri"><strong>${UI.esc(s.nama_lengkap)}</strong></td>
-          <td class="snt-ttl" data-label="Tempat, Tgl Lahir">${UI.esc(ttlText)}</td>
+          <td class="snt-nama" data-label="Nama Lengkap">
+            <div class="row-primary-with-hint">
+              <strong>${UI.esc(s.nama_lengkap)}</strong>
+              <i data-lucide="chevron-right" class="row-chevron-hint" aria-hidden="true"></i>
+            </div>
+          </td>
           <td class="snt-kelas" data-label="Kelas">${UI.esc(s.kelas || '-')}</td>
-          <td class="mono-num snt-wa" data-label="No. WA Ortu">${UI.esc(s.no_wa_ortu || '-')}</td>
-          <td class="snt-token" data-label="Token QR"><code class="mono-num" style="font-size:0.78rem;">${UI.esc(s.qr_token || '-')}</code></td>
           <td class="snt-status" data-label="Status">
             <span class="status-badge ${s.status === 'aktif' ? 'status-hadir' : 'status-sakit'}">
               ${s.status === 'aktif' ? 'Aktif' : UI.esc(s.status)}
@@ -2161,21 +2366,17 @@
           </td>
           <td class="snt-actions" data-label="Aksi">
             <div class="table-actions-cell">
+              <button type="button" class="btn btn-secondary btn-sm" data-detail-santri="${UI.esc(sid)}" aria-label="Detail santri ${UI.esc(s.nama_lengkap)}">
+                <i data-lucide="eye" aria-hidden="true"></i>
+                <span>Detail</span>
+              </button>
               <button type="button" class="btn btn-secondary btn-sm" data-qr-santri="${UI.esc(sid)}">
                 <i data-lucide="qr-code" aria-hidden="true"></i>
-                <span>Lihat QR</span>
-              </button>
-              <button type="button" class="btn btn-secondary btn-sm" data-move-santri="${UI.esc(sid)}" aria-label="Pindah kelas ${UI.esc(s.nama_lengkap)}">
-                <i data-lucide="arrow-right-left" aria-hidden="true"></i>
-                <span>Pindah</span>
+                <span>QR</span>
               </button>
               <button type="button" class="btn btn-secondary btn-icon-sm" data-edit-santri="${UI.esc(sid)}" aria-label="Edit santri ${UI.esc(s.nama_lengkap)}">
                 <i data-lucide="pencil" aria-hidden="true"></i>
                 <span class="mobile-only-btn-label">Edit</span>
-              </button>
-              <button type="button" class="btn btn-danger btn-icon-sm" data-delete-santri="${UI.esc(sid)}" aria-label="Hapus santri ${UI.esc(s.nama_lengkap)}">
-                <i data-lucide="trash-2" aria-hidden="true"></i>
-                <span class="mobile-only-btn-label">Hapus</span>
               </button>
             </div>
           </td>
@@ -2189,8 +2390,24 @@
     const findSantri = (key) =>
       STATE.santri.find((s) => (s.id_santri || s.qr_token) === key);
 
+    tbody.querySelectorAll('tr[data-santri-row]').forEach((tr) => {
+      const openDetail = () => {
+        const s = findSantri(tr.dataset.santriRow);
+        if (s) openSantriDetailModal(s);
+      };
+      tr.addEventListener('click', openDetail);
+      tr.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          openDetail();
+        }
+      });
+    });
+
     tbody.querySelectorAll('input[data-select-santri]').forEach((cb) => {
-      cb.addEventListener('change', () => {
+      cb.addEventListener('click', (e) => e.stopPropagation());
+      cb.addEventListener('change', (e) => {
+        e.stopPropagation();
         const sid = cb.dataset.selectSantri;
         if (!sid) return;
         if (cb.checked) localState.selectedSantriIds.add(sid);
@@ -2199,57 +2416,27 @@
       });
     });
 
+    tbody.querySelectorAll('button[data-detail-santri]').forEach((btn) => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const s = findSantri(btn.dataset.detailSantri);
+        if (s) openSantriDetailModal(s);
+      });
+    });
+
     tbody.querySelectorAll('button[data-qr-santri]').forEach((btn) => {
-      btn.addEventListener('click', () => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
         const s = findSantri(btn.dataset.qrSantri);
         if (s) openQRModal(s);
       });
     });
 
-    tbody.querySelectorAll('button[data-move-santri]').forEach((btn) => {
-      btn.addEventListener('click', () => {
-        const s = findSantri(btn.dataset.moveSantri);
-        if (s) openMoveKelasModal(s);
-      });
-    });
-
     tbody.querySelectorAll('button[data-edit-santri]').forEach((btn) => {
-      btn.addEventListener('click', () => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
         const s = findSantri(btn.dataset.editSantri);
         if (s) openSantriModal(s);
-      });
-    });
-
-    tbody.querySelectorAll('button[data-delete-santri]').forEach((btn) => {
-      btn.addEventListener('click', async () => {
-        const s = findSantri(btn.dataset.deleteSantri);
-        if (!s) return;
-        const ok = await UI.confirmDialog({
-          title: 'Hapus Data Santri',
-          message: `Data santri "${s.nama_lengkap}" (${s.id_santri}) akan dihapus permanen. Lanjutkan?`,
-          confirmLabel: 'Hapus Santri',
-          danger: true,
-        });
-        if (!ok) return;
-
-        // Optimistic UI: langsung perbarui UI & cache sambil menghapus di server
-        const prevSantri = [...STATE.santri];
-        STATE.santri = STATE.santri.filter((item) => item !== s);
-        if (s.id_santri) localState.selectedSantriIds.delete(s.id_santri);
-        if (root.MDTA_CACHE) root.MDTA_CACHE.write('santri', STATE.santri);
-        renderSantriTable();
-        renderKelasManagement();
-        UI.toast(`Data santri "${s.nama_lengkap}" dihapus.`, 'success');
-
-        try {
-          await API.deleteSantri(s.id_santri);
-        } catch (err) {
-          STATE.santri = prevSantri;
-          if (root.MDTA_CACHE) root.MDTA_CACHE.write('santri', STATE.santri);
-          renderSantriTable();
-          renderKelasManagement();
-          UI.toast(`Gagal menghapus "${s.nama_lengkap}": ${err.message}`, 'error');
-        }
       });
     });
 
@@ -2553,6 +2740,13 @@
     const downloadQrBtn = document.getElementById('btn-download-qr-png');
     const printQrBtn = document.getElementById('btn-print-qr-card');
 
+    const closeDetailSantriBtn = document.getElementById('btn-close-detail-santri');
+    const closeDetailRekapBtn = document.getElementById('btn-close-detail-rekap');
+    const tutupDetailRekapBtn = document.getElementById('btn-detail-rekap-tutup');
+    if (closeDetailSantriBtn) closeDetailSantriBtn.addEventListener('click', () => UI.closeModal('modal-detail-santri'));
+    if (closeDetailRekapBtn) closeDetailRekapBtn.addEventListener('click', () => UI.closeModal('modal-detail-rekap'));
+    if (tutupDetailRekapBtn) tutupDetailRekapBtn.addEventListener('click', () => UI.closeModal('modal-detail-rekap'));
+
     if (searchInput) {
       searchInput.addEventListener('input', (e) => {
         localState.santriQuery = e.target.value || '';
@@ -2820,6 +3014,120 @@
     });
   }
 
+  function buildSantriGradeHistoryHtml(idSantri, namaSantri) {
+    const idKey = String(idSantri || '').trim().toLowerCase();
+    const nameKey = String(namaSantri || '').trim().toLowerCase();
+    const matchRow = (item) => {
+      const rId = String(item.id_santri || '').trim().toLowerCase();
+      const rName = String(item.nama_santri || '').trim().toLowerCase();
+      return (idKey && rId && rId === idKey) || (nameKey && rName && rName === nameKey);
+    };
+
+    const uasList = (Array.isArray(STATE.nilaiUAS) ? STATE.nilaiUAS : []).filter(matchRow);
+    const raportList = (Array.isArray(STATE.nilaiRaportSaved) ? STATE.nilaiRaportSaved : []).filter(matchRow);
+    if (uasList.length === 0 && raportList.length === 0) {
+      return `
+        <div class="detail-section">
+          <h4 class="detail-section-title">Riwayat Nilai Santri</h4>
+          <p class="text-muted" style="font-size:0.84rem;margin:0;">Belum ada riwayat nilai UAS atau Raport yang tercatat untuk santri ini.</p>
+        </div>
+      `;
+    }
+
+    const uasItems = uasList.slice(0, 5).map((u) => {
+      const skor = Number(u.skor_uas ?? u.nilai_uas ?? u.nilai ?? 0);
+      return `
+        <div class="detail-history-item">
+          <div>
+            <strong>Nilai UAS${u.semester ? ` · ${UI.esc(u.semester)}` : ''}</strong>
+            <div class="text-muted" style="font-size:0.78rem;">${UI.esc(u.tahun_ajaran || u.periode || '-')}</div>
+          </div>
+          <span class="status-badge status-izin mono-num">${Number.isFinite(skor) ? skor.toFixed(1) : '-'}</span>
+        </div>
+      `;
+    }).join('');
+
+    const raportItems = raportList.slice(0, 5).map((rp) => {
+      const akhir = Number(rp.nilai_akhir ?? 0);
+      return `
+        <div class="detail-history-item">
+          <div>
+            <strong>Nilai Raport${rp.semester ? ` · ${UI.esc(rp.semester)}` : ''}</strong>
+            <div class="text-muted" style="font-size:0.78rem;">${UI.esc(rp.tahun_ajaran || rp.periode || '-')} · ${UI.esc(rp.predikat || '-')}</div>
+          </div>
+          <span class="status-badge status-hadir mono-num">${Number.isFinite(akhir) ? akhir.toFixed(1) : '-'}</span>
+        </div>
+      `;
+    }).join('');
+
+    return `
+      <div class="detail-section">
+        <h4 class="detail-section-title">Riwayat Nilai Santri</h4>
+        <div class="detail-history-list">${raportItems}${uasItems}</div>
+      </div>
+    `;
+  }
+
+  function openRekapDetailModal(row, bulanNama, tahun) {
+    if (!row) return;
+    const eyebrowEl = document.getElementById('detail-rekap-eyebrow');
+    const titleEl = document.getElementById('detail-rekap-modal-title');
+    const subEl = document.getElementById('detail-rekap-subtitle');
+    const bodyEl = document.getElementById('detail-rekap-body');
+    if (!bodyEl) return;
+
+    if (eyebrowEl) eyebrowEl.textContent = `Rekap Bulanan · ${bulanNama} ${tahun}`;
+    if (titleEl) titleEl.textContent = row.nama_lengkap || '-';
+    if (subEl) subEl.textContent = `${row.kelas || '-'} · ID: ${row.id_santri || '-'}`;
+
+    const pct = Number(row.persentase || 0);
+    const pctClass = pct >= 80 ? 'status-hadir' : pct >= 60 ? 'status-sakit' : 'status-alpa';
+    const nilaiHtml = buildSantriGradeHistoryHtml(row.id_santri, row.nama_lengkap);
+
+    bodyEl.innerHTML = `
+      <div class="detail-grid">
+        <div class="detail-field">
+          <span class="detail-label">Nama Santri</span>
+          <strong class="detail-value">${UI.esc(row.nama_lengkap || '-')}</strong>
+        </div>
+        <div class="detail-field">
+          <span class="detail-label">Kelas</span>
+          <strong class="detail-value">${UI.esc(row.kelas || '-')}</strong>
+        </div>
+        <div class="detail-field">
+          <span class="detail-label">ID Santri</span>
+          <strong class="detail-value mono-num">${UI.esc(row.id_santri || '-')}</strong>
+        </div>
+        <div class="detail-field">
+          <span class="detail-label">Persentase Kehadiran</span>
+          <div class="detail-value"><span class="status-badge mono-num ${pctClass}">${pct}%</span></div>
+        </div>
+      </div>
+      <div class="detail-kpi-grid">
+        <div class="nilai-kpi-box">
+          <div class="nilai-kpi-val" style="color:var(--status-hadir-fg);">${Number(row.hadir || 0)}</div>
+          <div class="nilai-kpi-lbl">Hadir</div>
+        </div>
+        <div class="nilai-kpi-box">
+          <div class="nilai-kpi-val" style="color:var(--status-sakit-fg);">${Number(row.sakit || 0)}</div>
+          <div class="nilai-kpi-lbl">Sakit</div>
+        </div>
+        <div class="nilai-kpi-box">
+          <div class="nilai-kpi-val" style="color:var(--status-izin-fg);">${Number(row.izin || 0)}</div>
+          <div class="nilai-kpi-lbl">Izin</div>
+        </div>
+        <div class="nilai-kpi-box">
+          <div class="nilai-kpi-val" style="color:var(--status-alpa-fg);">${Number(row.alpa || 0)}</div>
+          <div class="nilai-kpi-lbl">Alpa</div>
+        </div>
+      </div>
+      ${nilaiHtml}
+    `;
+
+    UI.openModal('modal-detail-rekap');
+    UI.refreshIcons(bodyEl);
+  }
+
   function renderRekapTable() {
     const container = document.getElementById('admin-rekap-grouped-container');
     const periodEl = document.getElementById('rekap-period-label');
@@ -2913,13 +3221,8 @@
               <thead>
                 <tr>
                   <th style="width:48px;">No</th>
-                  <th>ID Santri</th>
                   <th>Nama Santri</th>
                   <th>Kelas</th>
-                  <th>Hadir</th>
-                  <th>Sakit</th>
-                  <th>Izin</th>
-                  <th>Alpa</th>
                   <th>Kehadiran</th>
                 </tr>
               </thead>
@@ -2927,15 +3230,15 @@
                 ${grp.rows
                   .map(
                     (r, idx) => `
-                  <tr>
+                  <tr class="clickable-row" data-rekap-kelas="${UI.esc(grp.kelas)}" data-rekap-idx="${idx}" tabindex="0">
                     <td class="mono-num rkp-no" data-label="No">${idx + 1}</td>
-                    <td class="mono-num rkp-id" data-label="ID Santri">${UI.esc(r.id_santri || '-')}</td>
-                    <td class="rkp-nama" data-label="Nama Santri"><strong>${UI.esc(r.nama_lengkap)}</strong></td>
+                    <td class="rkp-nama" data-label="Nama Santri">
+                      <div class="row-primary-with-hint">
+                        <strong>${UI.esc(r.nama_lengkap)}</strong>
+                        <i data-lucide="chevron-right" class="row-chevron-hint" aria-hidden="true"></i>
+                      </div>
+                    </td>
                     <td class="rkp-kelas" data-label="Kelas">${UI.esc(r.kelas)}</td>
-                    <td class="mono-num rkp-h" data-label="Hadir">${r.hadir}</td>
-                    <td class="mono-num rkp-s" data-label="Sakit">${r.sakit}</td>
-                    <td class="mono-num rkp-i" data-label="Izin">${r.izin}</td>
-                    <td class="mono-num rkp-a" data-label="Alpa">${r.alpa}</td>
                     <td class="rkp-pct" data-label="Kehadiran">
                       <span class="status-badge mono-num ${r.persentase >= 80 ? 'status-hadir' : r.persentase >= 60 ? 'status-sakit' : 'status-alpa'}">
                         ${r.persentase}%
@@ -2952,6 +3255,24 @@
       `
       )
       .join('');
+
+    container.querySelectorAll('tr[data-rekap-kelas]').forEach((tr) => {
+      const openRow = () => {
+        const kelasKey = tr.dataset.rekapKelas || '';
+        const idx = Number(tr.dataset.rekapIdx);
+        const grp = grouped.find((g) => g.kelas === kelasKey);
+        if (grp && grp.rows[idx]) {
+          openRekapDetailModal(grp.rows[idx], bulanNama, tahun);
+        }
+      };
+      tr.addEventListener('click', openRow);
+      tr.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          openRow();
+        }
+      });
+    });
 
     container.querySelectorAll('button[data-export-rekap-kelas]').forEach((btn) => {
       btn.addEventListener('click', () => exportRekapCSV(btn.dataset.exportRekapKelas));
@@ -3283,6 +3604,13 @@
         }
       });
     }
+
+    const closeDetailSantriBtn = document.getElementById('btn-close-detail-santri');
+    const closeDetailRekapBtn = document.getElementById('btn-close-detail-rekap');
+    const tutupDetailRekapBtn = document.getElementById('btn-detail-rekap-tutup');
+    if (closeDetailSantriBtn) closeDetailSantriBtn.addEventListener('click', () => UI.closeModal('modal-detail-santri'));
+    if (closeDetailRekapBtn) closeDetailRekapBtn.addEventListener('click', () => UI.closeModal('modal-detail-rekap'));
+    if (tutupDetailRekapBtn) tutupDetailRekapBtn.addEventListener('click', () => UI.closeModal('modal-detail-rekap'));
 
     if (searchInput) {
       searchInput.addEventListener('input', (e) => {

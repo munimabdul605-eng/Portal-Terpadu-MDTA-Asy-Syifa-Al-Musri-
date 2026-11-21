@@ -23,20 +23,20 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
 
-  <link rel="stylesheet" href="./css/tokens.css?v=20261120-16" />
-  <link rel="stylesheet" href="./css/style.css?v=20261120-16" />
+  <link rel="stylesheet" href="./css/tokens.css?v=20261120-17" />
+  <link rel="stylesheet" href="./css/style.css?v=20261120-17" />
 
   <script defer src="https://unpkg.com/lucide@0.468.0/dist/umd/lucide.min.js"></script>
   <script defer src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
   <script defer src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
   <script defer src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 
-  <script defer src="./js/config.js?v=20261120-16"></script>
-  <script defer src="./js/api.js?v=20261120-16"></script>
-  <script defer src="./js/calculators.js?v=20261120-16"></script>
-  <script defer src="./js/admin.js?v=20261120-16"></script>
-  <script defer src="./js/guru.js?v=20261120-16"></script>
-  <script defer src="./js/auth.js?v=20261120-16"></script>
+  <script defer src="./js/config.js?v=20261120-17"></script>
+  <script defer src="./js/api.js?v=20261120-17"></script>
+  <script defer src="./js/calculators.js?v=20261120-17"></script>
+  <script defer src="./js/admin.js?v=20261120-17"></script>
+  <script defer src="./js/guru.js?v=20261120-17"></script>
+  <script defer src="./js/auth.js?v=20261120-17"></script>
 </head>
 <body>
   <a href="#main-content" class="skip-link">Langsung ke konten utama</a>
@@ -381,12 +381,9 @@
               <table class="data-table mobile-cards-table mobile-cards-generic">
                 <thead>
                   <tr>
-                    <th>Tanggal &amp; Jam</th>
                     <th>Nama Santri</th>
                     <th>Kelas</th>
                     <th>Status</th>
-                    <th>Metode</th>
-                    <th>Guru Piket</th>
                   </tr>
                 </thead>
                 <tbody id="admin-riwayat-tbody"></tbody>
@@ -461,16 +458,10 @@
               <thead>
                 <tr>
                   <th style="width:42px;"><input id="santri-select-all" type="checkbox" aria-label="Pilih semua santri" /></th>
-                  <th>ID Santri</th>
-                  <th>NIS</th>
-                  <th>NIK</th>
                   <th>Nama Lengkap</th>
-                  <th>Tempat, Tgl Lahir</th>
                   <th>Kelas</th>
-                  <th>No. WA Orang Tua</th>
-                  <th>Token QR</th>
                   <th>Status</th>
-                  <th style="width:230px;">Aksi</th>
+                  <th style="width:200px;">Aksi</th>
                 </tr>
               </thead>
               <tbody id="admin-santri-tbody"></tbody>
@@ -846,11 +837,9 @@
               <table class="data-table mobile-cards-table mobile-cards-generic">
                 <thead>
                   <tr>
-                    <th>Waktu</th>
                     <th>Nama Santri</th>
                     <th>Kelas</th>
                     <th>Status</th>
-                    <th>Metode &amp; Catatan</th>
                   </tr>
                 </thead>
                 <tbody id="guru-session-log-tbody"></tbody>
@@ -1247,6 +1236,57 @@
           <i data-lucide="printer" aria-hidden="true"></i>
           <span>Cetak Kartu QR</span>
         </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================================================================
+       MODAL DETAIL LENGKAP SANTRI
+       =================================================================== -->
+  <div id="modal-detail-santri" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="detail-santri-modal-title" hidden>
+    <div class="modal-panel modal-panel-detail">
+      <div class="modal-header detail-modal-header">
+        <div style="min-width:0;flex:1;">
+          <span class="eyebrow-label">Profil Santri</span>
+          <h2 id="detail-santri-modal-title" class="heading-md">Detail Santri</h2>
+          <p id="detail-santri-subtitle" class="text-muted detail-modal-sub">-</p>
+        </div>
+        <button id="btn-close-detail-santri" type="button" class="btn btn-secondary btn-icon modal-close-touch" aria-label="Tutup modal detail santri">
+          <i data-lucide="x" aria-hidden="true"></i>
+        </button>
+      </div>
+      <div id="detail-santri-body" class="modal-body detail-modal-body"></div>
+      <div class="modal-footer detail-modal-footer">
+        <button id="btn-detail-santri-hapus" type="button" class="btn btn-danger">
+          <i data-lucide="trash-2" aria-hidden="true"></i>
+          <span>Hapus</span>
+        </button>
+        <button id="btn-detail-santri-edit" type="button" class="btn btn-primary">
+          <i data-lucide="pencil" aria-hidden="true"></i>
+          <span>Edit Data</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================================================================
+       MODAL DETAIL REKAP PRESENSI & NILAI SANTRI
+       =================================================================== -->
+  <div id="modal-detail-rekap" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="detail-rekap-modal-title" hidden>
+    <div class="modal-panel modal-panel-detail">
+      <div class="modal-header detail-modal-header">
+        <div style="min-width:0;flex:1;">
+          <span id="detail-rekap-eyebrow" class="eyebrow-label">Detail Rekap Presensi</span>
+          <h2 id="detail-rekap-modal-title" class="heading-md">Detail Santri</h2>
+          <p id="detail-rekap-subtitle" class="text-muted detail-modal-sub">-</p>
+        </div>
+        <button id="btn-close-detail-rekap" type="button" class="btn btn-secondary btn-icon modal-close-touch" aria-label="Tutup modal detail rekap">
+          <i data-lucide="x" aria-hidden="true"></i>
+        </button>
+      </div>
+      <div id="detail-rekap-body" class="modal-body detail-modal-body"></div>
+      <div class="modal-footer detail-modal-footer">
+        <button id="btn-detail-rekap-tutup" type="button" class="btn btn-secondary">Tutup</button>
       </div>
     </div>
   </div>

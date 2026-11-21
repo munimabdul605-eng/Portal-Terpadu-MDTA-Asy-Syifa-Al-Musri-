@@ -230,6 +230,56 @@
       return counts;
     }
 
+    function openGuruPresensiDetailModal(item) {
+      if (!item) return;
+      const eyebrowEl = document.getElementById('detail-rekap-eyebrow');
+      const titleEl = document.getElementById('detail-rekap-modal-title');
+      const subEl = document.getElementById('detail-rekap-subtitle');
+      const bodyEl = document.getElementById('detail-rekap-body');
+      if (!bodyEl) return;
+
+      if (eyebrowEl) eyebrowEl.textContent = 'Detail Presensi Hari Ini';
+      if (titleEl) titleEl.textContent = item.nama_santri || '-';
+      if (subEl) subEl.textContent = `${item.kelas || '-'} · ${item.tanggal || UI.todayISO()}`;
+
+      bodyEl.innerHTML = `
+        <div class="detail-grid">
+          <div class="detail-field">
+            <span class="detail-label">Nama Santri</span>
+            <strong class="detail-value">${UI.esc(item.nama_santri || '-')}</strong>
+          </div>
+          <div class="detail-field">
+            <span class="detail-label">Kelas</span>
+            <strong class="detail-value">${UI.esc(item.kelas || '-')}</strong>
+          </div>
+          <div class="detail-field">
+            <span class="detail-label">Waktu Catat</span>
+            <strong class="detail-value mono-num">${UI.esc(item.waktu || '-')}</strong>
+          </div>
+          <div class="detail-field">
+            <span class="detail-label">Status Kehadiran</span>
+            <div class="detail-value"><span class="status-badge ${statusBadgeClass(item.status)}">${UI.esc(item.status || '-')}</span></div>
+          </div>
+          <div class="detail-field">
+            <span class="detail-label">Metode</span>
+            <strong class="detail-value">${UI.esc(item.metode || '-')}</strong>
+          </div>
+          <div class="detail-field">
+            <span class="detail-label">Guru Piket</span>
+            <strong class="detail-value">${UI.esc(item.nama_guru_piket || '-')}</strong>
+          </div>
+          ${item.catatan ? `
+          <div class="detail-field detail-field-full">
+            <span class="detail-label">Keterangan</span>
+            <strong class="detail-value">${UI.esc(item.catatan)}</strong>
+          </div>` : ''}
+        </div>
+      `;
+
+      UI.openModal('modal-detail-rekap');
+      UI.refreshIcons(bodyEl);
+    }
+
     function renderSessionLogs() {
       const tbody = document.getElementById('guru-session-log-tbody');
       updateBanner(guruSession || {});
@@ -240,7 +290,7 @@
       if (combined.length === 0) {
         tbody.innerHTML = `
         <tr class="table-state-row">
-          <td colspan="5">
+          <td colspan="3">
             ${UI.renderStateBox({
               type: 'empty',
               title: 'Belum ada presensi dicatat hari ini',
@@ -258,17 +308,36 @@
 
       tbody.innerHTML = combined
         .map(
-          (item) => `
-        <tr>
-          <td class="mono-num" data-label="Waktu">${UI.esc(item.waktu || '-')}</td>
-          <td class="mc-primary" data-label="Nama Santri"><strong>${UI.esc(item.nama_santri)}</strong></td>
+          (item, idx) => `
+        <tr class="clickable-row" data-guru-presensi-idx="${idx}" tabindex="0">
+          <td class="mc-primary" data-label="Nama Santri">
+            <div class="row-primary-with-hint">
+              <strong>${UI.esc(item.nama_santri)}</strong>
+              <i data-lucide="chevron-right" class="row-chevron-hint" aria-hidden="true"></i>
+            </div>
+          </td>
           <td data-label="Kelas">${UI.esc(item.kelas || '-')}</td>
           <td class="mc-status" data-label="Status"><span class="status-badge ${statusBadgeClass(item.status)}">${UI.esc(item.status)}</span></td>
-          <td data-label="Metode &amp; Catatan">${UI.esc(item.metode)}${item.catatan ? ` · ${UI.esc(item.catatan)}` : ''}</td>
         </tr>
       `
         )
         .join('');
+
+      tbody.querySelectorAll('tr[data-guru-presensi-idx]').forEach((tr) => {
+        const openRow = () => {
+          const idx = Number(tr.dataset.guruPresensiIdx);
+          if (combined[idx]) openGuruPresensiDetailModal(combined[idx]);
+        };
+        tr.addEventListener('click', openRow);
+        tr.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            openRow();
+          }
+        });
+      });
+
+      UI.refreshIcons(tbody);
     }
 
     function updateGuruSyncStatusBanner(rosterCount, selectedKelas, targetTanggal) {
@@ -950,6 +1019,10 @@
               if (modeManualBtn) modeManualBtn.addEventListener('click', () => openManualPresensiModal());
               if (closeManualBtn) closeManualBtn.addEventListener('click', () => closeManualPresensiModal());
               if (cancelManualBtn) cancelManualBtn.addEventListener('click', () => closeManualPresensiModal());
+              const closeDetailRekapBtn = document.getElementById('btn-close-detail-rekap');
+              const tutupDetailRekapBtn = document.getElementById('btn-detail-rekap-tutup');
+              if (closeDetailRekapBtn) closeDetailRekapBtn.addEventListener('click', () => UI.closeModal('modal-detail-rekap'));
+              if (tutupDetailRekapBtn) tutupDetailRekapBtn.addEventListener('click', () => UI.closeModal('modal-detail-rekap'));
 
               if (kelasSel) {
                 kelasSel.addEventListener('change', () => renderManualRoster());
