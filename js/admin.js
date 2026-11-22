@@ -3015,6 +3015,256 @@
     return true;
   }
 
+  let qrTemplatePromise = null;
+
+  function loadQRTemplateImage() {
+    if (qrTemplatePromise) return qrTemplatePromise;
+    qrTemplatePromise = new Promise((resolve) => {
+      const img = new Image();
+      img.onload = () => resolve(img);
+      img.onerror = () => resolve(null);
+      img.src = 'assets/kartu-santri-template.jpg?v=20261122-2';
+    });
+    return qrTemplatePromise;
+  }
+
+  function isLightBoxPixel(data, idx) {
+    const r = data[idx];
+    const g = data[idx + 1];
+    const b = data[idx + 2];
+    return r > 215 && g > 215 && b > 215 && Math.abs(r - g) < 22 && Math.abs(g - b) < 22;
+  }
+
+  function detectContentBox(ctx, w, h) {
+    const fallback = {
+      minX: w * 0.0586,
+      maxX: w,
+      minY: h * 0.2422,
+      maxY: h * 0.9473,
+    };
+
+    try {
+      const seedX = Math.floor(w * 0.53);
+      const seedY = Math.floor(h * 0.58);
+      const rowData = ctx.getImageData(0, seedY, w, 1).data;
+      if (!isLightBoxPixel(rowData, seedX * 4)) {
+        return fallback;
+      }
+
+      let minX = seedX;
+      while (minX > 0 && isLightBoxPixel(rowData, (minX - 1) * 4)) {
+        minX -= 1;
+      }
+      let maxX = seedX;
+      while (maxX < w - 1 && isLightBoxPixel(rowData, (maxX + 1) * 4)) {
+        maxX += 1;
+      }
+
+      const midX = Math.floor((minX + maxX) / 2);
+      const colData = ctx.getImageData(midX, 0, 1, h).data;
+      let minY = seedY;
+      while (minY > 0 && isLightBoxPixel(colData, (minY - 1) * 4)) {
+        minY -= 1;
+      }
+      let maxY = seedY;
+      while (maxY < h - 1 && isLightBoxPixel(colData, (maxY + 1) * 4)) {
+        maxY += 1;
+      }
+
+      if ((maxX - minX) > w * 0.5 && (maxY - minY) > h * 0.5) {
+        return { minX, maxX: maxX + 1, minY, maxY: maxY + 1 };
+      }
+    } catch (_) {
+      // Fallback if canvas pixel read is unavailable
+    }
+
+    return fallback;
+  }
+
+  function makeQRTransparentCanvas(qrSource, size) {
+    const pxSize = Math.max(1, Math.round(size));
+    const srcW = Math.max(1, Math.round(qrSource.width || qrSource.naturalWidth || pxSize));
+    const srcH = Math.max(1, Math.round(qrSource.height || qrSource.naturalHeight || pxSize));
+
+    const srcCanvas = document.createElement('canvas');
+    srcCanvas.width = srcW;
+    srcCanvas.height = srcH;
+    const sCtx = srcCanvas.getContext('2d');
+    if (!sCtx) return qrSource;
+
+    sCtx.imageSmoothingEnabled = false;
+    sCtx.drawImage(qrSource, 0, 0, srcW, srcH);
+
+    let qrMinX = srcW;
+    let qrMaxX = -1;
+    let qrMinY = srcH;
+    let qrMaxY = -1;
+
+    try {
+      const frame = sCtx.getImageData(0, 0, srcW, srcH);
+      const pixels = frame.data;
+      for (let y = 0; y < srcH; y += 1) {
+        const rowOffset = y * srcW * 4;
+        for (let x = 0; x < srcW; x += 1) {
+          const i = rowOffset + (x * 4);
+          if (pixels[i] > 200 && pixels[i + 1] > 200 && pixels[i + 2] > 200) {
+            pixels[i + 3] = 0;
+          } else if (pixels[i + 3] > 0) {
+            if (x < qrMinX) qrMinX = x;
+            if (x > qrMaxX) qrMaxX = x;
+            if (y < qrMinY) qrMinY = y;
+            if (y > qrMaxY) qrMaxY = y;
+          }
+        }
+      }
+      sCtx.putImageData(frame, 0, 0);
+    } catch (_) {
+      // Ignore if tainted
+    }
+
+    const cropX = qrMaxX >= qrMinX ? qrMinX : 0;
+    const cropY = qrMaxY >= qrMinY ? qrMinY : 0;
+    const cropW = qrMaxX >= qrMinX ? (qrMaxX - qrMinX + 1) : srcW;
+    const cropH = qrMaxY >= qrMinY ? (qrMaxY - qrMinY + 1) : srcH;
+
+    const outCanvas = document.createElement('canvas');
+    outCanvas.width = pxSize;
+    outCanvas.height = pxSize;
+    const oCtx = outCanvas.getContext('2d');
+    if (!oCtx) return srcCanvas;
+
+    oCtx.imageSmoothingEnabled = false;
+    oCtx.drawImage(srcCanvas, cropX, cropY, cropW, cropH, 0, 0, pxSize, pxSize);
+    return outCanvas;
+  }
+
+  function renderQRCardCanvas(data) {
+    const previewCanvas = document.getElementById('qr-card-preview-canvas');
+    const qrBox = document.getElementById('qr-render-target');
+    const loadingEl = document.getElementById('qr-card-loading');
+    if (!previewCanvas || !qrBox || !data) return;
+
+    if (loadingEl) loadingEl.hidden = false;
+
+    loadQRTemplateImage().then((tplImg) => {
+      if (!localState.currentQRData || localState.currentQRData.token !== data.token) return;
+      if (loadingEl) loadingEl.hidden = true;
+
+      if (tplImg && tplImg.naturalWidth > 0 && tplImg.naturalHeight > 0) {
+        const minWidth = 1000;
+        const scale = tplImg.naturalWidth < minWidth ? (minWidth / tplImg.naturalWidth) : 1;
+        previewCanvas.width = Math.round(tplImg.naturalWidth * scale);
+        previewCanvas.height = Math.round(tplImg.naturalHeight * scale);
+      } else {
+        previewCanvas.width = 1000;
+        previewCanvas.height = 1250;
+      }
+
+      const ctx = previewCanvas.getContext('2d');
+      if (!ctx) return;
+
+      if (tplImg && tplImg.naturalWidth > 0) {
+        ctx.drawImage(tplImg, 0, 0, previewCanvas.width, previewCanvas.height);
+      } else {
+        ctx.fillStyle = '#2d6a4f';
+        ctx.fillRect(0, 0, previewCanvas.width, previewCanvas.height);
+        ctx.fillStyle = '#f2f3f2';
+        ctx.fillRect(
+          previewCanvas.width * 0.0586,
+          previewCanvas.height * 0.2422,
+          previewCanvas.width - (previewCanvas.width * 0.0586),
+          previewCanvas.height * 0.7051
+        );
+      }
+
+      const bounds = detectContentBox(ctx, previewCanvas.width, previewCanvas.height);
+      const boxW = bounds.maxX - bounds.minX;
+      const boxH = bounds.maxY - bounds.minY;
+      const centerX = bounds.minX + (boxW / 2);
+      const centerY = bounds.minY + (boxH / 2);
+
+      const qrSize = Math.round(boxW * 0.44);
+      const gapQRtoName = Math.round(boxH * 0.055);
+      const gapNameToClass = Math.round(boxH * 0.020);
+      const gapClassToToken = Math.round(boxH * 0.018);
+      const maxTextWidth = boxW * 0.86;
+
+      const namaText = String(data.nama || '-').trim();
+      let nameFontSize = Math.round(boxW * 0.060);
+      ctx.font = `800 ${nameFontSize}px Montserrat, sans-serif`;
+      while (nameFontSize > 16 && ctx.measureText(namaText).width > maxTextWidth) {
+        nameFontSize -= 2;
+        ctx.font = `800 ${nameFontSize}px Montserrat, sans-serif`;
+      }
+
+      const metaText = `${data.kelas || '-'}  ·  ID: ${data.id_santri || '-'}`;
+      let classFontSize = Math.round(boxW * 0.036);
+      ctx.font = `600 ${classFontSize}px Montserrat, sans-serif`;
+      while (classFontSize > 12 && ctx.measureText(metaText).width > maxTextWidth) {
+        classFontSize -= 1;
+        ctx.font = `600 ${classFontSize}px Montserrat, sans-serif`;
+      }
+
+      const tokenText = String(data.token || '-');
+      let tokenFontSize = Math.round(boxW * 0.025);
+      ctx.font = `500 ${tokenFontSize}px Montserrat, sans-serif`;
+      while (tokenFontSize > 11 && ctx.measureText(tokenText).width > maxTextWidth) {
+        tokenFontSize -= 1;
+        ctx.font = `500 ${tokenFontSize}px Montserrat, sans-serif`;
+      }
+
+      const totalHeight = qrSize + gapQRtoName + nameFontSize + gapNameToClass + classFontSize + gapClassToToken + tokenFontSize;
+      const startY = Math.round(centerY - (totalHeight / 2));
+      const qrX = Math.round(centerX - (qrSize / 2));
+      const qrY = startY;
+
+      const drawTextOverlay = () => {
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'top';
+
+        const nameY = startY + qrSize + gapQRtoName;
+        ctx.font = `800 ${nameFontSize}px Montserrat, sans-serif`;
+        ctx.fillStyle = '#0F172A';
+        ctx.fillText(namaText, centerX, nameY);
+
+        const classY = nameY + nameFontSize + gapNameToClass;
+        ctx.font = `600 ${classFontSize}px Montserrat, sans-serif`;
+        ctx.fillStyle = '#166534';
+        ctx.fillText(metaText, centerX, classY);
+
+        const tokenY = classY + classFontSize + gapClassToToken;
+        ctx.font = `500 ${tokenFontSize}px Montserrat, sans-serif`;
+        ctx.fillStyle = '#64748B';
+        ctx.fillText(tokenText, centerX, tokenY);
+      };
+
+      const qrCanvas = qrBox.querySelector('canvas');
+      const qrImg = qrBox.querySelector('img');
+      if (qrCanvas) {
+        const transparentQr = makeQRTransparentCanvas(qrCanvas, qrSize);
+        ctx.imageSmoothingEnabled = false;
+        ctx.drawImage(transparentQr, qrX, qrY, qrSize, qrSize);
+        ctx.imageSmoothingEnabled = true;
+        drawTextOverlay();
+      } else if (qrImg) {
+        const paintImg = () => {
+          const transparentQr = makeQRTransparentCanvas(qrImg, qrSize);
+          ctx.imageSmoothingEnabled = false;
+          ctx.drawImage(transparentQr, qrX, qrY, qrSize, qrSize);
+          ctx.imageSmoothingEnabled = true;
+          drawTextOverlay();
+        };
+        if (qrImg.complete) {
+          paintImg();
+        } else {
+          qrImg.onload = paintImg;
+        }
+      } else {
+        drawTextOverlay();
+      }
+    });
+  }
+
   function openQRModal(santri) {
     const token = santri.qr_token || santri.id_santri || santri.nama_lengkap;
     localState.currentQRData = {
@@ -3024,87 +3274,40 @@
       token,
     };
 
-    document.getElementById('qr-card-nama').textContent = santri.nama_lengkap;
-    document.getElementById('qr-card-meta').textContent = `${santri.kelas || '-'} · ID: ${santri.id_santri || '-'}`;
-    document.getElementById('qr-card-token').textContent = token;
-
     const qrBox = document.getElementById('qr-render-target');
     qrBox.innerHTML = '';
 
     if (typeof root.QRCode === 'function') {
       new root.QRCode(qrBox, {
         text: token,
-        width: 200,
-        height: 200,
+        width: 520,
+        height: 520,
         colorDark: '#09090b',
-        colorLight: '#ffffff',
+        colorLight: 'rgba(0,0,0,0)',
         correctLevel: root.QRCode.CorrectLevel.H,
       });
     } else {
-      qrBox.innerHTML = `<div class="text-muted" style="padding:20px;">Library qrcode.js belum termuat.</div>`;
+      UI.toast('Library qrcode.js belum termuat.', 'warn');
     }
 
     UI.openModal('modal-qr');
+    renderQRCardCanvas(localState.currentQRData);
   }
 
   function downloadQRCardPNG() {
     const data = localState.currentQRData;
-    const qrBox = document.getElementById('qr-render-target');
-    if (!data || !qrBox) return;
-
-    const qrCanvas = qrBox.querySelector('canvas');
-    const qrImg = qrBox.querySelector('img');
-
-    const cardCanvas = document.createElement('canvas');
-    cardCanvas.width = 480;
-    cardCanvas.height = 600;
-    const ctx = cardCanvas.getContext('2d');
-
-    ctx.fillStyle = '#ffffff';
-    ctx.fillRect(0, 0, cardCanvas.width, cardCanvas.height);
-
-    ctx.strokeStyle = '#09090b';
-    ctx.lineWidth = 4;
-    ctx.strokeRect(16, 16, cardCanvas.width - 32, cardCanvas.height - 32);
-
-    ctx.fillStyle = '#09090b';
-    ctx.font = 'bold 18px Montserrat, sans-serif';
-    ctx.textAlign = 'center';
-    ctx.fillText('KARTU PRESENSI SANTRI MDTA', cardCanvas.width / 2, 62);
-
-    ctx.fillStyle = '#52525b';
-    ctx.font = '500 14px Montserrat, sans-serif';
-    ctx.fillText("MDTA ASY SYIFA AL MUSRI' · Bojongsoang, Kab. Bandung", cardCanvas.width / 2, 88);
-
-    const drawQrSource = (src) => {
-      if (src) ctx.drawImage(src, 120, 120, 240, 240);
-      ctx.fillStyle = '#09090b';
-      ctx.font = 'bold 20px Montserrat, sans-serif';
-      ctx.fillText(data.nama.slice(0, 32), cardCanvas.width / 2, 412);
-
-      ctx.fillStyle = '#27272a';
-      ctx.font = '600 15px Montserrat, sans-serif';
-      ctx.fillText(`${data.kelas} | ID: ${data.id_santri}`, cardCanvas.width / 2, 444);
-
-      ctx.fillStyle = '#52525b';
-      ctx.font = '600 14px Montserrat, sans-serif';
-      ctx.fillText(data.token, cardCanvas.width / 2, 484);
-
-      const link = document.createElement('a');
-      const safeName = data.nama.toLowerCase().replace(/[^a-z0-9]+/g, '-');
-      link.download = `Kartu-QR-${safeName || 'santri'}.png`;
-      link.href = cardCanvas.toDataURL('image/png');
-      link.click();
-      UI.toast(`Kartu QR "${data.nama}" berhasil diunduh.`, 'success');
-    };
-
-    if (qrCanvas) {
-      drawQrSource(qrCanvas);
-    } else if (qrImg && qrImg.complete) {
-      drawQrSource(qrImg);
-    } else {
-      UI.toast('Kode QR belum siap untuk diunduh.', 'warn');
+    const previewCanvas = document.getElementById('qr-card-preview-canvas');
+    if (!data || !previewCanvas || previewCanvas.width === 0) {
+      UI.toast('Kartu QR belum siap untuk diunduh.', 'warn');
+      return;
     }
+
+    const link = document.createElement('a');
+    const safeName = data.nama.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+    link.download = `Kartu-QR-${safeName || 'santri'}.png`;
+    link.href = previewCanvas.toDataURL('image/png');
+    link.click();
+    UI.toast(`Kartu QR "${data.nama}" berhasil diunduh.`, 'success');
   }
 
   function bindSantriEvents() {

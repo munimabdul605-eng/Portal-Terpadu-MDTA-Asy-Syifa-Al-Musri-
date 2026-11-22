@@ -1467,13 +1467,9 @@
       </div>
       <div class="modal-body">
         <div class="qr-card-sheet">
-          <div style="font-size:0.75rem;font-weight:700;letter-spacing:0.04em;">KARTU PRESENSI SANTRI MDTA ASY SYIFA AL MUSRI'</div>
-          <div id="qr-render-target" class="qr-card-code-box"></div>
-          <div>
-            <div id="qr-card-nama" style="font-size:1.1rem;font-weight:800;">-</div>
-            <div id="qr-card-meta" style="font-size:0.84rem;color:#52525b;">-</div>
-            <code id="qr-card-token" class="mono-num" style="display:inline-block;margin-top:6px;font-size:0.8rem;padding:4px 8px;background:#f4f4f5;border-radius:6px;">-</code>
-          </div>
+          <canvas id="qr-card-preview-canvas" class="qr-card-preview-canvas" aria-label="Preview Kartu QR Santri"></canvas>
+          <div id="qr-render-target" class="qr-card-code-box" hidden aria-hidden="true"></div>
+          <div id="qr-card-loading" class="text-muted" style="font-size:0.82rem;padding:12px;" hidden>Memuat template kartu...</div>
         </div>
       </div>
       <div class="modal-footer">

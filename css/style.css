@@ -1489,28 +1489,31 @@ html.light .filter-chip[aria-pressed="true"] {
   background-color: var(--bg-surface);
 }
 
-/* QR Print Card always high-contrast white paper surface */
+/* QR Print Card template preview canvas */
 .qr-card-sheet {
-  background-color: #ffffff;
-  color: #09090b;
-  border: 1px solid #d4d4d8;
-  border-radius: 16px;
-  padding: 22px;
+  padding: 0;
+  border: none;
+  background: transparent;
   display: flex;
   flex-direction: column;
   align-items: center;
+  justify-content: center;
   text-align: center;
-  gap: 12px;
+  gap: 10px;
+}
+
+.qr-card-preview-canvas {
+  width: 100%;
+  max-width: 360px;
+  height: auto;
+  display: block;
+  border-radius: 14px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.14);
+  background-color: #ffffff;
 }
 
 .qr-card-code-box {
-  padding: 12px;
-  background-color: #ffffff;
-  border: 1px solid #e4e4e7;
-  border-radius: 12px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
+  display: none;
 }
 
 /* Drive Arsip Items */
@@ -2694,8 +2697,22 @@ html.light .filter-chip[aria-pressed="true"] {
   body.printing-qr-card #modal-qr .modal-panel {
     box-shadow: none !important;
     border: none !important;
-    max-width: 340px !important;
-    margin: 20px auto !important;
+    max-width: 380px !important;
+    margin: 16px auto !important;
+    background: transparent !important;
+  }
+
+  body.printing-qr-card #modal-qr .modal-body {
+    padding: 0 !important;
+  }
+
+  body.printing-qr-card #modal-qr .qr-card-preview-canvas {
+    max-width: 380px !important;
+    width: 100% !important;
+    box-shadow: none !important;
+    border-radius: 12px !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
   }
 
   .print-class-page {
