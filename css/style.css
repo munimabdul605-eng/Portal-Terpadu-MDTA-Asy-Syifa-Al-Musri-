@@ -1380,7 +1380,10 @@ html.light .filter-chip[aria-pressed="true"] {
 }
 
 .state-box {
-  padding: 28px 20px;
+  grid-column: 1 / -1;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 24px 18px;
   border-radius: var(--radius-lg);
   border: 1px dashed var(--border-strong);
   background-color: var(--bg-subsurface);
@@ -1673,86 +1676,50 @@ html.light .filter-chip[aria-pressed="true"] {
     padding: 0 10px;
   }
 
-  /* 2. Sticky Bottom Navigation Bar & Bottom Safe Padding */
+  /* 2. Mobile Container, Footer, Toast, & Drawer Menu Alignment */
   .main-shell {
-    padding: 12px 14px calc(84px + env(safe-area-inset-bottom, 0px));
+    padding: 10px 12px 24px;
   }
   .site-footer {
-    padding: 14px 14px calc(84px + env(safe-area-inset-bottom, 0px));
+    padding: 14px 12px 24px;
   }
   .toast-container {
     left: 12px;
     right: 12px;
-    bottom: calc(78px + env(safe-area-inset-bottom, 0px));
+    bottom: calc(16px + env(safe-area-inset-bottom, 0px));
     max-width: none;
-  }
-  .portal-tablist-wrap {
-    position: fixed;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    z-index: 60;
-    min-height: 0;
-    height: auto;
-    margin: 0;
-    padding: 6px 8px calc(6px + env(safe-area-inset-bottom, 0px));
-    background-color: var(--bg-header);
-    backdrop-filter: blur(14px);
-    -webkit-backdrop-filter: blur(14px);
-    border-top: 1px solid var(--border-strong);
-    box-shadow: 0 -6px 20px rgba(0, 0, 0, 0.12);
-    overflow: visible;
-  }
-  .portal-tablist {
-    display: grid;
-    width: 100%;
-    min-width: 0;
-    gap: 4px;
-    padding: 0;
-    background: transparent;
-    border: none;
-    border-radius: 0;
-  }
-  #admin-tablist {
-    grid-template-columns: repeat(5, minmax(0, 1fr));
-  }
-  #guru-tablist {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
   .tab-sliding-indicator {
     display: none !important;
   }
-  .tab-btn {
+  .portal-tablist.drawer-nav-list {
+    display: flex;
     flex-direction: column;
-    justify-content: center;
-    align-items: center;
+    width: 100%;
     gap: 4px;
-    min-height: 52px;
-    padding: 6px 2px;
-    border-radius: 10px;
-    font-size: 0.68rem;
-    font-weight: 700;
-    line-height: 1.2;
-    text-align: center;
+    padding: 0;
   }
-  .tab-btn svg {
-    width: 19px;
-    height: 19px;
+  .portal-tablist.drawer-nav-list .tab-btn,
+  .drawer-nav-item,
+  .drawer-footer .btn {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 10px;
+    min-height: 42px;
+    padding: 9px 12px;
+    font-size: 0.88rem;
+    text-align: left;
   }
-  .tab-label-desktop {
+  .drawer-footer .btn {
+    justify-content: center;
+  }
+  .portal-tablist.drawer-nav-list .tab-label-desktop {
+    display: inline;
+  }
+  .portal-tablist.drawer-nav-list .tab-label-mobile {
     display: none;
-  }
-  .tab-label-mobile {
-    display: block;
-    max-width: 100%;
-    font-size: 0.67rem;
-    letter-spacing: 0.01em;
-    white-space: nowrap;
-  }
-  .portal-tablist .tab-btn[aria-selected="true"],
-  .portal-tablist .tab-btn.active {
-    background-color: var(--btn-primary-bg);
-    color: var(--btn-primary-text);
   }
 
   /* 3. Kartu Ringkasan 2x2, Header Berimbang, & Anti-Clipping Mobile */
@@ -4081,17 +4048,33 @@ body.drawer-open {
     font-size: 12px;
   }
   .main-shell {
-    padding: 12px 14px 28px;
+    padding: 10px 12px 24px;
   }
   .surface-card {
-    padding: 14px;
+    padding: 12px 14px;
+  }
+  .surface-card .sub-surface,
+  .surface-card .kelas-report-block,
+  .surface-card .rekap-kelas-card,
+  .surface-card .kelas-manage-card {
+    padding: 12px;
   }
   .stack-gap {
-    gap: 12px;
+    gap: 10px;
   }
   .btn {
     min-height: 40px;
     gap: 8px;
+  }
+  input:not([type="checkbox"]):not([type="radio"]),
+  select,
+  textarea,
+  .input-control,
+  .select-control,
+  .textarea-control {
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
   }
   .header-chip-name,
   #header-user-role {
@@ -4100,10 +4083,34 @@ body.drawer-open {
   .user-session-chip {
     padding: 4px;
   }
+  .admin-kelas-grid,
   .program-kelas-cards,
-  .guru-monitoring-grid {
-    grid-template-columns: minmax(0, 1fr);
-    gap: 12px;
+  .guru-monitoring-grid,
+  .kelas-report-block .nilai-rekap-grid,
+  .form-grid,
+  .form-grid-2,
+  .weights-bar,
+  .uas-preset-grid {
+    grid-template-columns: minmax(0, 1fr) !important;
+    gap: 10px;
+  }
+  .state-box {
+    grid-column: 1 / -1;
+    width: 100%;
+    box-sizing: border-box;
+    padding: 18px 14px;
+  }
+  .mobile-cards-table tbody tr.table-state-row {
+    display: block !important;
+    width: 100%;
+    padding: 0;
+    border: none;
+    background: transparent;
+  }
+  .mobile-cards-table tbody tr.table-state-row td {
+    display: block;
+    width: 100%;
+    padding: 0;
   }
 }
 
