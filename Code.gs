@@ -9,11 +9,14 @@
 
 const CONFIG = {
   SPREADSHEET_ID: '1AL5a6m1aIcJvODOlTZ1DzPghddz34bRT3bfOBfBxrqY',
+  DRIVE_ROOT_ID: '1mgtcD4ipQjBjiqL6omZjBnJyuz3QAT_6',
   FOLDER_ARSIP_ID: '1FtDyo6Nxq0iX5tv7iKeSWrT_XPToK0Nh',
   FOLDER_UPLOAD_AI_ID: '1x-F9wQThtTcXIz-XgDIMmXzBelMrQXot',
   FOLDER_LAPORAN_PDF_ID: '1neoKIVTmIhKV71sOzmANg3D7wy9Xutgy',
   GEMINI_MODEL: 'gemini-2.5-flash'
 };
+
+const PROGRAM_CATEGORIES = ['Diniyyah', 'Tahfidz', 'Tarikh', 'Wustho'];
 
 const LOG_SETORAN_HEADERS = [
   'id_setoran',
@@ -30,10 +33,35 @@ const LOG_SETORAN_HEADERS = [
 const KELAS_HEADERS = [
   'id_kelas',
   'nama_kelas',
+  'kategori_program',
   'tingkat',
   'keterangan',
   'status',
   'created_at'
+];
+
+const USER_PROFILE_COLUMNS = [
+  'no_wa',
+  'alamat',
+  'pendidikan_terakhir',
+  'bidang_ajar',
+  'bio',
+  'foto_url'
+];
+
+const ABSENSI_GURU_HEADERS = [
+  'id_absen_guru',
+  'tanggal',
+  'waktu_masuk',
+  'id_guru',
+  'nama_guru',
+  'kelas',
+  'kategori_program',
+  'status',
+  'materi_diajarkan',
+  'keterangan',
+  'status_cek',
+  'catatan_kepsek'
 ];
 
 const SANTRI_EXTRA_COLUMNS = [
@@ -416,8 +444,61 @@ function isKelasAllowed(kelasVal, allowedList) {
   return allowedList.some(k => targets.indexOf(normalizeKelasName(k)) >= 0);
 }
 
+function normalizeKategoriProgram(raw, fallbackKelasName) {
+  const s = String(raw || '').trim().toLowerCase();
+  if (s === 'tahfidz' || s === 'tahfiz') return 'Tahfidz';
+  if (s === 'tarikh') return 'Tarikh';
+  if (s === 'wustho' || s === 'wusto') return 'Wustho';
+  if (s === 'diniyyah' || s === 'diniyah') return 'Diniyyah';
+  const k = String(fallbackKelasName || '').trim().toLowerCase();
+  if (/tahfi[dz]/i.test(k)) return 'Tahfidz';
+  if (/tarikh/i.test(k)) return 'Tarikh';
+  if (/wusth?o/i.test(k)) return 'Wustho';
+  return 'Diniyyah';
+}
+
+function getKelasKategoriMap() {
+  ensureKelasSheet();
+  const map = {};
+  getSheetData('Kelas').forEach(k => {
+    const key = normalizeKelasName(k.nama_kelas);
+    if (key) {
+      map[key] = normalizeKategoriProgram(k.kategori_program, k.nama_kelas);
+    }
+  });
+  return map;
+}
+
+function resolveKelasKategoriProgram(kelasName, explicitKategori) {
+  const cleanExplicit = String(explicitKategori || '').trim();
+  if (cleanExplicit) return normalizeKategoriProgram(cleanExplicit, kelasName);
+  const kMap = getKelasKategoriMap();
+  const key = normalizeKelasName(kelasName);
+  if (key && kMap[key]) return kMap[key];
+  return normalizeKategoriProgram('', kelasName);
+}
+
+function ensureSheetProgramColumn(sheetName) {
+  const flagKey = 'prog_' + sheetName;
+  if (_requestEnsured[flagKey]) return _requestEnsured[flagKey];
+  const ss = getSpreadsheet();
+  const sheet = ss.getSheetByName(sheetName);
+  if (sheet) {
+    ensureColumn(sheet, 'kategori_program');
+  }
+  _requestEnsured[flagKey] = sheet || true;
+  return sheet;
+}
+
+function ensureAbsensiGuruSheet() {
+  if (_requestEnsured.absensi_guru) return _requestEnsured.absensi_guru;
+  const sheet = ensureSheet('Absensi_Guru', ABSENSI_GURU_HEADERS);
+  _requestEnsured.absensi_guru = sheet;
+  return sheet;
+}
+
 /**
- * Memastikan sheet Users memiliki kolom kelas_ampu
+ * Memastikan sheet Users memiliki kolom kelas_ampu dan profil guru
  */
 function ensureUsersSchema() {
   if (_requestEnsured.users) return _requestEnsured.users;
@@ -425,6 +506,7 @@ function ensureUsersSchema() {
   const sheet = ss.getSheetByName('Users');
   if (sheet) {
     ensureColumn(sheet, 'kelas_ampu');
+    USER_PROFILE_COLUMNS.forEach(col => ensureColumn(sheet, col));
   }
   _requestEnsured.users = sheet || true;
   return sheet;
@@ -656,7 +738,9 @@ function doGet(e) {
       case 'getPresensi':
         return jsonResponse(true, filterRowsByGuruScope(getSheetData('Presensi'), scope, 'kelas'));
       case 'getRekapLaporan':
-        return jsonResponse(true, handleGetRekapLaporan(params.bulan, params.tahun, scope));
+        return jsonResponse(true, handleGetRekapLaporan(params.bulan, params.tahun, scope, params));
+      case 'getMonitoringGuru':
+        return jsonResponse(true, handleGetMonitoringGuru(params, scope));
       case 'getNilaiUAS':
         return jsonResponse(true, filterRowsByGuruScope(getSheetData('Nilai_UAS'), scope, 'kelas'));
       case 'getNilaiRaport': {
@@ -799,6 +883,21 @@ function doPost(e) {
         const res = handleSubmitLaporanGuru(attachScopeContext(payload.data, rootScope));
         return jsonResponse(true, res, 'Laporan guru berhasil dikirim ke Kepala Madrasah.');
       }
+      case 'updateProfilGuru': {
+        const res = handleUpdateProfilGuru(payload.data || payload, rootScope);
+        invalidateScriptCache();
+        return jsonResponse(true, res, 'Profil guru berhasil diperbarui.');
+      }
+      case 'saveAbsensiGuru': {
+        const res = handleSaveAbsensiGuru(payload.data || payload, rootScope);
+        invalidateScriptCache();
+        return jsonResponse(true, res, 'Absensi dan laporan materi harian guru tersimpan.');
+      }
+      case 'verifikasiAbsensiGuru': {
+        const res = handleVerifikasiAbsensiGuru(payload.data || payload, rootScope);
+        invalidateScriptCache();
+        return jsonResponse(true, res, 'Status pengecekan guru diperbarui.');
+      }
       default:
         return jsonResponse(false, null, 'Action POST tidak dikenali: ' + action);
     }
@@ -838,7 +937,13 @@ function handleLogin(payload) {
       username: found.username,
       nama_lengkap: found.nama_lengkap,
       role: found.role,
-      kelas_ampu: parseKelasAmpu(found.kelas_ampu)
+      kelas_ampu: parseKelasAmpu(found.kelas_ampu),
+      no_wa: String(found.no_wa || ''),
+      alamat: String(found.alamat || ''),
+      pendidikan_terakhir: String(found.pendidikan_terakhir || ''),
+      bidang_ajar: String(found.bidang_ajar || ''),
+      bio: String(found.bio || ''),
+      foto_url: String(found.foto_url || '')
     }
   };
 }
@@ -855,6 +960,12 @@ function handleGetUsers() {
       status_aktif: u.status_aktif,
       kelas_ampu: kelasAmpu,
       kelas_ampu_text: kelasAmpu.join(', '),
+      no_wa: String(u.no_wa || ''),
+      alamat: String(u.alamat || ''),
+      pendidikan_terakhir: String(u.pendidikan_terakhir || ''),
+      bidang_ajar: String(u.bidang_ajar || ''),
+      bio: String(u.bio || ''),
+      foto_url: String(u.foto_url || ''),
       created_at: u.created_at
     };
   });
@@ -1008,15 +1119,21 @@ function handleSaveUser(data) {
 
 function handleGetKelas(scope) {
   ensureKelasSheet();
+  const { sheet } = getSheetAndHeaders('Kelas');
+  if (sheet) ensureColumn(sheet, 'kategori_program');
   const list = getSheetData('Kelas')
-    .map(k => ({
-      id_kelas: String(k.id_kelas || ''),
-      nama_kelas: String(k.nama_kelas || '').trim(),
-      tingkat: String(k.tingkat || '').trim(),
-      keterangan: String(k.keterangan || '').trim(),
-      status: String(k.status || 'aktif').trim().toLowerCase(),
-      created_at: formatDateOnlyWIB(k.created_at)
-    }))
+    .map(k => {
+      const nama = String(k.nama_kelas || '').trim();
+      return {
+        id_kelas: String(k.id_kelas || ''),
+        nama_kelas: nama,
+        kategori_program: normalizeKategoriProgram(k.kategori_program, nama),
+        tingkat: String(k.tingkat || '').trim(),
+        keterangan: String(k.keterangan || '').trim(),
+        status: String(k.status || 'aktif').trim().toLowerCase(),
+        created_at: formatDateOnlyWIB(k.created_at)
+      };
+    })
     .filter(k => Boolean(k.nama_kelas));
 
   const scoped = (scope && scope.isGuru)
@@ -1029,9 +1146,11 @@ function handleGetKelas(scope) {
 function handleSaveKelas(data) {
   ensureKelasSheet();
   const { sheet, headers } = getSheetAndHeaders('Kelas');
+  if (sheet) ensureColumn(sheet, 'kategori_program');
   const rows = getSheetData('Kelas');
   const now = Utilities.formatDate(new Date(), 'Asia/Jakarta', 'yyyy-MM-dd');
   const namaKelas = String((data && data.nama_kelas) || '').trim();
+  const kategoriProgram = normalizeKategoriProgram(data && data.kategori_program, namaKelas);
   const tingkat = String((data && data.tingkat) || '').trim();
   const keterangan = String((data && data.keterangan) || '').trim();
   const status = String((data && data.status) || 'aktif').trim().toLowerCase();
@@ -1067,6 +1186,7 @@ function handleSaveKelas(data) {
     const updated = headers.map(h => {
       if (h === 'id_kelas') return existing.id_kelas;
       if (h === 'nama_kelas') return namaKelas;
+      if (h === 'kategori_program') return kategoriProgram;
       if (h === 'tingkat') return tingkat;
       if (h === 'keterangan') return keterangan;
       if (h === 'status') return status;
@@ -1129,6 +1249,7 @@ function handleSaveKelas(data) {
   const newRowValues = {
     id_kelas: newId,
     nama_kelas: namaKelas,
+    kategori_program: kategoriProgram,
     tingkat: tingkat,
     keterangan: keterangan,
     status: status || 'aktif',
@@ -1137,7 +1258,7 @@ function handleSaveKelas(data) {
   sheet.appendRow(headers.map(h => newRowValues[h] !== undefined ? newRowValues[h] : ''));
   delete _requestSheetData['Kelas'];
   bumpSyncVersion();
-  return { id_kelas: newId, nama_kelas: namaKelas, created: true };
+  return { id_kelas: newId, nama_kelas: namaKelas, kategori_program: kategoriProgram, created: true };
 }
 
 function handleDeleteKelas(payload) {
@@ -1454,6 +1575,18 @@ function handleSaveSantri(data) {
   };
 }
 
+function writeSheetKategoriProgramCell(sheetName, rowIndex, katProgram) {
+  if (!sheetName || !rowIndex || rowIndex < 2) return;
+  const sheet = ensureSheetProgramColumn(sheetName);
+  if (!sheet || typeof sheet.getRange !== 'function') return;
+  const lastCol = Math.max(1, sheet.getLastColumn());
+  const headers = sheet.getRange(1, 1, 1, lastCol).getValues()[0].map(h => String(h || '').trim());
+  const colIdx = headers.findIndex(h => h.toLowerCase() === 'kategori_program') + 1;
+  if (colIdx > 0) {
+    sheet.getRange(rowIndex, colIdx).setValue(katProgram);
+  }
+}
+
 function handleSavePresensi(data, rootScope) {
   const isBatch = Array.isArray(data);
   const rawItems = isBatch ? data : [data];
@@ -1546,6 +1679,9 @@ function handleSavePresensi(data, rootScope) {
         catatan
       ];
       sheet.getRange(existing._rowIndex, 1, 1, rowValues.length).setValues([rowValues]);
+      const katProg = resolveKelasKategoriProgram(targetKelas, item.kategori_program);
+      writeSheetKategoriProgramCell('Presensi', existing._rowIndex, katProg);
+      existing.kategori_program = katProg;
       existing.id_presensi = finalId;
       existing.tanggal = tanggal;
       existing.waktu = waktu;
@@ -1589,8 +1725,11 @@ function handleSavePresensi(data, rootScope) {
         catatan
       ];
       sheet.appendRow(rowValues);
+      const appendedRowIdx = sheet.getLastRow();
+      const katProg = resolveKelasKategoriProgram(targetKelas, item.kategori_program);
+      writeSheetKategoriProgramCell('Presensi', appendedRowIdx, katProg);
       rows.push({
-        _rowIndex: sheet.getLastRow(),
+        _rowIndex: appendedRowIdx,
         id_presensi: newId,
         tanggal: tanggal,
         waktu: waktu,
@@ -1705,16 +1844,42 @@ function handleClearPresensiHarian(payload, rootScope) {
   };
 }
 
-function handleGetRekapLaporan(bulan, tahun, scope) {
+function handleGetRekapLaporan(bulan, tahun, scope, params) {
+  ensureSheetProgramColumn('Presensi');
   const santriList = filterRowsByGuruScope(getSheetData('Santri'), scope, 'kelas');
   const presensi = filterRowsByGuruScope(getSheetData('Presensi'), scope, 'kelas');
   const targetBulan = bulan ? String(bulan).padStart(2, '0') : null;
   const targetTahun = tahun ? String(tahun) : null;
+  const targetKategori = params && params.kategori_program
+    ? normalizeKategoriProgram(params.kategori_program)
+    : '';
+  const targetSemester = params && params.semester ? String(params.semester).trim().toLowerCase() : '';
+  const targetTahunAjaran = params && params.tahun_ajaran ? String(params.tahun_ajaran).trim() : '';
   const isGuruScope = Boolean(scope && scope.isGuru);
   const allowedClasses = isGuruScope && Array.isArray(scope.kelas_ampu) ? scope.kelas_ampu : [];
+  const kelasKatMap = getKelasKategoriMap();
+
+  let semStart = '';
+  let semEnd = '';
+  if (targetSemester && targetTahunAjaran) {
+    const yrs = targetTahunAjaran.match(/\d{4}/g) || [];
+    const y1 = Number(yrs[0] || targetTahun || new Date().getFullYear());
+    const y2 = Number(yrs[1] || (y1 + 1));
+    if (targetSemester === 'genap') {
+      semStart = y2 + '-01-01';
+      semEnd = y2 + '-06-31';
+    } else {
+      semStart = y1 + '-07-01';
+      semEnd = y1 + '-12-31';
+    }
+  }
 
   const filteredPresensi = presensi.filter(p => {
     const tglStr = formatDateOnlyWIB(p.tanggal);
+    if (!tglStr) return false;
+    if (semStart && semEnd) {
+      return tglStr >= semStart && tglStr <= semEnd;
+    }
     const parts = tglStr.split('-');
     if (targetTahun && parts[0] !== targetTahun) return false;
     if (targetBulan && parts[1] !== targetBulan) return false;
@@ -1734,13 +1899,16 @@ function handleGetRekapLaporan(bulan, tahun, scope) {
     if (classes.length === 0) classes = ['Tanpa Kelas'];
     classes.forEach(klsName => {
       const kKey = normalizeKelasName(klsName) || 'tanpa kelas';
-      const compositeKey = (sid || String(s.nama_lengkap || '').trim().toLowerCase()) + '::' + kKey;
+      const katProg = kelasKatMap[kKey] || normalizeKategoriProgram('', klsName);
+      if (targetKategori && katProg !== targetKategori) return;
+      const compositeKey = katProg + '::' + kKey + '::' + (sid || String(s.nama_lengkap || '').trim().toLowerCase());
       if (!entryMap.has(compositeKey)) {
         entryMap.set(compositeKey, {
           id_santri: sid,
           nama_lengkap: s.nama_lengkap,
           kelas: klsName,
-          kelasKey: kKey
+          kelasKey: kKey,
+          kategori_program: katProg
         });
       }
     });
@@ -1751,14 +1919,19 @@ function handleGetRekapLaporan(bulan, tahun, scope) {
     const klsName = String(p.kelas || '').trim() || 'Tanpa Kelas';
     const kKey = normalizeKelasName(klsName) || 'tanpa kelas';
     if (isGuruScope && !isKelasAllowed(klsName, allowedClasses)) return;
-    const compositeKey = (sid || String(p.nama_santri || '').trim().toLowerCase()) + '::' + kKey;
+    const katProg = p.kategori_program
+      ? normalizeKategoriProgram(p.kategori_program, klsName)
+      : (kelasKatMap[kKey] || normalizeKategoriProgram('', klsName));
+    if (targetKategori && katProg !== targetKategori) return;
+    const compositeKey = katProg + '::' + kKey + '::' + (sid || String(p.nama_santri || '').trim().toLowerCase());
     if (!entryMap.has(compositeKey)) {
       const sRef = sid ? santriById.get(sid) : null;
       entryMap.set(compositeKey, {
         id_santri: sid,
         nama_lengkap: (sRef && sRef.nama_lengkap) || p.nama_santri || '-',
         kelas: klsName,
-        kelasKey: kKey
+        kelasKey: kKey,
+        kategori_program: katProg
       });
     }
   });
@@ -1768,10 +1941,13 @@ function handleGetRekapLaporan(bulan, tahun, scope) {
     const logs = filteredPresensi.filter(p => {
       const pSid = String(p.id_santri || '').trim();
       const pKelasKey = normalizeKelasName(p.kelas) || 'tanpa kelas';
+      const pKat = p.kategori_program
+        ? normalizeKategoriProgram(p.kategori_program, p.kelas)
+        : (kelasKatMap[pKelasKey] || normalizeKategoriProgram('', p.kelas));
       const matchSantri = entry.id_santri
         ? pSid === entry.id_santri
         : String(p.nama_santri || '').trim().toLowerCase() === String(entry.nama_lengkap || '').trim().toLowerCase();
-      return matchSantri && pKelasKey === entry.kelasKey;
+      return matchSantri && pKelasKey === entry.kelasKey && pKat === entry.kategori_program;
     });
 
     const count = { Hadir: 0, Sakit: 0, Izin: 0, Alpa: 0 };
@@ -1785,6 +1961,7 @@ function handleGetRekapLaporan(bulan, tahun, scope) {
       id_santri: entry.id_santri,
       nama_lengkap: entry.nama_lengkap,
       kelas: entry.kelas,
+      kategori_program: entry.kategori_program,
       hadir: count.Hadir,
       sakit: count.Sakit,
       izin: count.Izin,
@@ -1909,6 +2086,9 @@ function handleSaveNilaiUAS(data, rootScope) {
         now
       ];
       sheet.getRange(existing._rowIndex, 1, 1, rowValues.length).setValues([rowValues]);
+      const katProg = resolveKelasKategoriProgram(targetKelas, item.kategori_program);
+      writeSheetKategoriProgramCell('Nilai_UAS', existing._rowIndex, katProg);
+      existing.kategori_program = katProg;
       existing.id_uas = finalId;
       existing.id_santri = resolvedIdSantri;
       existing.nama_santri = namaSantri;
@@ -1954,8 +2134,11 @@ function handleSaveNilaiUAS(data, rootScope) {
         now
       ];
       sheet.appendRow(rowValues);
+      const appendedRowIdx = sheet.getLastRow();
+      const katProg = resolveKelasKategoriProgram(targetKelas, item.kategori_program);
+      writeSheetKategoriProgramCell('Nilai_UAS', appendedRowIdx, katProg);
       rows.push({
-        _rowIndex: sheet.getLastRow(),
+        _rowIndex: appendedRowIdx,
         id_uas: newId,
         id_santri: resolvedIdSantri,
         nama_santri: namaSantri,
@@ -2129,6 +2312,9 @@ function handleSaveNilaiRaport(items, metaCtx) {
 
     if (existing) {
       sheet.getRange(existing._rowIndex, 1, 1, rowValues.length).setValues([rowValues]);
+      const katProg = resolveKelasKategoriProgram(item.kelas || '', item.kategori_program);
+      writeSheetKategoriProgramCell('Nilai_Raport', existing._rowIndex, katProg);
+      existing.kategori_program = katProg;
       existing.id_raport = newId;
       existing.id_santri = item.id_santri || '';
       existing.nama_santri = item.nama_santri;
@@ -2143,8 +2329,11 @@ function handleSaveNilaiRaport(items, metaCtx) {
       existing.updated_at = now;
     } else {
       sheet.appendRow(rowValues);
+      const appendedRowIdx = sheet.getLastRow();
+      const katProg = resolveKelasKategoriProgram(item.kelas || '', item.kategori_program);
+      writeSheetKategoriProgramCell('Nilai_Raport', appendedRowIdx, katProg);
       rows.push({
-        _rowIndex: sheet.getLastRow(),
+        _rowIndex: appendedRowIdx,
         id_raport: newId,
         id_santri: item.id_santri || '',
         nama_santri: item.nama_santri,
@@ -2733,6 +2922,7 @@ function handleGetRekapKepsek(tanggalParam, kelasParam) {
 
     return {
       kelas: k,
+      kategori_program: resolveKelasKategoriProgram(k),
       jumlah_santri: stItem.jumlah_santri,
       guru_pengampu: stItem.guru_pengampu,
       nama_guru_pengampu: stItem.nama_guru_pengampu,
@@ -2791,15 +2981,270 @@ function handleGetPresensiByDate(tanggalParam, scope) {
     .reverse();
 }
 
+function getOrCreateProfilGuruFolder() {
+  const rootFolder = DriveApp.getFolderById(CONFIG.DRIVE_ROOT_ID);
+  const iter = rootFolder.getFoldersByName('Profil_Guru');
+  if (iter.hasNext()) return iter.next();
+  return rootFolder.createFolder('Profil_Guru');
+}
+
+function handleUpdateProfilGuru(data, rootScope) {
+  ensureUsersSchema();
+  const { sheet, headers } = getSheetAndHeaders('Users');
+  const rows = getSheetData('Users');
+  const targetId = String((data && data.id_user) || (rootScope && rootScope.id_user) || '').trim();
+  const targetUsername = String((data && data.username) || (rootScope && rootScope.username) || '').trim().toLowerCase();
+
+  const existing = rows.find(u =>
+    (targetId && String(u.id_user || '').trim() === targetId) ||
+    (targetUsername && String(u.username || '').trim().toLowerCase() === targetUsername)
+  );
+  if (!existing) {
+    throw new Error('Akun pengguna tidak ditemukan untuk pembaruan profil.');
+  }
+
+  let fotoUrl = data && data.foto_url !== undefined ? String(data.foto_url || '').trim() : String(existing.foto_url || '').trim();
+  if (data && data.foto_base64) {
+    const rawB64 = String(data.foto_base64 || '');
+    const match = rawB64.match(/^data:([^;]+);base64,(.+)$/);
+    const mimeType = (match && match[1]) || String(data.foto_mime || 'image/jpeg');
+    const b64Payload = match ? match[2] : rawB64;
+    const ext = mimeType.indexOf('png') >= 0 ? 'png' : 'jpg';
+    const fileName = 'profil_' + (existing.id_user || existing.username) + '_' + Date.now() + '.' + ext;
+    const blob = Utilities.newBlob(Utilities.base64Decode(b64Payload), mimeType, fileName);
+    const folder = getOrCreateProfilGuruFolder();
+    const file = folder.createFile(blob);
+    if (typeof file.setSharing === 'function') {
+      try {
+        file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+      } catch (e) {
+        // Abaikan bila domain membatasi sharing publik
+      }
+    }
+    fotoUrl = 'https://drive.google.com/uc?export=view&id=' + file.getId();
+  }
+
+  const nextNama = data && data.nama_lengkap !== undefined && String(data.nama_lengkap).trim()
+    ? String(data.nama_lengkap).trim()
+    : String(existing.nama_lengkap || '').trim();
+  const nextNoWa = data && data.no_wa !== undefined ? String(data.no_wa || '').trim() : String(existing.no_wa || '');
+  const nextAlamat = data && data.alamat !== undefined ? String(data.alamat || '').trim() : String(existing.alamat || '');
+  const nextPendidikan = data && data.pendidikan_terakhir !== undefined ? String(data.pendidikan_terakhir || '').trim() : String(existing.pendidikan_terakhir || '');
+  const nextBidang = data && data.bidang_ajar !== undefined ? String(data.bidang_ajar || '').trim() : String(existing.bidang_ajar || '');
+  const nextBio = data && data.bio !== undefined ? String(data.bio || '').trim() : String(existing.bio || '');
+
+  const updatedRow = headers.map(h => {
+    if (h === 'nama_lengkap') return nextNama;
+    if (h === 'no_wa') return nextNoWa;
+    if (h === 'alamat') return nextAlamat;
+    if (h === 'pendidikan_terakhir') return nextPendidikan;
+    if (h === 'bidang_ajar') return nextBidang;
+    if (h === 'bio') return nextBio;
+    if (h === 'foto_url') return fotoUrl;
+    return existing[h] !== undefined ? existing[h] : '';
+  });
+
+  sheet.getRange(existing._rowIndex, 1, 1, headers.length).setValues([updatedRow]);
+  delete _requestSheetData['Users'];
+  bumpSyncVersion();
+
+  return {
+    id_user: existing.id_user,
+    username: existing.username,
+    nama_lengkap: nextNama,
+    no_wa: nextNoWa,
+    alamat: nextAlamat,
+    pendidikan_terakhir: nextPendidikan,
+    bidang_ajar: nextBidang,
+    bio: nextBio,
+    foto_url: fotoUrl
+  };
+}
+
+function handleSaveAbsensiGuru(data, rootScope) {
+  ensureAbsensiGuruSheet();
+  const { sheet } = getSheetAndHeaders('Absensi_Guru');
+  const rows = getSheetData('Absensi_Guru');
+  const now = new Date();
+  const tanggal = formatDateOnlyWIB(data && data.tanggal) || Utilities.formatDate(now, 'Asia/Jakarta', 'yyyy-MM-dd');
+  const waktuMasuk = formatTimeOnlyWIB(data && data.waktu_masuk) || Utilities.formatDate(now, 'Asia/Jakarta', 'HH:mm:ss');
+  const idGuru = String((data && data.id_guru) || (rootScope && rootScope.id_user) || '').trim();
+  const namaGuru = String((data && data.nama_guru) || '').trim();
+  const kelas = String((data && data.kelas) || '').trim();
+  const kategoriProgram = resolveKelasKategoriProgram(kelas, data && data.kategori_program);
+  const status = String((data && data.status) || 'Hadir Mengajar').trim();
+  const materiDiajarkan = String((data && data.materi_diajarkan) || '').trim();
+  const keterangan = String((data && data.keterangan) || '').trim();
+
+  if (!idGuru && !namaGuru) throw new Error('Identitas guru wajib diisi.');
+  if (!kelas) throw new Error('Pilih kelas terlebih dahulu.');
+  if (!materiDiajarkan && status === 'Hadir Mengajar') {
+    throw new Error('Laporan materi yang diajarkan hari ini wajib diisi.');
+  }
+
+  const kelasNorm = normalizeKelasName(kelas);
+  const existing = rows.find(r =>
+    formatDateOnlyWIB(r.tanggal) === tanggal &&
+    ((idGuru && String(r.id_guru || '').trim() === idGuru) ||
+      (namaGuru && String(r.nama_guru || '').trim().toLowerCase() === namaGuru.toLowerCase())) &&
+    normalizeKelasName(r.kelas) === kelasNorm
+  );
+
+  const usedIds = new Set(rows.map(r => String(r.id_absen_guru || '').trim()).filter(Boolean));
+  const idAbsen = existing ? String(existing.id_absen_guru || '').trim() : generateUniqueSequentialId(rows, 'id_absen_guru', 'ABG-', 4, usedIds);
+  const statusCek = existing && existing.status_cek ? String(existing.status_cek) : 'Belum Dicek';
+  const catatanKepsek = existing && existing.catatan_kepsek ? String(existing.catatan_kepsek) : '';
+
+  const rowValues = [
+    idAbsen,
+    tanggal,
+    waktuMasuk,
+    idGuru,
+    namaGuru,
+    kelas,
+    kategoriProgram,
+    status,
+    materiDiajarkan,
+    keterangan,
+    statusCek,
+    catatanKepsek
+  ];
+
+  if (existing) {
+    sheet.getRange(existing._rowIndex, 1, 1, rowValues.length).setValues([rowValues]);
+  } else {
+    sheet.appendRow(rowValues);
+  }
+
+  delete _requestSheetData['Absensi_Guru'];
+  bumpSyncVersion();
+  return {
+    id_absen_guru: idAbsen,
+    tanggal: tanggal,
+    waktu_masuk: waktuMasuk,
+    id_guru: idGuru,
+    nama_guru: namaGuru,
+    kelas: kelas,
+    kategori_program: kategoriProgram,
+    status: status,
+    materi_diajarkan: materiDiajarkan,
+    keterangan: keterangan,
+    status_cek: statusCek,
+    catatan_kepsek: catatanKepsek,
+    updated: Boolean(existing)
+  };
+}
+
+function handleVerifikasiAbsensiGuru(data, rootScope) {
+  const scope = resolveGuruScope(rootScope || {});
+  if (scope.isGuru) {
+    throw new Error('Hanya Kepala Madrasah / Admin yang dapat memverifikasi absensi guru.');
+  }
+  ensureAbsensiGuruSheet();
+  const { sheet, headers } = getSheetAndHeaders('Absensi_Guru');
+  const rows = getSheetData('Absensi_Guru');
+  const targetId = String((data && data.id_absen_guru) || '').trim();
+  if (!targetId) throw new Error('ID absensi guru wajib diisi.');
+
+  const existing = rows.find(r => String(r.id_absen_guru || '').trim() === targetId);
+  if (!existing) throw new Error('Catatan absensi guru tidak ditemukan.');
+
+  const nextStatusCek = String((data && data.status_cek) || 'Sudah Dicek').trim();
+  const nextCatatan = data && data.catatan_kepsek !== undefined ? String(data.catatan_kepsek || '').trim() : String(existing.catatan_kepsek || '');
+
+  const updatedRow = headers.map(h => {
+    if (h === 'status_cek') return nextStatusCek;
+    if (h === 'catatan_kepsek') return nextCatatan;
+    return existing[h] !== undefined ? existing[h] : '';
+  });
+
+  sheet.getRange(existing._rowIndex, 1, 1, headers.length).setValues([updatedRow]);
+  delete _requestSheetData['Absensi_Guru'];
+  bumpSyncVersion();
+  return {
+    id_absen_guru: targetId,
+    status_cek: nextStatusCek,
+    catatan_kepsek: nextCatatan
+  };
+}
+
+function handleGetMonitoringGuru(params, scope) {
+  ensureAbsensiGuruSheet();
+  ensureUsersSchema();
+  const p = params || {};
+  const targetTanggal = p.tanggal ? formatDateOnlyWIB(p.tanggal) : '';
+  const targetBulan = p.bulan ? String(p.bulan).padStart(2, '0') : '';
+  const targetTahun = p.tahun ? String(p.tahun) : '';
+  const targetGuruId = String(p.id_guru || (scope && scope.isGuru ? scope.id_user : '') || '').trim();
+
+  const rows = getSheetData('Absensi_Guru')
+    .map(r => ({
+      id_absen_guru: String(r.id_absen_guru || ''),
+      tanggal: formatDateOnlyWIB(r.tanggal),
+      waktu_masuk: formatTimeOnlyWIB(r.waktu_masuk),
+      id_guru: String(r.id_guru || ''),
+      nama_guru: String(r.nama_guru || ''),
+      kelas: String(r.kelas || ''),
+      kategori_program: normalizeKategoriProgram(r.kategori_program, r.kelas),
+      status: String(r.status || 'Hadir Mengajar'),
+      materi_diajarkan: String(r.materi_diajarkan || ''),
+      keterangan: String(r.keterangan || ''),
+      status_cek: String(r.status_cek || 'Belum Dicek'),
+      catatan_kepsek: String(r.catatan_kepsek || '')
+    }))
+    .filter(r => {
+      if (targetGuruId && r.id_guru !== targetGuruId) return false;
+      if (targetTanggal && r.tanggal !== targetTanggal) return false;
+      if (!targetTanggal && (targetBulan || targetTahun)) {
+        const parts = String(r.tanggal || '').split('-');
+        if (targetTahun && parts[0] !== targetTahun) return false;
+        if (targetBulan && parts[1] !== targetBulan) return false;
+      }
+      return true;
+    })
+    .reverse();
+
+  return {
+    absensi_guru: rows,
+    gurus: handleGetUsers().filter(u => String(u.role || '').toLowerCase() === 'guru')
+  };
+}
+
 function handleGetBootstrapData(params, scope) {
   const activeScope = scope || resolveGuruScope(params);
   const isGuruOnly = Boolean(activeScope && activeScope.isGuru);
-  const targetTanggal = params && params.tanggal;
+  const targetTanggal = formatDateOnlyWIB(params && params.tanggal) || Utilities.formatDate(new Date(), 'Asia/Jakarta', 'yyyy-MM-dd');
   const targetKelas = params && params.kelas;
+  const accountActive = activeScope && activeScope.user
+    ? String(activeScope.user.status_aktif || 'aktif').trim().toLowerCase() === 'aktif'
+    : true;
+  const userProfile = activeScope && activeScope.user
+    ? {
+        id_user: String(activeScope.user.id_user || ''),
+        username: String(activeScope.user.username || ''),
+        nama_lengkap: String(activeScope.user.nama_lengkap || ''),
+        role: String(activeScope.user.role || ''),
+        kelas_ampu: parseKelasAmpu(activeScope.user.kelas_ampu),
+        no_wa: String(activeScope.user.no_wa || ''),
+        alamat: String(activeScope.user.alamat || ''),
+        pendidikan_terakhir: String(activeScope.user.pendidikan_terakhir || ''),
+        bidang_ajar: String(activeScope.user.bidang_ajar || ''),
+        bio: String(activeScope.user.bio || ''),
+        foto_url: String(activeScope.user.foto_url || '')
+      }
+    : null;
+
+  const monitoringToday = handleGetMonitoringGuru(
+    { tanggal: targetTanggal, id_guru: isGuruOnly ? activeScope.id_user : '' },
+    activeScope
+  );
 
   if (isGuruOnly) {
     const allLogs = handleGetLogSetoran({});
     return {
+      account_active: accountActive,
+      user_profile: userProfile,
+      absensi_guru_hari_ini: monitoringToday.absensi_guru,
       dashboard: null,
       rekap_kepsek: null,
       kelas: handleGetKelas(activeScope),
@@ -2817,6 +3262,9 @@ function handleGetBootstrapData(params, scope) {
   }
 
   return {
+    account_active: accountActive,
+    user_profile: userProfile,
+    absensi_guru_hari_ini: monitoringToday.absensi_guru,
     dashboard: handleGetDashboard(),
     rekap_kepsek: handleGetRekapKepsek(targetTanggal, targetKelas),
     kelas: handleGetKelas(null),

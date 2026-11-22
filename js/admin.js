@@ -44,8 +44,12 @@
     nilaiCardsToday: [],
     kepsekReportMode: 'absensi',
     kepsekModeLocked: false,
+    kepsekProgramFilter: '',
     rekapHasSearched: false,
     rekapSearchQuery: '',
+    rekapProgramFilter: '',
+    rekapMode: 'santri',
+    rekapGuruRows: [],
     editingUserId: null,
     editingUserOriginalUsername: '',
     editingSantriId: null,
@@ -235,14 +239,13 @@
               </div>
             </div>
             <div>
-              ${
-                waUrl
-                  ? `<a href="${UI.esc(waUrl)}" target="_blank" rel="noopener" class="btn btn-secondary btn-sm">
+              ${waUrl
+            ? `<a href="${UI.esc(waUrl)}" target="_blank" rel="noopener" class="btn btn-secondary btn-sm">
                        <i data-lucide="message-circle" aria-hidden="true"></i>
                        <span>Hubungi WA Ortu</span>
                      </a>`
-                  : `<span class="text-muted" style="font-size:0.78rem;">No. WA belum diisi</span>`
-              }
+            : `<span class="text-muted" style="font-size:0.78rem;">No. WA belum diisi</span>`
+          }
             </div>
           </div>
         `;
@@ -397,8 +400,8 @@
       const guruName = userObj
         ? userObj.nama_lengkap || userObj.username
         : gurus.length > 0
-        ? gurus.map((x) => x.nama_lengkap || x.username).join(', ')
-        : 'Guru Pengampu';
+          ? gurus.map((x) => x.nama_lengkap || x.username).join(', ')
+          : 'Guru Pengampu';
       cards.push(
         sanitizeRekapNilaiCard({
           jenis_nilai: 'Nilai UAS',
@@ -473,8 +476,8 @@
         totalNilaiSantri > 0
           ? Math.round((weightedSum / totalNilaiSantri) * 100) / 100
           : classNilai[0]
-          ? Number(classNilai[0].rata_rata || 0)
-          : 0;
+            ? Number(classNilai[0].rata_rata || 0)
+            : 0;
 
       return {
         kelas: k,
@@ -483,12 +486,12 @@
         nama_guru_pengampu: namaPengampu,
         status_setoran: stMatched
           ? {
-              sudah_setor: Boolean(stMatched.sudah_setor),
-              id_setoran: stMatched.id_setoran || '',
-              nama_guru: stMatched.nama_guru || '',
-              waktu_submit: stMatched.waktu_submit || '',
-              ringkasan: stMatched.ringkasan || '',
-            }
+            sudah_setor: Boolean(stMatched.sudah_setor),
+            id_setoran: stMatched.id_setoran || '',
+            nama_guru: stMatched.nama_guru || '',
+            waktu_submit: stMatched.waktu_submit || '',
+            ringkasan: stMatched.ringkasan || '',
+          }
           : { sudah_setor: false, id_setoran: '', nama_guru: '', waktu_submit: '', ringkasan: '' },
         agregat_absensi: classAgregat,
         santri_tidak_hadir: classAbsent,
@@ -502,8 +505,8 @@
           status_setoran: classNilai.some((n) => n.status_setoran === 'Sudah Disetor')
             ? 'Sudah Disetor'
             : classNilai.length > 0
-            ? 'Draft'
-            : 'Belum Ada Nilai',
+              ? 'Draft'
+              : 'Belum Ada Nilai',
           periode: classNilai[0] ? classNilai[0].periode : '-',
           nama_guru: classNilai[0] ? classNilai[0].nama_guru : namaPengampu,
         },
@@ -560,19 +563,41 @@
     });
   }
 
+  function resolveClassKategori(kelasName) {
+    const kKey = String(kelasName || '').trim().toLowerCase();
+    const found = (STATE.kelas || []).find((k) => String(k.nama_kelas || '').trim().toLowerCase() === kKey);
+    if (found && found.kategori_program) return found.kategori_program;
+    if (typeof API.normalizeKategoriProgram === 'function') {
+      return API.normalizeKategoriProgram('', kelasName);
+    }
+    return 'Diniyyah';
+  }
+
+  function getProgramDocumentTitle(kat) {
+    if (kat === 'Diniyyah') return 'Raport Resmi Diniyyah';
+    if (kat === 'Wustho') return 'Raport Internal Wustho';
+    if (kat === 'Tahfidz') return 'Evaluasi Program Tahfidz';
+    if (kat === 'Tarikh') return 'Evaluasi Program Tarikh';
+    return 'Rekap Presensi Bulanan';
+  }
+
   function applyKepsekReportMode(mode) {
-    const nextMode = mode === 'nilai' ? 'nilai' : 'absensi';
+    const nextMode = mode === 'nilai' ? 'nilai' : mode === 'guru' ? 'guru' : 'absensi';
     localState.kepsekReportMode = nextMode;
 
     const absPanel = document.getElementById('kepsek-absensi-panel');
     const nilaiPanel = document.getElementById('kepsek-nilai-panel');
+    const guruPanel = document.getElementById('kepsek-guru-panel');
     const absBtn = document.getElementById('btn-kepsek-mode-absensi');
     const nilaiBtn = document.getElementById('btn-kepsek-mode-nilai');
+    const guruBtn = document.getElementById('btn-kepsek-mode-guru');
 
     if (absPanel) absPanel.hidden = nextMode !== 'absensi';
     if (nilaiPanel) nilaiPanel.hidden = nextMode !== 'nilai';
+    if (guruPanel) guruPanel.hidden = nextMode !== 'guru';
     if (absBtn) absBtn.setAttribute('aria-pressed', nextMode === 'absensi' ? 'true' : 'false');
     if (nilaiBtn) nilaiBtn.setAttribute('aria-pressed', nextMode === 'nilai' ? 'true' : 'false');
+    if (guruBtn) guruBtn.setAttribute('aria-pressed', nextMode === 'guru' ? 'true' : 'false');
 
     const activeKelas = document.getElementById('kepsek-filter-kelas')?.value || '';
     const classesForMode =
@@ -580,6 +605,152 @@
         ? localState.allActiveNilaiClasses || []
         : localState.allActiveAbsensiClasses || [];
     renderKepsekSubtabs(classesForMode, activeKelas);
+    if (nextMode === 'guru') {
+      renderKepsekMonitoringGuru();
+    }
+  }
+
+  function renderKepsekMonitoringGuru() {
+    const container = document.getElementById('kepsek-guru-container');
+    const countEl = document.getElementById('kepsek-guru-count');
+    const activeGurus = (STATE.users || []).filter(
+      (u) => String(u.role || '').toLowerCase() === 'guru' && String(u.status_aktif || 'aktif').toLowerCase() === 'aktif'
+    );
+    const todayLogs = Array.isArray(STATE.absensiGuruToday) ? STATE.absensiGuruToday : [];
+    const progFilter = localState.kepsekProgramFilter || '';
+
+    if (countEl) countEl.textContent = String(todayLogs.length);
+    if (!container) return;
+
+    if (activeGurus.length === 0 && todayLogs.length === 0) {
+      container.innerHTML = UI.renderStateBox({
+        type: 'empty',
+        title: 'Belum ada data guru aktif',
+        message: 'Tambahkan akun guru pada tab Akun Guru untuk memantau kehadiran dan materi harian.',
+      });
+      UI.refreshIcons(container);
+      return;
+    }
+
+    const cards = [];
+    const logByGuruId = new Map();
+    todayLogs.forEach((log) => {
+      const gid = String(log.id_guru || '').trim();
+      if (!gid) return;
+      if (!logByGuruId.has(gid)) logByGuruId.set(gid, []);
+      logByGuruId.get(gid).push(log);
+    });
+
+    activeGurus.forEach((g) => {
+      const gid = String(g.id_user || g.username || '').trim();
+      const logs = (logByGuruId.get(gid) || []).filter((l) => !progFilter || l.kategori_program === progFilter);
+      const displayName = g.nama_lengkap || g.username || 'Guru';
+      const initials = displayName.split(/\s+/).slice(0, 2).map((w) => w.charAt(0).toUpperCase()).join('') || 'G';
+      const avatarHtml = g.foto_url
+        ? `<img src="${UI.esc(g.foto_url)}" alt="${UI.esc(displayName)}" class="avatar-img" referrerpolicy="no-referrer" />`
+        : UI.esc(initials);
+
+      if (logs.length === 0) {
+        if (progFilter) {
+          const hasProgramClass = (g.kelas_ampu || []).some((k) => resolveClassKategori(k) === progFilter);
+          if (!hasProgramClass) return;
+        }
+        cards.push(`
+          <article class="guru-monitor-card">
+            <div class="guru-monitor-head">
+              <div class="user-avatar-circle guru-monitor-avatar">${avatarHtml}</div>
+              <div style="min-width:0;flex:1;">
+                <strong style="display:block;">${UI.esc(displayName)}</strong>
+                <div class="text-muted" style="font-size:0.78rem;">${UI.esc((g.kelas_ampu || []).join(', ') || 'Belum ada kelas ampu')}</div>
+              </div>
+              <span class="status-badge status-sakit">Belum Absen</span>
+            </div>
+            <div class="text-muted" style="font-size:0.82rem;">Belum mengirim absen mengajar dan laporan materi hari ini.</div>
+          </article>
+        `);
+        return;
+      }
+
+      logs.forEach((log) => {
+        const isChecked = String(log.status_cek || '').toLowerCase() === 'sudah dicek';
+        const stCls =
+          log.status === 'Hadir Mengajar'
+            ? 'status-hadir'
+            : log.status === 'Izin'
+              ? 'status-izin'
+              : log.status === 'Sakit'
+                ? 'status-sakit'
+                : 'status-alpa';
+        cards.push(`
+          <article class="guru-monitor-card" data-absen-guru-id="${UI.esc(log.id_absen_guru)}">
+            <div class="guru-monitor-head">
+              <div class="user-avatar-circle guru-monitor-avatar">${avatarHtml}</div>
+              <div style="min-width:0;flex:1;">
+                <strong style="display:block;">${UI.esc(displayName)}</strong>
+                <div class="text-muted" style="font-size:0.78rem;">${UI.esc(log.kelas)} · ${UI.esc(log.kategori_program || 'Diniyyah')} · Jam ${UI.esc(log.waktu_masuk || '-')}</div>
+              </div>
+              <span class="status-badge ${stCls}">${UI.esc(log.status)}</span>
+            </div>
+            <div class="guru-monitor-materi">
+              <span class="detail-label">Laporan Materi Hari Ini</span>
+              <p style="margin:4px 0 0;font-size:0.88rem;line-height:1.5;">${UI.esc(log.materi_diajarkan || '-')}</p>
+              ${log.keterangan ? `<p class="text-muted" style="margin:4px 0 0;font-size:0.78rem;">Keterangan: ${UI.esc(log.keterangan)}</p>` : ''}
+            </div>
+            <div class="guru-monitor-verify">
+              <input type="text" class="input-control" data-kepsek-catatan="${UI.esc(log.id_absen_guru)}" value="${UI.esc(log.catatan_kepsek || '')}" placeholder="Catatan Kepala Madrasah (opsional)..." />
+              <button type="button" class="btn ${isChecked ? 'btn-secondary' : 'btn-accent'} btn-sm" data-verifikasi-guru="${UI.esc(log.id_absen_guru)}">
+                <i data-lucide="check-check" aria-hidden="true"></i>
+                <span>${isChecked ? 'Sudah Dicek' : 'Tandai Sudah Dicek'}</span>
+              </button>
+            </div>
+          </article>
+        `);
+      });
+    });
+
+    if (cards.length === 0) {
+      container.innerHTML = UI.renderStateBox({
+        type: 'empty',
+        title: 'Tidak ada data guru pada program ini',
+        message: 'Pilih program lain atau ubah filter tanggal untuk melihat monitoring guru.',
+      });
+      UI.refreshIcons(container);
+      return;
+    }
+
+    container.innerHTML = cards.join('');
+    container.querySelectorAll('button[data-verifikasi-guru]').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        const idAbsen = btn.dataset.verifikasiGuru;
+        const noteInp = container.querySelector(`input[data-kepsek-catatan="${idAbsen}"]`);
+        const catatan = noteInp ? noteInp.value.trim() : '';
+        UI.setButtonLoading(btn, true, 'Menyimpan...');
+        try {
+          const res = await API.verifikasiAbsensiGuru({
+            id_absen_guru: idAbsen,
+            status_cek: 'Sudah Dicek',
+            catatan_kepsek: catatan,
+          });
+          const updated = (res && res.data) || res || {};
+          STATE.absensiGuruToday = (STATE.absensiGuruToday || []).map((row) =>
+            row.id_absen_guru === idAbsen
+              ? Object.assign({}, row, {
+                  status_cek: updated.status_cek || 'Sudah Dicek',
+                  catatan_kepsek: updated.catatan_kepsek !== undefined ? updated.catatan_kepsek : catatan,
+                })
+              : row
+          );
+          if (root.MDTA_CACHE) root.MDTA_CACHE.write('absensiGuruToday', STATE.absensiGuruToday);
+          renderKepsekMonitoringGuru();
+          UI.toast('Status pengecekan & catatan Kepala Madrasah tersimpan.', 'success');
+        } catch (err) {
+          UI.toast(`Gagal memperbarui status cek: ${err.message}`, 'error');
+        } finally {
+          UI.setButtonLoading(btn, false);
+        }
+      });
+    });
+    UI.refreshIcons(container);
   }
 
   function resolveAbsensiPengampuAndMetode(blk) {
@@ -685,19 +856,18 @@
               </div>
             </div>
 
-            ${
-              absentRows.length > 0
-                ? `<div class="stack-gap" style="gap:8px;">
+            ${absentRows.length > 0
+            ? `<div class="stack-gap" style="gap:8px;">
                      <div style="font-size:0.84rem;font-weight:700;color:var(--text-primary);">Tidak Hadir (${absentRows.length})</div>
                      ${renderAbsentStudentListHtml(absentRows, targetTanggal, true)}
                    </div>`
-                : `<div>
+            : `<div>
                      <span class="absensi-all-hadir-note">
                        <i data-lucide="check-circle-2" aria-hidden="true" style="width:15px;height:15px;"></i>
                        <span>Semua santri tercatat hadir.</span>
                      </span>
                    </div>`
-            }
+          }
           </article>
         `;
       })
@@ -961,13 +1131,13 @@
         <tr class="table-state-row">
           <td colspan="3">
             ${UI.renderStateBox({
-              type: 'empty',
-              title: 'Belum ada catatan presensi yang cocok',
-              message:
-                localState.riwayatHarian.length === 0
-                  ? 'Belum ada catatan presensi untuk filter tanggal dan kelas saat ini.'
-                  : 'Ubah filter status atau kata kunci pencarian untuk melihat data lainnya.',
-            })}
+        type: 'empty',
+        title: 'Belum ada catatan presensi yang cocok',
+        message:
+          localState.riwayatHarian.length === 0
+            ? 'Belum ada catatan presensi untuk filter tanggal dan kelas saat ini.'
+            : 'Ubah filter status atau kata kunci pencarian untuk melihat data lainnya.',
+      })}
           </td>
         </tr>
       `;
@@ -1048,13 +1218,13 @@
         <tr class="table-state-row">
           <td colspan="5">
             ${UI.renderStateBox({
-              type: 'empty',
-              title: allUsers.length === 0 ? 'Daftar akun belum tersedia' : 'Akun tidak ditemukan',
-              message:
-                allUsers.length === 0
-                  ? 'Klik "Tambah Pengguna" untuk mendaftarkan akun Kepala Madrasah atau Guru.'
-                  : 'Coba ubah kata kunci pencarian atau filter peran.',
-            })}
+        type: 'empty',
+        title: allUsers.length === 0 ? 'Daftar akun belum tersedia' : 'Akun tidak ditemukan',
+        message:
+          allUsers.length === 0
+            ? 'Klik "Tambah Pengguna" untuk mendaftarkan akun Kepala Madrasah atau Guru.'
+            : 'Coba ubah kata kunci pencarian atau filter peran.',
+      })}
           </td>
         </tr>
       `;
@@ -1069,10 +1239,10 @@
         const kelasCellHtml = isAdm
           ? '<span class="text-muted" style="font-size:0.8125rem;">Seluruh Kelas (Admin)</span>'
           : ampuList.length > 0
-          ? `<div class="guru-pill-list">${ampuList
+            ? `<div class="guru-pill-list">${ampuList
               .map((k) => `<span class="guru-pill">${UI.esc(k)}</span>`)
               .join('')}</div>`
-          : '<span class="status-badge status-sakit">Belum dipetakan</span>';
+            : '<span class="status-badge status-sakit">Belum dipetakan</span>';
 
         return `
         <tr>
@@ -1259,11 +1429,16 @@
       new Set(allNilaiToday.map((c) => c.kelas).filter(Boolean))
     ).sort(compareClassOrder);
 
+    const progFilter = localState.kepsekProgramFilter || '';
     const absensiBlocksToday = allAbsensiToday.filter(
-      (b) => !activeKelas || String(b.kelas || '').toLowerCase() === activeKelas.toLowerCase()
+      (b) =>
+        (!activeKelas || String(b.kelas || '').toLowerCase() === activeKelas.toLowerCase()) &&
+        (!progFilter || resolveClassKategori(b.kelas) === progFilter)
     );
     const nilaiCardsToday = allNilaiToday.filter(
-      (c) => !activeKelas || String(c.kelas || '').toLowerCase() === activeKelas.toLowerCase()
+      (c) =>
+        (!activeKelas || String(c.kelas || '').toLowerCase() === activeKelas.toLowerCase()) &&
+        (!progFilter || resolveClassKategori(c.kelas) === progFilter)
     );
 
     if (absCountEl) absCountEl.textContent = String(absensiBlocksToday.length);
@@ -1343,8 +1518,8 @@
       Array.isArray(bundle.users) && bundle.users.length > 0
         ? bundle.users
         : bundle.dashboard && Array.isArray(bundle.dashboard.daftar_pengguna)
-        ? bundle.dashboard.daftar_pengguna
-        : [];
+          ? bundle.dashboard.daftar_pengguna
+          : [];
     if (rawUsers.length > 0 || Array.isArray(bundle.users)) {
       STATE.users = rawUsers.map(API.normalizeUser);
       if (CACHE) CACHE.write('users', STATE.users);
@@ -1372,6 +1547,12 @@
     if (Array.isArray(bundle.log_setoran)) {
       STATE.logSetoran = bundle.log_setoran.map(API.normalizeLogSetoran);
       if (CACHE) CACHE.write('logSetoran', STATE.logSetoran);
+    }
+
+    if (Array.isArray(bundle.absensi_guru_hari_ini)) {
+      STATE.absensiGuruToday = bundle.absensi_guru_hari_ini;
+      if (CACHE) CACHE.write('absensiGuruToday', STATE.absensiGuruToday);
+      renderKepsekMonitoringGuru();
     }
 
     if (bundle.rekap_kepsek) {
@@ -1473,7 +1654,13 @@
         });
         const diff = applyBootstrapData(bundle, targetTanggal, targetKelas);
 
-        if (bundle.rekap_kepsek) {
+        if (Array.isArray(bundle.absensi_guru_hari_ini)) {
+      STATE.absensiGuruToday = bundle.absensi_guru_hari_ini;
+      if (CACHE) CACHE.write('absensiGuruToday', STATE.absensiGuruToday);
+      renderKepsekMonitoringGuru();
+    }
+
+    if (bundle.rekap_kepsek) {
           if (!hasCachedRk || diff.rkChanged || diff.kelasChanged || diff.usersChanged) {
             renderKepsekBlockFromData(bundle.rekap_kepsek, targetTanggal);
           }
@@ -1564,59 +1751,80 @@
       return;
     }
 
-    grid.innerHTML = classes
-      .map((kls) => {
-        const countSantri = (STATE.santri || []).filter(
-          (s) => API.isKelasAllowed(kls.nama_kelas, API.parseKelasAmpu(s.kelas))
-        ).length;
-        const gurus = getGurusForClass(kls.nama_kelas);
-        const guruHtml =
-          gurus.length > 0
-            ? `<div class="guru-pill-list">${gurus
-                .map((g) => `<span class="guru-pill">${UI.esc(g.nama_lengkap || g.username)}</span>`)
-                .join('')}</div>`
-            : `<span class="text-muted" style="font-size:0.8rem;">Belum ada guru pengampu dipetakan</span>`;
+    const renderCard = (kls) => {
+      const countSantri = (STATE.santri || []).filter(
+        (s) => API.isKelasAllowed(kls.nama_kelas, API.parseKelasAmpu(s.kelas))
+      ).length;
+      const gurus = getGurusForClass(kls.nama_kelas);
+      const guruHtml =
+        gurus.length > 0
+          ? `<div class="guru-pill-list">${gurus
+              .map((g) => `<span class="guru-pill">${UI.esc(g.nama_lengkap || g.username)}</span>`)
+              .join('')}</div>`
+          : `<span class="text-muted" style="font-size:0.8rem;">Belum ada guru pengampu dipetakan</span>`;
+      const katProg = kls.kategori_program || resolveClassKategori(kls.nama_kelas);
 
-        return `
-          <article class="kelas-manage-card">
-            <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;">
-              <div class="kelas-card-head-main">
+      return `
+        <article class="kelas-manage-card">
+          <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;">
+            <div class="kelas-card-head-main">
+              <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
                 <h4 class="heading-md">${UI.esc(kls.nama_kelas)}</h4>
-                <div class="text-muted" style="font-size:0.78rem;margin-top:2px;">
-                  ${kls.tingkat ? `${UI.esc(kls.tingkat)} · ` : ''}${countSantri} santri terdaftar
-                </div>
+                <span class="status-badge status-izin">${UI.esc(katProg)}</span>
               </div>
-              <span class="status-badge ${kls.status !== 'nonaktif' ? 'status-hadir' : 'status-sakit'}">
-                ${kls.status !== 'nonaktif' ? 'Aktif' : 'Nonaktif'}
-              </span>
+              <div class="text-muted" style="font-size:0.78rem;margin-top:2px;">
+                ${kls.tingkat ? `${UI.esc(kls.tingkat)} · ` : ''}${countSantri} santri terdaftar
+              </div>
             </div>
+            <span class="status-badge ${kls.status !== 'nonaktif' ? 'status-hadir' : 'status-sakit'}">
+              ${kls.status !== 'nonaktif' ? 'Aktif' : 'Nonaktif'}
+            </span>
+          </div>
 
-            ${kls.keterangan ? `<div class="text-muted" style="font-size:0.8rem;">${UI.esc(kls.keterangan)}</div>` : ''}
+          ${kls.keterangan ? `<div class="text-muted" style="font-size:0.8rem;">${UI.esc(kls.keterangan)}</div>` : ''}
 
-            <div class="stack-gap" style="gap:4px;">
-              <div style="font-size:0.76rem;font-weight:600;color:var(--text-muted);">Guru Pengampu:</div>
-              ${guruHtml}
+          <div class="stack-gap" style="gap:4px;">
+            <div style="font-size:0.76rem;font-weight:600;color:var(--text-muted);">Guru Pengampu:</div>
+            ${guruHtml}
+          </div>
+
+          <div class="toolbar-actions">
+            <button type="button" class="btn btn-secondary btn-sm" data-map-kelas="${UI.esc(kls.nama_kelas)}">
+              <i data-lucide="user-check" aria-hidden="true"></i>
+              <span>Atur Guru</span>
+            </button>
+            <button type="button" class="btn btn-secondary btn-sm" data-manage-santri-kelas="${UI.esc(kls.nama_kelas)}">
+              <i data-lucide="users" aria-hidden="true"></i>
+              <span>Atur Santri</span>
+            </button>
+            <button type="button" class="btn btn-secondary btn-sm" data-edit-kelas="${UI.esc(kls.id_kelas)}">
+              <i data-lucide="pencil" aria-hidden="true"></i>
+              <span>Edit</span>
+            </button>
+            <button type="button" class="btn btn-danger btn-icon-sm" data-delete-kelas="${UI.esc(kls.id_kelas)}" data-kelas-nama="${UI.esc(kls.nama_kelas)}" aria-label="Hapus kelas ${UI.esc(kls.nama_kelas)}">
+              <i data-lucide="trash-2" aria-hidden="true"></i>
+              <span class="mobile-only-btn-label">Hapus</span>
+            </button>
+          </div>
+        </article>
+      `;
+    };
+
+    const programs = CONFIG.PROGRAM_CATEGORIES || ['Diniyyah', 'Tahfidz', 'Tarikh', 'Wustho'];
+    grid.innerHTML = programs
+      .map((prog) => {
+        const items = classes.filter(
+          (kls) => (kls.kategori_program || resolveClassKategori(kls.nama_kelas)) === prog
+        );
+        if (items.length === 0) return '';
+        return `
+          <section class="program-kelas-group">
+            <div class="program-section-head">
+              <h3 class="heading-md">Program ${UI.esc(prog)}${prog === 'Diniyyah' ? ' (Resmi)' : ''}</h3>
+              <span class="status-badge status-izin mono-num">${items.length} kelas</span>
             </div>
-
-            <div class="toolbar-actions">
-              <button type="button" class="btn btn-secondary btn-sm" data-map-kelas="${UI.esc(kls.nama_kelas)}">
-                <i data-lucide="user-check" aria-hidden="true"></i>
-                <span>Atur Guru</span>
-              </button>
-              <button type="button" class="btn btn-secondary btn-sm" data-manage-santri-kelas="${UI.esc(kls.nama_kelas)}">
-                <i data-lucide="users" aria-hidden="true"></i>
-                <span>Atur Santri</span>
-              </button>
-              <button type="button" class="btn btn-secondary btn-sm" data-edit-kelas="${UI.esc(kls.id_kelas)}">
-                <i data-lucide="pencil" aria-hidden="true"></i>
-                <span>Edit</span>
-              </button>
-              <button type="button" class="btn btn-danger btn-icon-sm" data-delete-kelas="${UI.esc(kls.id_kelas)}" data-kelas-nama="${UI.esc(kls.nama_kelas)}" aria-label="Hapus kelas ${UI.esc(kls.nama_kelas)}">
-                <i data-lucide="trash-2" aria-hidden="true"></i>
-                <span class="mobile-only-btn-label">Hapus</span>
-              </button>
-            </div>
-          </article>
+            <div class="program-kelas-cards">${items.map(renderCard).join('')}</div>
+          </section>
         `;
       })
       .join('');
@@ -1691,6 +1899,10 @@
 
     document.getElementById('kelas-id').value = localState.editingKelasId || '';
     document.getElementById('kelas-nama').value = kelasObj ? kelasObj.nama_kelas : '';
+    const katSel = document.getElementById('kelas-kategori-program');
+    if (katSel) {
+      katSel.value = kelasObj ? (kelasObj.kategori_program || resolveClassKategori(kelasObj.nama_kelas)) : 'Diniyyah';
+    }
     document.getElementById('kelas-tingkat').value = kelasObj ? kelasObj.tingkat || '' : '';
     document.getElementById('kelas-keterangan').value = kelasObj ? kelasObj.keterangan || '' : '';
     document.getElementById('kelas-status').value = kelasObj ? kelasObj.status || 'aktif' : 'aktif';
@@ -1879,6 +2091,7 @@
         e.preventDefault();
         const isEdit = Boolean(localState.editingKelasId);
         const namaKelas = document.getElementById('kelas-nama').value.trim();
+        const kategoriProgram = document.getElementById('kelas-kategori-program')?.value || 'Diniyyah';
         const tingkat = document.getElementById('kelas-tingkat').value.trim();
         const keterangan = document.getElementById('kelas-keterangan').value.trim();
         const status = document.getElementById('kelas-status').value || 'aktif';
@@ -1893,6 +2106,7 @@
           id_kelas: localState.editingKelasId || '',
           original_nama_kelas: localState.editingKelasOriginalName || '',
           nama_kelas: namaKelas,
+          kategori_program: kategoriProgram,
           tingkat,
           keterangan,
           status,
@@ -2174,6 +2388,19 @@
         applyKepsekReportMode(btn.dataset.kepsekMode || 'absensi');
       });
     });
+    document.querySelectorAll('#kepsek-program-pills .filter-chip').forEach((chip) => {
+      chip.addEventListener('click', () => {
+        localState.kepsekProgramFilter = chip.dataset.programFilter || '';
+        document.querySelectorAll('#kepsek-program-pills .filter-chip').forEach((c) => {
+          c.setAttribute('aria-pressed', c === chip ? 'true' : 'false');
+        });
+        if (STATE.rekapKepsek) {
+          const tgl = (filterTanggal && filterTanggal.value) || UI.todayISO();
+          renderKepsekBlockFromData(STATE.rekapKepsek, tgl);
+        }
+        renderKepsekMonitoringGuru();
+      });
+    });
     if (refreshUsersBtn) refreshUsersBtn.addEventListener('click', () => loadDashboard(true, { force: true }));
     if (usersSearchInput) {
       usersSearchInput.addEventListener('input', (e) => {
@@ -2415,11 +2642,11 @@
           <div class="detail-value detail-value-action">
             <strong class="mono-num">${UI.esc(s.no_wa_ortu || '-')}</strong>
             ${waUrl
-              ? `<a href="${UI.esc(waUrl)}" target="_blank" rel="noopener noreferrer" class="btn btn-secondary btn-sm">
+        ? `<a href="${UI.esc(waUrl)}" target="_blank" rel="noopener noreferrer" class="btn btn-secondary btn-sm">
                    <i data-lucide="message-circle" aria-hidden="true"></i>
                    <span>Hubungi WA</span>
                  </a>`
-              : ''}
+        : ''}
           </div>
         </div>
         <div class="detail-field detail-field-full">
@@ -2493,13 +2720,13 @@
         <tr class="table-state-row">
           <td colspan="5">
             ${UI.renderStateBox({
-              type: 'empty',
-              title: STATE.santri.length === 0 ? 'Belum ada data santri' : 'Santri tidak ditemukan',
-              message:
-                STATE.santri.length === 0
-                  ? 'Klik "Tambah Santri" untuk mendaftarkan santri baru.'
-                  : 'Coba ubah kata kunci pencarian atau filter kelas.',
-            })}
+        type: 'empty',
+        title: STATE.santri.length === 0 ? 'Belum ada data santri' : 'Santri tidak ditemukan',
+        message:
+          STATE.santri.length === 0
+            ? 'Klik "Tambah Santri" untuk mendaftarkan santri baru.'
+            : 'Coba ubah kata kunci pencarian atau filter kelas.',
+      })}
           </td>
         </tr>
       `;
@@ -3087,10 +3314,13 @@
   // =========================================================================
   function getFilteredRekapRows(onlyKelas) {
     const kelasF = onlyKelas !== undefined ? onlyKelas : document.getElementById('rekap-kelas-filter')?.value || '';
+    const progF = localState.rekapProgramFilter || '';
     const q = (localState.rekapSearchQuery || '').trim().toLowerCase();
     return (Array.isArray(STATE.rekap) ? STATE.rekap : []).filter((r) => {
       const matchKelas = !kelasF ? true : String(r.kelas || '').trim().toLowerCase() === kelasF.trim().toLowerCase();
       if (!matchKelas) return false;
+      const rProg = r.kategori_program || resolveClassKategori(r.kelas);
+      if (progF && rProg !== progF) return false;
       if (!q) return true;
       return (
         String(r.nama_lengkap || '').toLowerCase().includes(q) ||
@@ -3335,7 +3565,8 @@
     }
 
     if (periodEl) {
-      periodEl.textContent = `Periode: ${bulanNama} ${tahun} (${rows.length} santri dalam ${grouped.length} kelas)`;
+      const docTitle = getProgramDocumentTitle(localState.rekapProgramFilter);
+      periodEl.textContent = `${docTitle} · Periode: ${bulanNama} ${tahun} (${rows.length} santri dalam ${grouped.length} kelas)`;
     }
 
     if (rows.length === 0) {
@@ -3392,8 +3623,8 @@
               </thead>
               <tbody>
                 ${grp.rows
-                  .map(
-                    (r, idx) => `
+            .map(
+              (r, idx) => `
                   <tr class="clickable-row" data-rekap-kelas="${UI.esc(grp.kelas)}" data-rekap-idx="${idx}" tabindex="0">
                     <td class="mono-num rkp-no" data-label="No">${idx + 1}</td>
                     <td class="rkp-nama" data-label="Nama Santri">
@@ -3410,8 +3641,8 @@
                     </td>
                   </tr>
                 `
-                  )
-                  .join('')}
+            )
+            .join('')}
               </tbody>
             </table>
           </div>
@@ -3626,8 +3857,8 @@
             </thead>
             <tbody>
               ${grp.rows
-                .map(
-                  (r, idx) => `
+            .map(
+              (r, idx) => `
                 <tr>
                   <td>${idx + 1}</td>
                   <td>${UI.esc(r.id_santri || '-')}</td>
@@ -3639,8 +3870,8 @@
                   <td>${r.persentase}%</td>
                 </tr>
               `
-                )
-                .join('')}
+            )
+            .join('')}
             </tbody>
           </table>
 
@@ -3773,6 +4004,104 @@
     const closeDetailRekapBtn = document.getElementById('btn-close-detail-rekap');
     const tutupDetailRekapBtn = document.getElementById('btn-detail-rekap-tutup');
     if (closeDetailSantriBtn) closeDetailSantriBtn.addEventListener('click', () => UI.closeModal('modal-detail-santri'));
+
+    async function loadRekapGuru() {
+      const guruCont = document.getElementById('admin-rekap-guru-container');
+      const bulan = bulanSelect ? bulanSelect.value : String(new Date().getMonth() + 1);
+      const tahun = tahunInput ? tahunInput.value : String(new Date().getFullYear());
+      if (!guruCont) return;
+      guruCont.innerHTML = UI.renderStateBox({ type: 'loading', title: 'Memuat rekap kehadiran guru...' });
+      try {
+        const res = await API.getMonitoringGuru({ bulan, tahun });
+        const d = (res && res.data) || res || {};
+        localState.rekapGuruRows = Array.isArray(d.absensi_guru) ? d.absensi_guru : [];
+        renderRekapGuruTable();
+      } catch (err) {
+        guruCont.innerHTML = UI.renderStateBox({ type: 'error', title: 'Gagal memuat rekap guru', message: err.message });
+      }
+    }
+
+    function renderRekapGuruTable() {
+      const guruCont = document.getElementById('admin-rekap-guru-container');
+      if (!guruCont) return;
+      const progF = localState.rekapProgramFilter || '';
+      const q = (localState.rekapSearchQuery || '').trim().toLowerCase();
+      const rows = (localState.rekapGuruRows || []).filter((r) => {
+        if (progF && r.kategori_program !== progF) return false;
+        if (!q) return true;
+        return (
+          String(r.nama_guru || '').toLowerCase().includes(q) ||
+          String(r.kelas || '').toLowerCase().includes(q) ||
+          String(r.materi_diajarkan || '').toLowerCase().includes(q)
+        );
+      });
+      if (rows.length === 0) {
+        guruCont.innerHTML = UI.renderStateBox({
+          type: 'empty',
+          title: 'Belum ada rekap kehadiran guru',
+          message: 'Tidak ditemukan catatan absen & materi guru untuk periode dan program yang dipilih.',
+        });
+        UI.refreshIcons(guruCont);
+        return;
+      }
+      guruCont.innerHTML = `
+        <div class="table-scroll mobile-cards-wrap">
+          <table class="data-table mobile-cards-table mobile-cards-generic">
+            <thead>
+              <tr>
+                <th>Tanggal</th>
+                <th>Nama Guru</th>
+                <th>Kelas &amp; Program</th>
+                <th>Status</th>
+                <th>Materi Diajarkan</th>
+                <th>Cek Kepsek</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${rows
+                .map(
+                  (r) => `
+                <tr>
+                  <td class="mono-num" data-label="Tanggal">${UI.esc(r.tanggal)} <span class="text-muted">${UI.esc(r.waktu_masuk || '')}</span></td>
+                  <td class="mc-primary" data-label="Nama Guru"><strong>${UI.esc(r.nama_guru)}</strong></td>
+                  <td data-label="Kelas &amp; Program">${UI.esc(r.kelas)} <span class="status-badge status-izin">${UI.esc(r.kategori_program || 'Diniyyah')}</span></td>
+                  <td class="mc-status" data-label="Status"><span class="status-badge status-hadir">${UI.esc(r.status)}</span></td>
+                  <td data-label="Materi">${UI.esc(r.materi_diajarkan || '-')}</td>
+                  <td data-label="Cek Kepsek">${UI.esc(r.status_cek || 'Belum Dicek')}${r.catatan_kepsek ? ` · ${UI.esc(r.catatan_kepsek)}` : ''}</td>
+                </tr>`
+                )
+                .join('')}
+            </tbody>
+          </table>
+        </div>
+      `;
+    }
+
+    document.querySelectorAll('#rekap-mode-tabs .report-mode-btn').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const nextMode = btn.dataset.rekapMode === 'guru' ? 'guru' : 'santri';
+        localState.rekapMode = nextMode;
+        document.querySelectorAll('#rekap-mode-tabs .report-mode-btn').forEach((b) => {
+          b.setAttribute('aria-pressed', b === btn ? 'true' : 'false');
+        });
+        const santriCont = document.getElementById('admin-rekap-grouped-container');
+        const guruCont = document.getElementById('admin-rekap-guru-container');
+        if (santriCont) santriCont.hidden = nextMode !== 'santri';
+        if (guruCont) guruCont.hidden = nextMode !== 'guru';
+        if (nextMode === 'guru') loadRekapGuru();
+      });
+    });
+
+    document.querySelectorAll('#rekap-program-pills .filter-chip').forEach((chip) => {
+      chip.addEventListener('click', () => {
+        localState.rekapProgramFilter = chip.dataset.rekapProgram || '';
+        document.querySelectorAll('#rekap-program-pills .filter-chip').forEach((c) => {
+          c.setAttribute('aria-pressed', c === chip ? 'true' : 'false');
+        });
+        if (localState.rekapMode === 'guru') renderRekapGuruTable();
+        else if (localState.rekapHasSearched) renderRekapTable();
+      });
+    });
     if (closeDetailRekapBtn) closeDetailRekapBtn.addEventListener('click', () => UI.closeModal('modal-detail-rekap'));
     if (tutupDetailRekapBtn) tutupDetailRekapBtn.addEventListener('click', () => UI.closeModal('modal-detail-rekap'));
 

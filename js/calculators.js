@@ -408,8 +408,25 @@
         return;
       }
       kelasInput.disabled = false;
+      const groups = new Map();
+      allowed.forEach((k) => {
+        const found = (STATE.kelas || []).find((c) => normKelasKey(c.nama_kelas) === normKelasKey(k));
+        const kat = (found && found.kategori_program) || (typeof API.normalizeKategoriProgram === 'function' ? API.normalizeKategoriProgram('', k) : 'Diniyyah');
+        if (!groups.has(kat)) groups.set(kat, []);
+        groups.get(kat).push(k);
+      });
       const parts = scope === 'guru' ? [] : ['<option value="">Semua Kelas</option>'];
-      allowed.forEach((k) => parts.push(`<option value="${UI.esc(k)}">${UI.esc(k)}</option>`));
+      if (groups.size > 1) {
+        const order = CONFIG.PROGRAM_CATEGORIES || ['Diniyyah', 'Tahfidz', 'Tarikh', 'Wustho'];
+        Array.from(groups.keys())
+          .sort((a, b) => ((order.indexOf(a) >= 0 ? order.indexOf(a) : 99) - (order.indexOf(b) >= 0 ? order.indexOf(b) : 99)))
+          .forEach((kat) => {
+            const opts = (groups.get(kat) || []).map((k) => `<option value="${UI.esc(k)}">${UI.esc(k)}</option>`).join('');
+            parts.push(`<optgroup label="Program ${UI.esc(kat)}">${opts}</optgroup>`);
+          });
+      } else {
+        allowed.forEach((k) => parts.push(`<option value="${UI.esc(k)}">${UI.esc(k)}</option>`));
+      }
       kelasInput.innerHTML = parts.join('');
       if (cur && allowed.some((k) => normKelasKey(k) === normKelasKey(cur))) {
         const exact = allowed.find((k) => normKelasKey(k) === normKelasKey(cur));
@@ -2177,7 +2194,12 @@
 
         let rekapMap = new Map();
         try {
-          const rekapRes = await API.getRekapLaporan(now.getMonth() + 1, now.getFullYear());
+          const semVal = (typeof semesterSelect !== 'undefined' && semesterSelect && semesterSelect.value) || '';
+          const taVal = (typeof tahunAjaranInput !== 'undefined' && tahunAjaranInput && tahunAjaranInput.value) || '';
+          const rekapRes = await API.getRekapLaporan(now.getMonth() + 1, now.getFullYear(), {
+            semester: semVal,
+            tahun_ajaran: taVal,
+          });
           if (mySeq !== raportSyncSeq) return;
           const rekapList = API.extractArray(rekapRes, ['rekap']).map(API.normalizeRekap);
           rekapList.forEach((rk) => {

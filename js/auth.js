@@ -339,23 +339,52 @@
   }
 
   // =========================================================================
-  // SESI & ROUTING PORTAL (ADMIN / GURU / LOGIN)
+  // SESI PERSISTEN (localStorage 7 HARI + SLIDING EXPIRATION) & ROUTING PORTAL
   // =========================================================================
-  function getSession() {
+  function getSessionTTLMs() {
+    return Number(CONFIG.SESSION_TTL_MS) || 7 * 24 * 60 * 60 * 1000;
+  }
+
+  function readStoredSession() {
     try {
-      const raw = sessionStorage.getItem(CONFIG.SESSION_KEY);
-      if (!raw) return null;
+      if (!root.localStorage) return { session: null, expired: false };
+      const raw = root.localStorage.getItem(CONFIG.SESSION_KEY);
+      if (!raw) return { session: null, expired: false };
       const parsed = JSON.parse(raw);
-      if (!parsed || !parsed.role) return null;
-      return parsed;
+      if (!parsed || typeof parsed !== 'object') {
+        clearSession();
+        return { session: null, expired: false };
+      }
+      if (parsed.expiresAt && Date.now() >= Number(parsed.expiresAt)) {
+        clearSession();
+        return { session: null, expired: true };
+      }
+      const userObj = parsed.user && typeof parsed.user === 'object' ? parsed.user : parsed;
+      if (!userObj || !userObj.role) {
+        clearSession();
+        return { session: null, expired: false };
+      }
+      if (parsed.token && !userObj.token) userObj.token = parsed.token;
+      return { session: userObj, expired: false };
     } catch (err) {
-      return null;
+      return { session: null, expired: false };
     }
+  }
+
+  function getSession() {
+    return readStoredSession().session;
   }
 
   function saveSession(sessionObj) {
     currentSession = sessionObj;
-    sessionStorage.setItem(CONFIG.SESSION_KEY, JSON.stringify(sessionObj));
+    const envelope = {
+      token: (sessionObj && sessionObj.token) || '',
+      user: sessionObj,
+      expiresAt: Date.now() + getSessionTTLMs(),
+    };
+    if (root.localStorage) {
+      root.localStorage.setItem(CONFIG.SESSION_KEY, JSON.stringify(envelope));
+    }
   }
 
   function updateSession(partial) {
@@ -366,12 +395,110 @@
       updated.kelas_ampu = API.parseKelasAmpu(updated.kelas_ampu);
     }
     saveSession(updated);
+    updateHeaderAuthUI(updated);
     return updated;
+  }
+
+  function renderAvatarSlot(el, nama, fotoUrl) {
+    if (!el) return;
+    const cleanName = String(nama || 'U').trim() || 'U';
+    const initials = cleanName
+      .split(/\s+/)
+      .slice(0, 2)
+      .map((w) => w.charAt(0).toUpperCase())
+      .join('') || 'U';
+    const cleanUrl = String(fotoUrl || '').trim();
+    if (cleanUrl) {
+      el.innerHTML = `<img src="${UI.esc(cleanUrl)}" alt="${UI.esc(cleanName)}" class="avatar-img" referrerpolicy="no-referrer" />`;
+      const img = el.querySelector('img');
+      if (img) {
+        img.addEventListener('error', () => {
+          el.textContent = initials;
+        });
+      }
+    } else {
+      el.textContent = initials;
+    }
+  }
+
+  function openNavDrawer() {
+    const drawer = document.getElementById('app-nav-drawer');
+    const backdrop = document.getElementById('app-drawer-backdrop');
+    const btn = document.getElementById('btn-nav-drawer');
+    if (!drawer) return;
+    drawer.hidden = false;
+    if (backdrop) backdrop.hidden = false;
+    if (btn) btn.setAttribute('aria-expanded', 'true');
+    document.body.classList.add('drawer-open');
+  }
+
+  function closeNavDrawer() {
+    const drawer = document.getElementById('app-nav-drawer');
+    const backdrop = document.getElementById('app-drawer-backdrop');
+    const btn = document.getElementById('btn-nav-drawer');
+    if (drawer) drawer.hidden = true;
+    if (backdrop) backdrop.hidden = true;
+    if (btn) btn.setAttribute('aria-expanded', 'false');
+    document.body.classList.remove('drawer-open');
+  }
+
+  function initNavDrawer() {
+    const openBtn = document.getElementById('btn-nav-drawer');
+    const closeBtn = document.getElementById('btn-close-nav-drawer');
+    const backdrop = document.getElementById('app-drawer-backdrop');
+    const drawer = document.getElementById('app-nav-drawer');
+    const uasDrawerBtn = document.getElementById('btn-drawer-admin-uas');
+    const raportDrawerBtn = document.getElementById('btn-drawer-admin-raport');
+
+    if (openBtn) {
+      openBtn.addEventListener('click', () => {
+        if (drawer && !drawer.hidden) closeNavDrawer();
+        else openNavDrawer();
+      });
+    }
+    if (closeBtn) closeBtn.addEventListener('click', closeNavDrawer);
+    if (backdrop) backdrop.addEventListener('click', closeNavDrawer);
+
+    if (uasDrawerBtn) {
+      uasDrawerBtn.addEventListener('click', () => {
+        closeNavDrawer();
+        const target = document.getElementById('btn-open-admin-uas');
+        if (target) target.click();
+      });
+    }
+    if (raportDrawerBtn) {
+      raportDrawerBtn.addEventListener('click', () => {
+        closeNavDrawer();
+        const target = document.getElementById('btn-open-admin-raport');
+        if (target) target.click();
+      });
+    }
+
+    if (drawer) {
+      drawer.addEventListener('click', (e) => {
+        const navItem = e.target && e.target.closest ? e.target.closest('.drawer-nav-item') : null;
+        if (navItem && navItem.id !== 'btn-drawer-admin-uas' && navItem.id !== 'btn-drawer-admin-raport') {
+          closeNavDrawer();
+        }
+      });
+    }
+
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && drawer && !drawer.hidden) {
+        closeNavDrawer();
+      }
+    });
   }
 
   function clearSession() {
     currentSession = null;
-    sessionStorage.removeItem(CONFIG.SESSION_KEY);
+    if (root.localStorage) {
+      root.localStorage.removeItem(CONFIG.SESSION_KEY);
+    }
+    if (root.sessionStorage) {
+      root.sessionStorage.removeItem(CONFIG.SESSION_KEY);
+      root.sessionStorage.removeItem('mdta_user_session');
+    }
     if (root.MDTA_CACHE && typeof root.MDTA_CACHE.clearAll === 'function') {
       root.MDTA_CACHE.clearAll();
     }
@@ -381,6 +508,14 @@
     const chip = document.getElementById('header-user-chip');
     const nameEl = document.getElementById('header-user-name');
     const roleEl = document.getElementById('header-user-role');
+    const headerAvatar = document.getElementById('header-user-avatar');
+    const drawerBtn = document.getElementById('btn-nav-drawer');
+    const drawerAdmin = document.getElementById('drawer-menu-admin');
+    const drawerGuru = document.getElementById('drawer-menu-guru');
+    const drawerAvatar = document.getElementById('drawer-user-avatar');
+    const drawerName = document.getElementById('drawer-user-name');
+    const drawerRole = document.getElementById('drawer-user-role');
+    const drawerKelas = document.getElementById('drawer-user-kelas');
     const logoutBtn = document.getElementById('btn-logout');
     const arsipBtn = document.getElementById('btn-arsip-drive');
     const adminAllowed = isAdminSession(session);
@@ -391,12 +526,37 @@
     }
 
     if (session) {
+      const displayName = session.nama_lengkap || session.nama || session.username || 'Pengguna';
+      const roleLabel = session.role === 'admin' ? 'Kepala Madrasah / Admin' : 'Guru Pengampu';
+      const isAdmin = String(session.role || '').toLowerCase() === 'admin';
+      const kelasList = API.parseKelasAmpu(session.kelas_ampu);
+
+      if (drawerBtn) drawerBtn.hidden = false;
       if (chip) chip.hidden = false;
-      if (nameEl) nameEl.textContent = session.nama_lengkap || session.nama || session.username || 'Pengguna';
-      if (roleEl) roleEl.textContent = session.role === 'admin' ? 'Admin' : 'Guru';
+      if (nameEl) nameEl.textContent = displayName;
+      if (roleEl) roleEl.textContent = isAdmin ? 'Admin' : 'Guru';
+      renderAvatarSlot(headerAvatar, displayName, session.foto_url);
+      renderAvatarSlot(drawerAvatar, displayName, session.foto_url);
+      if (drawerName) drawerName.textContent = displayName;
+      if (drawerRole) drawerRole.textContent = roleLabel;
+      if (drawerKelas) {
+        if (!isAdmin && kelasList.length > 0) {
+          drawerKelas.textContent = kelasList.join(', ');
+          drawerKelas.hidden = false;
+        } else {
+          drawerKelas.textContent = '';
+          drawerKelas.hidden = true;
+        }
+      }
+      if (drawerAdmin) drawerAdmin.hidden = !isAdmin;
+      if (drawerGuru) drawerGuru.hidden = isAdmin;
       if (logoutBtn) logoutBtn.hidden = false;
     } else {
+      closeNavDrawer();
+      if (drawerBtn) drawerBtn.hidden = true;
       if (chip) chip.hidden = true;
+      if (drawerAdmin) drawerAdmin.hidden = true;
+      if (drawerGuru) drawerGuru.hidden = true;
       if (logoutBtn) logoutBtn.hidden = true;
     }
   }
@@ -570,6 +730,40 @@
     }
   }
 
+  function performLogout(toastMsg, toastType) {
+    if (root.MDTA_ADMIN && typeof root.MDTA_ADMIN.cleanup === 'function') {
+      root.MDTA_ADMIN.cleanup();
+    }
+    if (root.MDTA_GURU && typeof root.MDTA_GURU.cleanup === 'function') {
+      root.MDTA_GURU.cleanup();
+    }
+    clearSession();
+    const usernameInput = document.getElementById('login-username');
+    const passwordInput = document.getElementById('login-password');
+    const toggleBtn = document.getElementById('btn-toggle-password');
+    if (usernameInput) usernameInput.value = '';
+    if (passwordInput) {
+      passwordInput.value = '';
+      passwordInput.type = 'password';
+    }
+    if (toggleBtn) {
+      toggleBtn.setAttribute('aria-pressed', 'false');
+      toggleBtn.setAttribute('aria-label', 'Tampilkan kata sandi');
+      toggleBtn.innerHTML = '<i data-lucide="eye" aria-hidden="true"></i>';
+      UI.refreshIcons(toggleBtn);
+    }
+    showLoginError(toastType === 'warn' || toastType === 'error' ? toastMsg : '');
+    routeToPortal(null);
+    if (toastMsg) {
+      UI.toast(toastMsg, toastType || 'info');
+    }
+    if (usernameInput) usernameInput.focus();
+  }
+
+  function forceLogout(reasonMsg) {
+    performLogout(reasonMsg || 'Sesi Anda telah berakhir, silakan masuk kembali.', 'warn');
+  }
+
   // =========================================================================
   // INISIALISASI APLIKASI
   // =========================================================================
@@ -578,6 +772,7 @@
     UI.bindSpotlights(document);
     initTheme();
     initScrollProgress();
+    initNavDrawer();
     initArsipModal();
     initLoginAndLogout();
     checkBackendHealth();
@@ -587,18 +782,28 @@
       footerYear.textContent = String(new Date().getFullYear());
     }
 
-    const existingSession = getSession();
+    const { session: existingSession, expired } = readStoredSession();
     if (existingSession) {
       currentSession = existingSession;
+      saveSession(existingSession); // Sliding expiration: perpanjang +7 hari saat aktif
       routeToPortal(existingSession);
     } else {
       routeToPortal(null);
+      if (expired) {
+        const expMsg = 'Sesi Anda telah berakhir, silakan masuk kembali.';
+        showLoginError(expMsg);
+        UI.toast(expMsg, 'warn');
+      }
     }
   });
 
   root.MDTA_AUTH = {
     getSession: () => currentSession || getSession(),
     updateSession,
+    forceLogout,
+    openNavDrawer,
+    closeNavDrawer,
+    updateHeaderAuthUI,
     routeToPortal,
     checkBackendHealth,
   };

@@ -23,20 +23,20 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
 
-  <link rel="stylesheet" href="./css/tokens.css?v=20261120-23" />
-  <link rel="stylesheet" href="./css/style.css?v=20261120-23" />
+  <link rel="stylesheet" href="./css/tokens.css?v=20261120-25" />
+  <link rel="stylesheet" href="./css/style.css?v=20261120-25" />
 
   <script defer src="https://unpkg.com/lucide@0.468.0/dist/umd/lucide.min.js"></script>
   <script defer src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
   <script defer src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
   <script defer src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 
-  <script defer src="./js/config.js?v=20261120-23"></script>
-  <script defer src="./js/api.js?v=20261120-23"></script>
-  <script defer src="./js/calculators.js?v=20261120-23"></script>
-  <script defer src="./js/admin.js?v=20261120-23"></script>
-  <script defer src="./js/guru.js?v=20261120-23"></script>
-  <script defer src="./js/auth.js?v=20261120-23"></script>
+  <script defer src="./js/config.js?v=20261120-25"></script>
+  <script defer src="./js/api.js?v=20261120-25"></script>
+  <script defer src="./js/calculators.js?v=20261120-25"></script>
+  <script defer src="./js/admin.js?v=20261120-25"></script>
+  <script defer src="./js/guru.js?v=20261120-25"></script>
+  <script defer src="./js/auth.js?v=20261120-25"></script>
 </head>
 <body>
   <a href="#main-content" class="skip-link">Langsung ke konten utama</a>
@@ -51,6 +51,9 @@
 
     <div class="header-inner">
       <div class="brand-group">
+        <button id="btn-nav-drawer" type="button" class="btn btn-secondary btn-icon drawer-trigger-btn" aria-label="Buka menu navigasi" aria-expanded="false" aria-controls="app-nav-drawer" hidden>
+          <i data-lucide="menu" aria-hidden="true"></i>
+        </button>
         <div class="header-logo-frame">
           <img
             src="./assets/logo-mdta-asy-syifa.png"
@@ -67,11 +70,6 @@
       </div>
 
       <div class="header-actions">
-        <button id="btn-arsip-drive" type="button" class="btn btn-secondary" aria-haspopup="dialog" aria-controls="modal-arsip-drive" aria-label="Arsip Dokumen Drive" hidden>
-          <i data-lucide="folder-archive" aria-hidden="true"></i>
-          <span>Arsip Dokumen Drive</span>
-        </button>
-
         <button id="btn-theme-toggle" type="button" class="btn btn-secondary" aria-pressed="false" aria-label="Aktifkan mode gelap">
           <span id="theme-toggle-icon-wrap" style="display:inline-flex;align-items:center;">
             <i data-lucide="moon" aria-hidden="true"></i>
@@ -80,18 +78,122 @@
         </button>
 
         <div id="header-user-chip" class="user-session-chip" hidden>
-          <i data-lucide="user-check" aria-hidden="true" style="width:16px;height:16px;"></i>
-          <span id="header-user-name" style="font-weight:600;">-</span>
+          <span id="header-user-avatar" class="user-avatar-circle" aria-hidden="true">U</span>
+          <span id="header-user-name" class="header-chip-name">-</span>
           <span id="header-user-role" class="user-role-tag">-</span>
         </div>
-
-        <button id="btn-logout" type="button" class="btn btn-danger" aria-label="Keluar dari akun" hidden>
-          <i data-lucide="log-out" aria-hidden="true"></i>
-          <span>Keluar</span>
-        </button>
       </div>
     </div>
   </header>
+
+  <!-- ===================================================================
+       SLIDE-OUT DRAWER NAVIGASI (280px, HAMBURGER MENU)
+       =================================================================== -->
+  <div id="app-drawer-backdrop" class="drawer-backdrop no-print" hidden></div>
+  <aside id="app-nav-drawer" class="nav-drawer no-print" role="dialog" aria-modal="true" aria-label="Menu Navigasi Portal" hidden>
+    <div class="drawer-head">
+      <div class="drawer-profile-card">
+        <div id="drawer-user-avatar" class="drawer-avatar-box" aria-hidden="true">U</div>
+        <div style="min-width:0;flex:1;">
+          <div id="drawer-user-name" class="drawer-profile-name">-</div>
+          <div id="drawer-user-role" class="drawer-profile-role">-</div>
+          <div id="drawer-user-kelas" class="drawer-profile-kelas" hidden></div>
+        </div>
+      </div>
+      <button id="btn-close-nav-drawer" type="button" class="btn btn-secondary btn-icon modal-close-touch" aria-label="Tutup menu navigasi">
+        <i data-lucide="x" aria-hidden="true"></i>
+      </button>
+    </div>
+
+    <div class="drawer-body">
+      <div id="drawer-menu-admin" class="drawer-menu-group" hidden>
+        <div class="drawer-section-label">Menu Kepala Madrasah &amp; Admin</div>
+        <div id="admin-tablist" class="portal-tablist drawer-nav-list" role="tablist" aria-label="Menu Portal Kepala Madrasah">
+          <span class="tab-sliding-indicator" aria-hidden="true"></span>
+          <button type="button" role="tab" id="admin-tab-dashboard" class="tab-btn drawer-nav-item" data-tab="dashboard" aria-selected="true" aria-controls="admin-panel-dashboard" tabindex="0">
+            <i data-lucide="layout-dashboard" aria-hidden="true"></i>
+            <span class="tab-label-desktop">Beranda Laporan</span>
+            <span class="tab-label-mobile">Beranda Laporan</span>
+          </button>
+          <button type="button" role="tab" id="admin-tab-santri" class="tab-btn drawer-nav-item" data-tab="santri" aria-selected="false" aria-controls="admin-panel-santri" tabindex="-1">
+            <i data-lucide="users" aria-hidden="true"></i>
+            <span class="tab-label-desktop">Data Santri</span>
+            <span class="tab-label-mobile">Data Santri</span>
+          </button>
+          <button type="button" role="tab" id="admin-tab-rekap" class="tab-btn drawer-nav-item" data-tab="rekap" aria-selected="false" aria-controls="admin-panel-rekap" tabindex="-1">
+            <i data-lucide="file-bar-chart-2" aria-hidden="true"></i>
+            <span class="tab-label-desktop">Rekap Bulanan</span>
+            <span class="tab-label-mobile">Rekap Bulanan</span>
+          </button>
+          <button type="button" role="tab" id="admin-tab-kelas" class="tab-btn drawer-nav-item" data-tab="kelas" aria-selected="false" aria-controls="admin-panel-kelas" tabindex="-1">
+            <i data-lucide="book-open" aria-hidden="true"></i>
+            <span class="tab-label-desktop">Kelas &amp; Guru</span>
+            <span class="tab-label-mobile">Kelas &amp; Guru</span>
+          </button>
+          <button type="button" role="tab" id="admin-tab-akun" class="tab-btn drawer-nav-item" data-tab="akun" aria-selected="false" aria-controls="admin-panel-akun" tabindex="-1">
+            <i data-lucide="user-cog" aria-hidden="true"></i>
+            <span class="tab-label-desktop">Akun Guru</span>
+            <span class="tab-label-mobile">Akun Guru</span>
+          </button>
+        </div>
+
+        <div class="drawer-section-label" style="margin-top:12px;">Alat Hitung &amp; Arsip</div>
+        <div class="drawer-nav-list">
+          <button id="btn-drawer-admin-uas" type="button" class="drawer-nav-item" data-admin-calc-drawer="uas">
+            <i data-lucide="calculator" aria-hidden="true"></i>
+            <span>Kalkulator UAS</span>
+          </button>
+          <button id="btn-drawer-admin-raport" type="button" class="drawer-nav-item" data-admin-calc-drawer="raport">
+            <i data-lucide="clipboard-list" aria-hidden="true"></i>
+            <span>Kalkulator Raport</span>
+          </button>
+          <button id="btn-arsip-drive" type="button" class="drawer-nav-item" aria-haspopup="dialog" aria-controls="modal-arsip-drive" aria-label="Arsip Dokumen Drive" hidden>
+            <i data-lucide="folder-archive" aria-hidden="true"></i>
+            <span>Arsip Dokumen Drive</span>
+          </button>
+        </div>
+      </div>
+
+      <div id="drawer-menu-guru" class="drawer-menu-group" hidden>
+        <div class="drawer-section-label">Menu Portal Guru</div>
+        <div id="guru-tablist" class="portal-tablist drawer-nav-list" role="tablist" aria-label="Menu Portal Guru">
+          <span class="tab-sliding-indicator" aria-hidden="true"></span>
+          <button type="button" role="tab" id="guru-tab-presensi" class="tab-btn drawer-nav-item" data-tab="presensi" aria-selected="true" aria-controls="guru-panel-presensi" tabindex="0">
+            <i data-lucide="qr-code" aria-hidden="true"></i>
+            <span class="tab-label-desktop">Presensi Santri</span>
+            <span class="tab-label-mobile">Presensi Santri</span>
+          </button>
+          <button type="button" role="tab" id="guru-tab-absen-guru" class="tab-btn drawer-nav-item" data-tab="absen-guru" aria-selected="false" aria-controls="guru-panel-absen-guru" tabindex="-1">
+            <i data-lucide="book-check" aria-hidden="true"></i>
+            <span class="tab-label-desktop">Absen &amp; Materi Guru</span>
+            <span class="tab-label-mobile">Absen &amp; Materi Guru</span>
+          </button>
+          <button type="button" role="tab" id="guru-tab-uas" class="tab-btn drawer-nav-item" data-tab="uas" aria-selected="false" aria-controls="guru-panel-uas" tabindex="-1">
+            <i data-lucide="calculator" aria-hidden="true"></i>
+            <span class="tab-label-desktop">Kalkulator UAS</span>
+            <span class="tab-label-mobile">Kalkulator UAS</span>
+          </button>
+          <button type="button" role="tab" id="guru-tab-raport" class="tab-btn drawer-nav-item" data-tab="raport" aria-selected="false" aria-controls="guru-panel-raport" tabindex="-1">
+            <i data-lucide="clipboard-list" aria-hidden="true"></i>
+            <span class="tab-label-desktop">Kalkulator Raport</span>
+            <span class="tab-label-mobile">Kalkulator Raport</span>
+          </button>
+          <button type="button" role="tab" id="guru-tab-profil" class="tab-btn drawer-nav-item" data-tab="profil" aria-selected="false" aria-controls="guru-panel-profil" tabindex="-1">
+            <i data-lucide="user-circle" aria-hidden="true"></i>
+            <span class="tab-label-desktop">Profil Saya</span>
+            <span class="tab-label-mobile">Profil Saya</span>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <div class="drawer-footer">
+      <button id="btn-logout" type="button" class="btn btn-danger" style="width:100%;" aria-label="Keluar dari akun" hidden>
+        <i data-lucide="log-out" aria-hidden="true"></i>
+        <span>Keluar</span>
+      </button>
+    </div>
+  </aside>
 
   <main id="main-content" class="main-shell" tabindex="-1">
     <!-- =================================================================
@@ -207,37 +309,6 @@
         </div>
       </div>
 
-      <div class="portal-tablist-wrap no-print">
-        <div id="admin-tablist" class="portal-tablist" role="tablist" aria-label="Menu Portal Kepala Madrasah">
-          <span class="tab-sliding-indicator" aria-hidden="true"></span>
-          <button type="button" role="tab" id="admin-tab-dashboard" class="tab-btn" data-tab="dashboard" aria-selected="true" aria-controls="admin-panel-dashboard" tabindex="0">
-            <i data-lucide="layout-dashboard" aria-hidden="true"></i>
-            <span class="tab-label-desktop">Beranda Laporan</span>
-            <span class="tab-label-mobile">Laporan</span>
-          </button>
-          <button type="button" role="tab" id="admin-tab-santri" class="tab-btn" data-tab="santri" aria-selected="false" aria-controls="admin-panel-santri" tabindex="-1">
-            <i data-lucide="users" aria-hidden="true"></i>
-            <span class="tab-label-desktop">Data Santri</span>
-            <span class="tab-label-mobile">Santri</span>
-          </button>
-          <button type="button" role="tab" id="admin-tab-rekap" class="tab-btn" data-tab="rekap" aria-selected="false" aria-controls="admin-panel-rekap" tabindex="-1">
-            <i data-lucide="file-bar-chart-2" aria-hidden="true"></i>
-            <span class="tab-label-desktop">Rekap Bulanan</span>
-            <span class="tab-label-mobile">Rekap</span>
-          </button>
-          <button type="button" role="tab" id="admin-tab-kelas" class="tab-btn" data-tab="kelas" aria-selected="false" aria-controls="admin-panel-kelas" tabindex="-1">
-            <i data-lucide="book-open" aria-hidden="true"></i>
-            <span class="tab-label-desktop">Kelas &amp; Guru</span>
-            <span class="tab-label-mobile">Kelas</span>
-          </button>
-          <button type="button" role="tab" id="admin-tab-akun" class="tab-btn" data-tab="akun" aria-selected="false" aria-controls="admin-panel-akun" tabindex="-1">
-            <i data-lucide="user-cog" aria-hidden="true"></i>
-            <span class="tab-label-desktop">Akun Guru</span>
-            <span class="tab-label-mobile">Akun</span>
-          </button>
-        </div>
-      </div>
-
       <!-- TAB 1: BERANDA KEPALA MADRASAH -->
       <div id="admin-panel-dashboard" class="tab-panel stack-gap" role="tabpanel" aria-labelledby="admin-tab-dashboard">
         <!-- Bar Kontrol Tanggal, Kelas & Mode Laporan -->
@@ -269,6 +340,14 @@
             </div>
           </div>
 
+          <div id="kepsek-program-pills" class="filter-chip-row" role="group" aria-label="Filter kategori program">
+            <button type="button" class="filter-chip" data-program-filter="" aria-pressed="true">Semua Program</button>
+            <button type="button" class="filter-chip" data-program-filter="Diniyyah" aria-pressed="false">Diniyyah (Resmi)</button>
+            <button type="button" class="filter-chip" data-program-filter="Tahfidz" aria-pressed="false">Tahfidz</button>
+            <button type="button" class="filter-chip" data-program-filter="Tarikh" aria-pressed="false">Tarikh</button>
+            <button type="button" class="filter-chip" data-program-filter="Wustho" aria-pressed="false">Wustho</button>
+          </div>
+
           <div id="kepsek-report-tabs" class="report-mode-tabs" role="group" aria-label="Jenis laporan harian">
             <button id="btn-kepsek-mode-absensi" type="button" class="report-mode-btn" data-kepsek-mode="absensi" aria-pressed="true">
               <i data-lucide="calendar-check-2" aria-hidden="true"></i>
@@ -279,6 +358,11 @@
               <i data-lucide="award" aria-hidden="true"></i>
               <span>Laporan Nilai</span>
               <span id="kepsek-nilai-count" class="mode-count-pill mono-num">0</span>
+            </button>
+            <button id="btn-kepsek-mode-guru" type="button" class="report-mode-btn" data-kepsek-mode="guru" aria-pressed="false">
+              <i data-lucide="user-check" aria-hidden="true"></i>
+              <span>Monitoring Guru</span>
+              <span id="kepsek-guru-count" class="mode-count-pill mono-num">0</span>
             </button>
           </div>
 
@@ -402,6 +486,20 @@
             <div id="kepsek-nilai-container" class="stack-gap"></div>
           </section>
         </div>
+
+        <!-- C. PANEL TERPISAH: MONITORING GURU & MATERI HARIAN -->
+        <div id="kepsek-guru-panel" class="stack-gap no-print" hidden>
+          <section class="surface-card stack-gap">
+            <div class="card-spotlight-layer" aria-hidden="true"></div>
+            <div class="section-toolbar" style="margin-bottom:0;">
+              <div>
+                <h3 class="heading-md">Monitoring Kehadiran &amp; Materi Guru</h3>
+                <p class="text-muted" style="margin:4px 0 0;font-size:0.8125rem;">Pantau jam masuk, materi yang diajarkan hari ini, dan berikan catatan evaluasi Kepala Madrasah.</p>
+              </div>
+            </div>
+            <div id="kepsek-guru-container" class="guru-monitoring-grid"></div>
+          </section>
+        </div>
       </div>
 
       <!-- TAB 2: DATABASE SANTRI -->
@@ -496,6 +594,25 @@
             </div>
           </div>
 
+          <div id="rekap-mode-tabs" class="report-mode-tabs no-print" role="group" aria-label="Jenis rekap bulanan">
+            <button id="btn-rekap-mode-santri" type="button" class="report-mode-btn" data-rekap-mode="santri" aria-pressed="true">
+              <i data-lucide="users" aria-hidden="true"></i>
+              <span>Rekap Santri</span>
+            </button>
+            <button id="btn-rekap-mode-guru" type="button" class="report-mode-btn" data-rekap-mode="guru" aria-pressed="false">
+              <i data-lucide="book-check" aria-hidden="true"></i>
+              <span>Rekap Kehadiran &amp; Materi Guru</span>
+            </button>
+          </div>
+
+          <div id="rekap-program-pills" class="filter-chip-row no-print" role="group" aria-label="Filter kategori program rekap">
+            <button type="button" class="filter-chip" data-rekap-program="" aria-pressed="true">Semua Program</button>
+            <button type="button" class="filter-chip" data-rekap-program="Diniyyah" aria-pressed="false">Diniyyah (Resmi)</button>
+            <button type="button" class="filter-chip" data-rekap-program="Tahfidz" aria-pressed="false">Tahfidz</button>
+            <button type="button" class="filter-chip" data-rekap-program="Tarikh" aria-pressed="false">Tarikh</button>
+            <button type="button" class="filter-chip" data-rekap-program="Wustho" aria-pressed="false">Wustho</button>
+          </div>
+
           <div class="sub-surface stack-gap no-print" style="gap:12px;">
             <div class="form-grid">
               <div class="field-group">
@@ -545,6 +662,7 @@
           <div id="rekap-kelas-subtabs" class="kelas-subtabs-bar no-print" role="group" aria-label="Filter sub-tab kelas rekap bulanan" hidden></div>
 
           <div id="admin-rekap-grouped-container" class="stack-gap no-print"></div>
+          <div id="admin-rekap-guru-container" class="stack-gap no-print" hidden></div>
 
           <div id="rekap-print-pages" class="print-only-block"></div>
         </section>
@@ -721,27 +839,6 @@
         <span id="guru-unmapped-alert-msg"></span>
       </div>
 
-      <div class="portal-tablist-wrap no-print">
-        <div id="guru-tablist" class="portal-tablist" role="tablist" aria-label="Menu Portal Guru">
-          <span class="tab-sliding-indicator" aria-hidden="true"></span>
-          <button type="button" role="tab" id="guru-tab-presensi" class="tab-btn" data-tab="presensi" aria-selected="true" aria-controls="guru-panel-presensi" tabindex="0">
-            <i data-lucide="qr-code" aria-hidden="true"></i>
-            <span class="tab-label-desktop">Presensi</span>
-            <span class="tab-label-mobile">Presensi</span>
-          </button>
-          <button type="button" role="tab" id="guru-tab-uas" class="tab-btn" data-tab="uas" aria-selected="false" aria-controls="guru-panel-uas" tabindex="-1">
-            <i data-lucide="calculator" aria-hidden="true"></i>
-            <span class="tab-label-desktop">Kalkulator UAS</span>
-            <span class="tab-label-mobile">UAS</span>
-          </button>
-          <button type="button" role="tab" id="guru-tab-raport" class="tab-btn" data-tab="raport" aria-selected="false" aria-controls="guru-panel-raport" tabindex="-1">
-            <i data-lucide="clipboard-list" aria-hidden="true"></i>
-            <span class="tab-label-desktop">Kalkulator Raport</span>
-            <span class="tab-label-mobile">Raport</span>
-          </button>
-        </div>
-      </div>
-
       <!-- TAB 1: PRESENSI (SCAN QR RINGKAS + POPUP ABSENSI MANUAL) -->
       <div id="guru-panel-presensi" class="tab-panel stack-gap" role="tabpanel" aria-labelledby="guru-tab-presensi">
         <div id="guru-presensi-mode-bar" class="presensi-mode-bar" role="group" aria-label="Opsi presensi">
@@ -861,6 +958,109 @@
       <!-- TAB 3: KALKULATOR RAPORT -->
       <div id="guru-panel-raport" class="tab-panel stack-gap" role="tabpanel" aria-labelledby="guru-tab-raport" hidden>
         <div id="guru-raport-mount"></div>
+      </div>
+
+      <!-- TAB 4: ABSEN & MATERI HARIAN GURU -->
+      <div id="guru-panel-absen-guru" class="tab-panel stack-gap" role="tabpanel" aria-labelledby="guru-tab-absen-guru" hidden>
+        <section class="surface-card stack-gap">
+          <div class="card-spotlight-layer" aria-hidden="true"></div>
+          <div>
+            <h2 class="heading-lg">Absen &amp; Laporan Materi Harian Guru</h2>
+            <p class="text-muted" style="margin:4px 0 0;font-size:0.8125rem;">Catat kehadiran mengajar dan materi yang disampaikan hari ini untuk dipantau Kepala Madrasah.</p>
+          </div>
+          <form id="form-guru-absen-materi" class="stack-gap" style="gap:14px;">
+            <div class="form-grid-2">
+              <div class="field-group">
+                <label class="field-label" for="guru-absen-kelas">Kelas &amp; Program</label>
+                <select id="guru-absen-kelas" class="select-control" required></select>
+              </div>
+              <div class="field-group">
+                <label class="field-label" for="guru-absen-status">Status Mengajar</label>
+                <select id="guru-absen-status" class="select-control" required>
+                  <option value="Hadir Mengajar">Hadir Mengajar</option>
+                  <option value="Izin">Izin</option>
+                  <option value="Sakit">Sakit</option>
+                  <option value="Tugas Luar">Tugas Luar</option>
+                </select>
+              </div>
+            </div>
+            <div class="field-group">
+              <label class="field-label" for="guru-absen-materi">Laporan Materi yang Diajarkan Hari Ini</label>
+              <textarea id="guru-absen-materi" class="textarea-control" rows="3" placeholder="Tuliskan kitab/bab/surat/materi yang diajarkan hari ini..." required></textarea>
+            </div>
+            <div class="field-group">
+              <label class="field-label" for="guru-absen-keterangan">Keterangan Tambahan (Opsional)</label>
+              <input id="guru-absen-keterangan" type="text" class="input-control" placeholder="Contoh: Pengganti sementara / kendala kelas" />
+            </div>
+            <div class="toolbar-actions" style="justify-content:flex-end;">
+              <button id="btn-save-absensi-guru" type="submit" class="btn btn-primary">
+                <i data-lucide="send" aria-hidden="true"></i>
+                <span>Kirim Absen &amp; Materi</span>
+              </button>
+            </div>
+          </form>
+        </section>
+
+        <section class="surface-card stack-gap">
+          <div class="card-spotlight-layer" aria-hidden="true"></div>
+          <h3 class="heading-md">Riwayat Absen &amp; Materi Hari Ini</h3>
+          <div id="guru-absen-history-list" class="stack-gap" style="gap:10px;"></div>
+        </section>
+      </div>
+
+      <!-- TAB 5: PROFIL & FOTO GURU -->
+      <div id="guru-panel-profil" class="tab-panel stack-gap" role="tabpanel" aria-labelledby="guru-tab-profil" hidden>
+        <section class="surface-card stack-gap">
+          <div class="card-spotlight-layer" aria-hidden="true"></div>
+          <div>
+            <h2 class="heading-lg">Profil &amp; Foto Guru</h2>
+            <p class="text-muted" style="margin:4px 0 0;font-size:0.8125rem;">Foto profil tersimpan di Google Drive dan tampil pada header, drawer, serta Monitoring Guru Admin.</p>
+          </div>
+          <form id="form-guru-profil" class="stack-gap" style="gap:14px;">
+            <div class="profil-photo-row">
+              <div id="guru-profil-foto-preview" class="profil-avatar-lg" aria-hidden="true">G</div>
+              <div style="min-width:0;flex:1;">
+                <label class="field-label" for="guru-profil-foto-input">Foto Profil (JPG/PNG)</label>
+                <input id="guru-profil-foto-input" type="file" accept="image/jpeg,image/png,image/webp" class="input-control" />
+                <p class="text-muted" style="margin:4px 0 0;font-size:0.76rem;">Gambar otomatis dikompresi sebelum diunggah ke folder Profil_Guru di Drive.</p>
+              </div>
+            </div>
+            <div class="form-grid-2">
+              <div class="field-group">
+                <label class="field-label" for="guru-profil-nama">Nama Lengkap</label>
+                <input id="guru-profil-nama" type="text" class="input-control" required />
+              </div>
+              <div class="field-group">
+                <label class="field-label" for="guru-profil-no-wa">No. WhatsApp</label>
+                <input id="guru-profil-no-wa" type="tel" class="input-control mono-num" placeholder="08..." />
+              </div>
+            </div>
+            <div class="form-grid-2">
+              <div class="field-group">
+                <label class="field-label" for="guru-profil-pendidikan">Pendidikan Terakhir</label>
+                <input id="guru-profil-pendidikan" type="text" class="input-control" placeholder="Contoh: S1 Pendidikan Agama Islam" />
+              </div>
+              <div class="field-group">
+                <label class="field-label" for="guru-profil-bidang">Bidang Ajar / Kitab</label>
+                <input id="guru-profil-bidang" type="text" class="input-control" placeholder="Contoh: Fiqih, Tajwid, Tahfidz" />
+              </div>
+            </div>
+            <div class="field-group">
+              <label class="field-label" for="guru-profil-alamat">Alamat</label>
+              <input id="guru-profil-alamat" type="text" class="input-control" placeholder="Alamat tempat tinggal" />
+            </div>
+            <div class="field-group">
+              <label class="field-label" for="guru-profil-bio">Bio Singkat</label>
+              <textarea id="guru-profil-bio" class="textarea-control" rows="2" placeholder="Catatan singkat pengajar"></textarea>
+            </div>
+            <div class="toolbar-actions" style="justify-content:flex-end;">
+              <button id="btn-save-profil-guru" type="submit" class="btn btn-primary">
+                <i data-lucide="save" aria-hidden="true"></i>
+                <span>Simpan Profil &amp; Foto</span>
+              </button>
+            </div>
+          </form>
+        </section>
       </div>
     </section>
   </main>
@@ -1115,6 +1315,15 @@
         <div class="field-group">
           <label class="field-label" for="kelas-nama">Nama Kelas Resmi</label>
           <input id="kelas-nama" type="text" class="input-control" placeholder="Contoh: Kelas 7A" required />
+        </div>
+        <div class="field-group">
+          <label class="field-label" for="kelas-kategori-program">Kategori Program</label>
+          <select id="kelas-kategori-program" class="select-control">
+            <option value="Diniyyah">Diniyyah (Resmi)</option>
+            <option value="Tahfidz">Tahfidz</option>
+            <option value="Tarikh">Tarikh</option>
+            <option value="Wustho">Wustho</option>
+          </select>
         </div>
         <div class="form-grid-2">
           <div class="field-group">

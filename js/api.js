@@ -607,11 +607,15 @@
 
   function getActiveSessionContext() {
     try {
-      if (!root.sessionStorage) return null;
-      const raw = root.sessionStorage.getItem(CONFIG.SESSION_KEY);
+      const raw =
+        (root.localStorage && root.localStorage.getItem(CONFIG.SESSION_KEY)) ||
+        (root.sessionStorage && root.sessionStorage.getItem(CONFIG.SESSION_KEY));
       if (!raw) return null;
       const parsed = JSON.parse(raw);
-      return parsed && typeof parsed === 'object' ? parsed : null;
+      if (!parsed || typeof parsed !== 'object') return null;
+      if (parsed.expiresAt && Date.now() >= Number(parsed.expiresAt)) return null;
+      const userObj = parsed.user && typeof parsed.user === 'object' ? parsed.user : parsed;
+      return userObj && userObj.role ? userObj : null;
     } catch (err) {
       return null;
     }
@@ -791,11 +795,26 @@
     return arr.filter((item) => isKelasAllowed(item && item[field], allowed));
   }
 
+  function normalizeKategoriProgram(raw, fallbackKelasName) {
+    const s = String(raw || '').trim().toLowerCase();
+    if (s === 'tahfidz' || s === 'tahfiz') return 'Tahfidz';
+    if (s === 'tarikh') return 'Tarikh';
+    if (s === 'wustho' || s === 'wusto') return 'Wustho';
+    if (s === 'diniyyah' || s === 'diniyah') return 'Diniyyah';
+    const k = String(fallbackKelasName || '').trim().toLowerCase();
+    if (/tahfi[dz]/i.test(k)) return 'Tahfidz';
+    if (/tarikh/i.test(k)) return 'Tarikh';
+    if (/wusth?o/i.test(k)) return 'Wustho';
+    return 'Diniyyah';
+  }
+
   function normalizeKelas(raw) {
     const src = raw || {};
+    const nama = String(pick(src, ['nama_kelas', 'kelas', 'nama'], '')).trim();
     return {
       id_kelas: String(pick(src, ['id_kelas', 'id'], '')),
-      nama_kelas: String(pick(src, ['nama_kelas', 'kelas', 'nama'], '')).trim(),
+      nama_kelas: nama,
+      kategori_program: normalizeKategoriProgram(pick(src, ['kategori_program', 'program'], ''), nama),
       tingkat: String(pick(src, ['tingkat', 'level'], '')).trim(),
       keterangan: String(pick(src, ['keterangan', 'catatan'], '')).trim(),
       status: String(pick(src, ['status'], 'aktif')).trim().toLowerCase(),
@@ -837,6 +856,12 @@
       status_aktif: String(pick(raw, ['status_aktif', 'status'], 'aktif')).toLowerCase(),
       kelas_ampu: kelasAmpu,
       kelas_ampu_text: kelasAmpu.join(', '),
+      no_wa: String(pick(raw, ['no_wa'], '')),
+      alamat: String(pick(raw, ['alamat'], '')),
+      pendidikan_terakhir: String(pick(raw, ['pendidikan_terakhir'], '')),
+      bidang_ajar: String(pick(raw, ['bidang_ajar'], '')),
+      bio: String(pick(raw, ['bio'], '')),
+      foto_url: String(pick(raw, ['foto_url'], '')),
       created_at: String(pick(raw, ['created_at'], '')),
       raw: raw,
     };
@@ -872,10 +897,12 @@
           ? Math.round((hadir / total) * 1000) / 10
           : 0;
 
+    const kelas = String(pick(raw, ['kelas', 'rombel'], '-'));
     return {
       id_santri: String(pick(raw, ['id_santri', 'id'], '')),
       nama_lengkap: String(pick(raw, ['nama_lengkap', 'nama', 'santri'], '-')),
-      kelas: String(pick(raw, ['kelas', 'rombel'], '-')),
+      kelas,
+      kategori_program: normalizeKategoriProgram(pick(raw, ['kategori_program', 'program'], ''), kelas),
       hadir,
       sakit,
       izin,
@@ -1062,6 +1089,7 @@
     'dokumenArsip',
     'logSetoran',
     'presensiToday',
+    'absensiGuruToday',
   ];
   const bootstrapInflight = new Map();
 
@@ -1129,6 +1157,7 @@
       st.dokumenArsip = [];
       st.logSetoran = [];
       st.presensiToday = [];
+      st.absensiGuruToday = [];
       st.lastSyncAt = 0;
       st.localSyncTs = null;
       if (st.loaded) {
@@ -1226,8 +1255,20 @@
 
     const promise = (async () => {
       try {
-        const res = await root.MDTA_API.getBootstrapData({ role, tanggal, kelas });
-        return res.data || res;
+        const reqParams = { role, tanggal, kelas };
+        const uid = p.id_user || (sess && sess.id_user) || '';
+        const uname = p.username || (sess && sess.username) || '';
+        if (uid) reqParams.id_user = uid;
+        if (uname) reqParams.username = uname;
+        const res = await root.MDTA_API.getBootstrapData(reqParams);
+        const bundle = res.data || res;
+        if (bundle && bundle.account_active === false) {
+          if (root.MDTA_AUTH && typeof root.MDTA_AUTH.forceLogout === 'function') {
+            root.MDTA_AUTH.forceLogout('Akun Anda sudah dinonaktifkan oleh Administrator.');
+          }
+          throw new Error('Akun Anda sudah dinonaktifkan.');
+        }
+        return bundle;
       } catch (err) {
         const msg = String((err && err.message) || '');
         if (!/tidak dikenali/i.test(msg)) {
@@ -1350,6 +1391,7 @@
     normalizeNilaiRaport,
     normalizeDokumen,
     normalizeLogSetoran,
+    normalizeKategoriProgram,
     normalizeISODate,
     formatTTL,
     formatWhatsAppUrl,
@@ -1381,7 +1423,11 @@
     savePresensi: (presensiData) => requestPost('savePresensi', { data: presensiData }),
     clearPresensiHarian: (params) => requestPost('clearPresensiHarian', params || {}),
 
-    getRekapLaporan: (bulan, tahun) => requestGet('getRekapLaporan', { bulan, tahun }),
+    getRekapLaporan: (bulan, tahun, extra) => requestGet('getRekapLaporan', Object.assign({ bulan, tahun }, extra || {})),
+    getMonitoringGuru: (params) => requestGet('getMonitoringGuru', params || {}),
+    updateProfilGuru: (profilData) => requestPost('updateProfilGuru', { data: profilData }),
+    saveAbsensiGuru: (absenData) => requestPost('saveAbsensiGuru', { data: absenData }),
+    verifikasiAbsensiGuru: (verifData) => requestPost('verifikasiAbsensiGuru', { data: verifData }),
 
     getNilaiUAS: () => requestGet('getNilaiUAS'),
     saveNilaiUAS: (uasData) => requestPost('saveNilaiUAS', { data: uasData }),

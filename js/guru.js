@@ -186,43 +186,77 @@
     return merged;
   }
 
+  function resolveClassKategori(kelasName) {
+    const kKey = normKelasKey(kelasName);
+    const found = (STATE.kelas || []).find((k) => normKelasKey(k.nama_kelas) === kKey);
+    if (found && found.kategori_program) return found.kategori_program;
+    if (typeof API.normalizeKategoriProgram === 'function') {
+      return API.normalizeKategoriProgram('', kelasName);
+    }
+    return 'Diniyyah';
+  }
+
+  function buildProgramGroupedClassOptions(kelasAmpu) {
+    const groups = new Map();
+    kelasAmpu.forEach((k) => {
+      const kat = resolveClassKategori(k);
+      if (!groups.has(kat)) groups.set(kat, []);
+      groups.get(kat).push(k);
+    });
+    if (groups.size <= 1) {
+      return kelasAmpu.map((k) => `<option value="${UI.esc(k)}">${UI.esc(k)}</option>`).join('');
+    }
+    const order = CONFIG.PROGRAM_CATEGORIES || ['Diniyyah', 'Tahfidz', 'Tarikh', 'Wustho'];
+    const sortedKeys = Array.from(groups.keys()).sort((a, b) => {
+      const ia = order.indexOf(a);
+      const ib = order.indexOf(b);
+      return (ia >= 0 ? ia : 99) - (ib >= 0 ? ib : 99);
+    });
+    return sortedKeys
+      .map((kat) => {
+        const opts = (groups.get(kat) || [])
+          .map((k) => `<option value="${UI.esc(k)}">${UI.esc(k)}</option>`)
+          .join('');
+        return `<optgroup label="Program ${UI.esc(kat)}">${opts}</optgroup>`;
+      })
+      .join('');
+  }
+
   function populateManualKelasSelect() {
     const sel = document.getElementById('manual-santri-kelas');
     const wrap = document.getElementById('manual-kelas-filter-wrap');
-    if (!sel) return;
-    const prev = sel.value;
     const kelasAmpu = getGuruKelasAmpu();
+    const optionsHtml = buildProgramGroupedClassOptions(kelasAmpu);
+
+    const syncSelectEl = (el, emptyLabel) => {
+      if (!el) return;
+      const prev = el.value;
+      if (kelasAmpu.length === 0) {
+        el.innerHTML = `<option value="">${UI.esc(emptyLabel || 'Belum ada kelas ampu')}</option>`;
+        el.disabled = true;
+        return;
+      }
+      el.disabled = false;
+      el.innerHTML = optionsHtml;
+      if (prev && kelasAmpu.some((k) => normKelasKey(k) === normKelasKey(prev))) {
+        const exact = kelasAmpu.find((k) => normKelasKey(k) === normKelasKey(prev));
+        if (exact) el.value = exact;
+      } else {
+        el.value = kelasAmpu[0];
+      }
+    };
+
     if (wrap) wrap.hidden = kelasAmpu.length <= 1;
-    if (kelasAmpu.length === 0) {
-      sel.innerHTML = '<option value="">Belum ada kelas ampu</option>';
-      sel.disabled = true;
-      return;
-    }
-    sel.disabled = false;
-    sel.innerHTML = kelasAmpu
-      .map((k) => `<option value="${UI.esc(k)}">${UI.esc(k)}</option>`)
-      .join('');
-    if (prev && kelasAmpu.some((k) => normKelasKey(k) === normKelasKey(prev))) {
-      const exact = kelasAmpu.find((k) => normKelasKey(k) === normKelasKey(prev));
-      if (exact) sel.value = exact;
-    } else {
-      sel.value = kelasAmpu[0];
-    }
+    syncSelectEl(sel, 'Belum ada kelas ampu');
 
     const qrSel = document.getElementById('qr-kelas-select');
     if (qrSel) {
-      const prevQr = qrSel.value;
       qrSel.hidden = kelasAmpu.length <= 1;
-      qrSel.innerHTML = kelasAmpu
-        .map((k) => `<option value="${UI.esc(k)}">${UI.esc(k)}</option>`)
-        .join('');
-      if (prevQr && kelasAmpu.some((k) => normKelasKey(k) === normKelasKey(prevQr))) {
-        const exactQr = kelasAmpu.find((k) => normKelasKey(k) === normKelasKey(prevQr));
-        if (exactQr) qrSel.value = exactQr;
-      } else {
-        qrSel.value = kelasAmpu[0];
-      }
+      syncSelectEl(qrSel, 'Belum ada kelas ampu');
     }
+
+    const absenSel = document.getElementById('guru-absen-kelas');
+    syncSelectEl(absenSel, 'Belum ada kelas ampu');
   }
 
   function updateAbsensiCountsUI() {
@@ -615,6 +649,29 @@
         guruSession = root.MDTA_AUTH.updateSession({ kelas_ampu: nextAmpu }) || guruSession;
       }
       updateBanner(guruSession);
+    }
+
+    if (bundle && bundle.user_profile && typeof bundle.user_profile === 'object') {
+      const prof = bundle.user_profile;
+      const mergedProf = {
+        nama_lengkap: prof.nama_lengkap || guruSession.nama_lengkap,
+        no_wa: prof.no_wa || '',
+        alamat: prof.alamat || '',
+        pendidikan_terakhir: prof.pendidikan_terakhir || '',
+        bidang_ajar: prof.bidang_ajar || '',
+        bio: prof.bio || '',
+        foto_url: prof.foto_url || '',
+      };
+      guruSession = Object.assign({}, guruSession, mergedProf);
+      if (root.MDTA_AUTH && typeof root.MDTA_AUTH.updateSession === 'function') {
+        guruSession = root.MDTA_AUTH.updateSession(mergedProf) || guruSession;
+      }
+    }
+
+    if (Array.isArray(bundle.absensi_guru_hari_ini)) {
+      STATE.absensiGuruToday = bundle.absensi_guru_hari_ini;
+      if (CACHE) CACHE.write('absensiGuruToday', STATE.absensiGuruToday);
+      renderGuruAbsenHistory();
     }
 
     if (Array.isArray(bundle.kelas)) {
@@ -1448,7 +1505,244 @@ function stopGuruLiveSync() {
 }
 
 // =========================================================================
-// INISIALISASI & CLEANUP PORTAL GURU (3 TAB)
+// ABSEN & MATERI HARIAN GURU + PROFIL & FOTO GURU
+// =========================================================================
+let pendingProfilFotoBase64 = '';
+let pendingProfilFotoMime = '';
+
+function renderGuruAbsenHistory() {
+  const container = document.getElementById('guru-absen-history-list');
+  if (!container) return;
+  const todayWib = UI.todayISO();
+  const myId = String((guruSession && guruSession.id_user) || '').trim();
+  const myNama = String((guruSession && guruSession.nama_lengkap) || '').trim().toLowerCase();
+
+  const list = (Array.isArray(STATE.absensiGuruToday) ? STATE.absensiGuruToday : []).filter((r) => {
+    if (r.tanggal && API.normalizeISODate(r.tanggal) !== todayWib) return false;
+    if (myId && r.id_guru) return String(r.id_guru).trim() === myId;
+    if (myNama && r.nama_guru) return String(r.nama_guru).trim().toLowerCase() === myNama;
+    return true;
+  });
+
+  if (list.length === 0) {
+    container.innerHTML = UI.renderStateBox({
+      type: 'empty',
+      title: 'Belum ada absen mengajar hari ini',
+      message: 'Isi formulir di atas untuk mencatat kehadiran mengajar dan materi yang disampaikan hari ini.',
+    });
+    UI.refreshIcons(container);
+    return;
+  }
+
+  container.innerHTML = list
+    .map((item) => {
+      const isChecked = String(item.status_cek || '').toLowerCase() === 'sudah dicek';
+      const stCls =
+        item.status === 'Hadir Mengajar'
+          ? 'status-hadir'
+          : item.status === 'Izin'
+            ? 'status-izin'
+            : item.status === 'Sakit'
+              ? 'status-sakit'
+              : 'status-alpa';
+      return `
+        <article class="sub-surface stack-gap" style="gap:8px;padding:12px 14px;">
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;">
+            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+              <strong>${UI.esc(item.kelas || '-')}</strong>
+              <span class="status-badge status-izin">${UI.esc(item.kategori_program || 'Diniyyah')}</span>
+              <span class="status-badge ${stCls}">${UI.esc(item.status || '-')}</span>
+            </div>
+            <span class="status-badge ${isChecked ? 'status-hadir' : 'status-sakit'}">${isChecked ? 'Sudah Dicek Kepsek' : 'Belum Dicek'}</span>
+          </div>
+          <div style="font-size:0.86rem;line-height:1.5;">
+            <strong>Materi:</strong> ${UI.esc(item.materi_diajarkan || '-')}
+          </div>
+          ${item.keterangan ? `<div class="text-muted" style="font-size:0.8rem;">Keterangan: ${UI.esc(item.keterangan)}</div>` : ''}
+          ${item.catatan_kepsek ? `<div class="inline-alert inline-alert-info" style="margin:0;padding:8px 10px;"><strong>Catatan Kepala Madrasah:</strong> ${UI.esc(item.catatan_kepsek)}</div>` : ''}
+          <div class="text-muted mono-num" style="font-size:0.75rem;">Jam masuk: ${UI.esc(item.waktu_masuk || '-')}</div>
+        </article>
+      `;
+    })
+    .join('');
+  UI.refreshIcons(container);
+}
+
+function populateGuruProfilForm() {
+  const sess = guruSession || {};
+  const namaEl = document.getElementById('guru-profil-nama');
+  const waEl = document.getElementById('guru-profil-no-wa');
+  const pendEl = document.getElementById('guru-profil-pendidikan');
+  const bidangEl = document.getElementById('guru-profil-bidang');
+  const alamatEl = document.getElementById('guru-profil-alamat');
+  const bioEl = document.getElementById('guru-profil-bio');
+  const previewEl = document.getElementById('guru-profil-foto-preview');
+
+  if (namaEl) namaEl.value = sess.nama_lengkap || '';
+  if (waEl) waEl.value = sess.no_wa || '';
+  if (pendEl) pendEl.value = sess.pendidikan_terakhir || '';
+  if (bidangEl) bidangEl.value = sess.bidang_ajar || '';
+  if (alamatEl) alamatEl.value = sess.alamat || '';
+  if (bioEl) bioEl.value = sess.bio || '';
+
+  if (previewEl) {
+    const displayName = sess.nama_lengkap || sess.username || 'G';
+    const initials = displayName.split(/\s+/).slice(0, 2).map((w) => w.charAt(0).toUpperCase()).join('') || 'G';
+    if (sess.foto_url) {
+      previewEl.innerHTML = `<img src="${UI.esc(sess.foto_url)}" alt="${UI.esc(displayName)}" class="avatar-img" referrerpolicy="no-referrer" />`;
+    } else {
+      previewEl.textContent = initials;
+    }
+  }
+}
+
+function compressImageToDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error('Gagal membaca berkas foto.'));
+    reader.onload = () => {
+      const img = new Image();
+      img.onerror = () => reject(new Error('Berkas bukan gambar yang valid.'));
+      img.onload = () => {
+        const maxSide = 360;
+        let w = img.width || maxSide;
+        let h = img.height || maxSide;
+        if (w > maxSide || h > maxSide) {
+          if (w >= h) {
+            h = Math.round((h * maxSide) / w);
+            w = maxSide;
+          } else {
+            w = Math.round((w * maxSide) / h);
+            h = maxSide;
+          }
+        }
+        const canvas = document.createElement('canvas');
+        canvas.width = w;
+        canvas.height = h;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, w, h);
+        resolve({
+          dataUrl: canvas.toDataURL('image/jpeg', 0.82),
+          mime: 'image/jpeg',
+        });
+      };
+      img.src = String(reader.result || '');
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+function bindGuruAbsenAndProfilEvents() {
+  const absenForm = document.getElementById('form-guru-absen-materi');
+  const saveAbsenBtn = document.getElementById('btn-save-absensi-guru');
+  if (absenForm) {
+    absenForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const kelas = document.getElementById('guru-absen-kelas')?.value || '';
+      const status = document.getElementById('guru-absen-status')?.value || 'Hadir Mengajar';
+      const materi = (document.getElementById('guru-absen-materi')?.value || '').trim();
+      const ket = (document.getElementById('guru-absen-keterangan')?.value || '').trim();
+      if (!kelas) {
+        UI.toast('Pilih kelas yang diajar terlebih dahulu.', 'warn');
+        return;
+      }
+      if (!materi && status === 'Hadir Mengajar') {
+        UI.toast('Isi laporan materi yang diajarkan hari ini.', 'warn');
+        return;
+      }
+      UI.setButtonLoading(saveAbsenBtn, true, 'Mengirim...');
+      try {
+        const res = await API.saveAbsensiGuru({
+          tanggal: UI.todayISO(),
+          waktu_masuk: UI.nowTimeHMS(),
+          id_guru: (guruSession && guruSession.id_user) || '',
+          nama_guru: (guruSession && (guruSession.nama_lengkap || guruSession.username)) || '',
+          kelas,
+          kategori_program: resolveClassKategori(kelas),
+          status,
+          materi_diajarkan: materi,
+          keterangan: ket,
+        });
+        const saved = (res && res.data) || res || {};
+        const prevList = Array.isArray(STATE.absensiGuruToday) ? STATE.absensiGuruToday : [];
+        const filtered = prevList.filter((item) => item.id_absen_guru !== saved.id_absen_guru);
+        STATE.absensiGuruToday = [saved].concat(filtered);
+        if (root.MDTA_CACHE) root.MDTA_CACHE.write('absensiGuruToday', STATE.absensiGuruToday);
+        renderGuruAbsenHistory();
+        UI.toast('Absensi & laporan materi harian guru tersimpan.', 'success');
+      } catch (err) {
+        UI.toast(`Gagal mengirim absensi guru: ${err.message}`, 'error');
+      } finally {
+        UI.setButtonLoading(saveAbsenBtn, false);
+      }
+    });
+  }
+
+  const fotoInp = document.getElementById('guru-profil-foto-input');
+  if (fotoInp) {
+    fotoInp.addEventListener('change', async () => {
+      const file = fotoInp.files && fotoInp.files[0];
+      if (!file) return;
+      try {
+        const compressed = await compressImageToDataUrl(file);
+        pendingProfilFotoBase64 = compressed.dataUrl;
+        pendingProfilFotoMime = compressed.mime;
+        const previewEl = document.getElementById('guru-profil-foto-preview');
+        if (previewEl) {
+          previewEl.innerHTML = `<img src="${UI.esc(compressed.dataUrl)}" alt="Pratinjau foto" class="avatar-img" />`;
+        }
+      } catch (err) {
+        UI.toast(err.message, 'error');
+      }
+    });
+  }
+
+  const profilForm = document.getElementById('form-guru-profil');
+  const saveProfilBtn = document.getElementById('btn-save-profil-guru');
+  if (profilForm) {
+    profilForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const nama = (document.getElementById('guru-profil-nama')?.value || '').trim();
+      if (!nama) {
+        UI.toast('Nama lengkap wajib diisi.', 'warn');
+        return;
+      }
+      UI.setButtonLoading(saveProfilBtn, true, 'Menyimpan...');
+      try {
+        const res = await API.updateProfilGuru({
+          id_user: (guruSession && guruSession.id_user) || '',
+          username: (guruSession && guruSession.username) || '',
+          nama_lengkap: nama,
+          no_wa: (document.getElementById('guru-profil-no-wa')?.value || '').trim(),
+          pendidikan_terakhir: (document.getElementById('guru-profil-pendidikan')?.value || '').trim(),
+          bidang_ajar: (document.getElementById('guru-profil-bidang')?.value || '').trim(),
+          alamat: (document.getElementById('guru-profil-alamat')?.value || '').trim(),
+          bio: (document.getElementById('guru-profil-bio')?.value || '').trim(),
+          foto_base64: pendingProfilFotoBase64 || '',
+          foto_mime: pendingProfilFotoMime || '',
+        });
+        const updated = (res && res.data) || res || {};
+        pendingProfilFotoBase64 = '';
+        pendingProfilFotoMime = '';
+        if (fotoInp) fotoInp.value = '';
+        guruSession = Object.assign({}, guruSession, updated);
+        if (root.MDTA_AUTH && typeof root.MDTA_AUTH.updateSession === 'function') {
+          guruSession = root.MDTA_AUTH.updateSession(updated) || guruSession;
+        }
+        updateBanner(guruSession);
+        populateGuruProfilForm();
+        UI.toast('Profil & foto guru berhasil disimpan.', 'success');
+      } catch (err) {
+        UI.toast(`Gagal menyimpan profil: ${err.message}`, 'error');
+      } finally {
+        UI.setButtonLoading(saveProfilBtn, false);
+      }
+    });
+  }
+}
+
+// =========================================================================
+// INISIALISASI & CLEANUP PORTAL GURU
 // =========================================================================
 function init(session) {
   guruSession = session || {};
@@ -1475,13 +1769,19 @@ function init(session) {
     initialized = true;
     bindQRPanelEvents();
     bindPresensiManualEvents();
+    bindGuruAbsenAndProfilEvents();
 
     tabController = UI.initSlidingTabs(tablist, (tabName) => {
       if (tabName !== 'presensi') {
         stopQRScanner();
         closeManualPresensiModal();
       }
-      if (tabName === 'uas') {
+      if (tabName === 'absen-guru') {
+        populateManualKelasSelect();
+        renderGuruAbsenHistory();
+      } else if (tabName === 'profil') {
+        populateGuruProfilForm();
+      } else if (tabName === 'uas') {
         root.MDTA_CALC.mountUAS(document.getElementById('guru-uas-mount'), {
           scope: 'guru',
           session: guruSession,

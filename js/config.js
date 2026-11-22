@@ -18,10 +18,12 @@
     APP_SUBTITLE: 'Portal Digital Madrasah & Penilaian Raport',
     INSTITUTION_NAME: "MDTA ASY SYIFA AL MUSRI'",
     INSTITUTION_LOCATION: 'Bojongsoang, Kab. Bandung',
-    SESSION_KEY: 'mdta_user_session',
+    SESSION_KEY: 'mdta_auth_session',
+    SESSION_TTL_MS: 7 * 24 * 60 * 60 * 1000,
     THEME_KEY: 'mdta_theme',
     CACHE_PREFIX: 'mdta_swr_v1_',
     SYNC_POLL_INTERVAL_MS: 5000,
+    PROGRAM_CATEGORIES: ['Diniyyah', 'Tahfidz', 'Tarikh', 'Wustho'],
     DEFAULT_RAPORT_WEIGHTS: {
       harian: 40,
       uas: 40,
