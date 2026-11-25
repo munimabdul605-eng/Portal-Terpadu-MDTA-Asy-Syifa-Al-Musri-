@@ -38,6 +38,7 @@
     }
   }
 
+  let themeIconTimer = null;
   function initTheme() {
     syncThemeUI();
     const btn = document.getElementById('btn-theme-toggle');
@@ -52,6 +53,19 @@
         // Abaikan pembatasan penyimpanan lokal
       }
       syncThemeUI();
+      if (UI && typeof UI.canUseMotion === 'function' && UI.canUseMotion()) {
+        const iconHolder = document.getElementById('theme-toggle-icon-wrap');
+        if (iconHolder) {
+          if (themeIconTimer) clearTimeout(themeIconTimer);
+          iconHolder.classList.remove('is-theme-pop');
+          void iconHolder.offsetWidth;
+          iconHolder.classList.add('is-theme-pop');
+          themeIconTimer = setTimeout(() => {
+            themeIconTimer = null;
+            iconHolder.classList.remove('is-theme-pop');
+          }, 420);
+        }
+      }
     });
   }
 
@@ -401,15 +415,23 @@
 
   function renderAvatarSlot(el, nama, fotoUrl) {
     if (!el) return;
+    const avatarSize = el.id === 'drawer-user-avatar' ? 44 : 28;
+    if (UI && typeof UI.renderAvatarElement === 'function') {
+      UI.renderAvatarElement(el, nama, fotoUrl, { size: avatarSize, fallback: 'U' });
+      return;
+    }
     const cleanName = String(nama || 'U').trim() || 'U';
     const initials = cleanName
       .split(/\s+/)
       .slice(0, 2)
       .map((w) => w.charAt(0).toUpperCase())
       .join('') || 'U';
-    const cleanUrl = String(fotoUrl || '').trim();
+    const rawUrl = String(fotoUrl || '').trim();
+    const cleanUrl = rawUrl && typeof API.normalizeDriveImageUrl === 'function'
+      ? API.normalizeDriveImageUrl(rawUrl)
+      : rawUrl;
     if (cleanUrl) {
-      el.innerHTML = `<img src="${UI.esc(cleanUrl)}" alt="${UI.esc(cleanName)}" class="avatar-img" referrerpolicy="no-referrer" />`;
+      el.innerHTML = `<img src="${UI.esc(cleanUrl)}" alt="Foto profil ${UI.esc(cleanName)}" width="${avatarSize}" height="${avatarSize}" class="avatar-img" referrerpolicy="no-referrer" />`;
       const img = el.querySelector('img');
       if (img) {
         img.addEventListener('error', () => {
@@ -421,11 +443,18 @@
     }
   }
 
+  let drawerCloseTimer = null;
   function openNavDrawer() {
     const drawer = document.getElementById('app-nav-drawer');
     const backdrop = document.getElementById('app-drawer-backdrop');
     const btn = document.getElementById('btn-nav-drawer');
     if (!drawer) return;
+    if (drawerCloseTimer) {
+      clearTimeout(drawerCloseTimer);
+      drawerCloseTimer = null;
+    }
+    drawer.classList.remove('is-closing');
+    if (backdrop) backdrop.classList.remove('is-closing');
     drawer.hidden = false;
     if (backdrop) backdrop.hidden = false;
     if (btn) btn.setAttribute('aria-expanded', 'true');
@@ -436,10 +465,29 @@
     const drawer = document.getElementById('app-nav-drawer');
     const backdrop = document.getElementById('app-drawer-backdrop');
     const btn = document.getElementById('btn-nav-drawer');
-    if (drawer) drawer.hidden = true;
-    if (backdrop) backdrop.hidden = true;
     if (btn) btn.setAttribute('aria-expanded', 'false');
     document.body.classList.remove('drawer-open');
+    if (UI && typeof UI.canUseMotion === 'function' && UI.canUseMotion() && drawer && !drawer.hidden) {
+      if (drawerCloseTimer) return;
+      drawer.classList.add('is-closing');
+      if (backdrop) backdrop.classList.add('is-closing');
+      drawerCloseTimer = setTimeout(() => {
+        drawerCloseTimer = null;
+        drawer.classList.remove('is-closing');
+        if (backdrop) backdrop.classList.remove('is-closing');
+        drawer.hidden = true;
+        if (backdrop) backdrop.hidden = true;
+      }, 200);
+      return;
+    }
+    if (drawer) {
+      drawer.classList.remove('is-closing');
+      drawer.hidden = true;
+    }
+    if (backdrop) {
+      backdrop.classList.remove('is-closing');
+      backdrop.hidden = true;
+    }
   }
 
   function initNavDrawer() {
@@ -447,13 +495,19 @@
     const closeBtn = document.getElementById('btn-close-nav-drawer');
     const backdrop = document.getElementById('app-drawer-backdrop');
     const drawer = document.getElementById('app-nav-drawer');
+    const chip = document.getElementById('header-user-chip');
     const uasDrawerBtn = document.getElementById('btn-drawer-admin-uas');
     const raportDrawerBtn = document.getElementById('btn-drawer-admin-raport');
 
-    if (openBtn) {
-      openBtn.addEventListener('click', () => {
-        if (drawer && !drawer.hidden) closeNavDrawer();
-        else openNavDrawer();
+    const toggleDrawer = () => {
+      if (drawer && !drawer.hidden) closeNavDrawer();
+      else openNavDrawer();
+    };
+
+    if (openBtn) openBtn.addEventListener('click', toggleDrawer);
+    if (chip) {
+      chip.addEventListener('click', () => {
+        if (currentSession || getSession()) toggleDrawer();
       });
     }
     if (closeBtn) closeBtn.addEventListener('click', closeNavDrawer);
@@ -630,8 +684,27 @@
       nama: namaLengkap,
       role,
       kelas_ampu: role === 'admin' ? [] : kelasAmpu,
+      no_wa: String(API.pick(userObj, ['no_wa'], '')).trim(),
+      alamat: String(API.pick(userObj, ['alamat'], '')).trim(),
+      pendidikan_terakhir: String(API.pick(userObj, ['pendidikan_terakhir'], '')).trim(),
+      bidang_ajar: String(API.pick(userObj, ['bidang_ajar'], '')).trim(),
+      bio: String(API.pick(userObj, ['bio'], '')).trim(),
+      foto_url: String(API.pick(userObj, ['foto_url'], '')).trim(),
       loginAt: new Date().toISOString(),
     };
+  }
+
+  function showLoginError(msg) {
+    const errorBox = document.getElementById('login-error-box');
+    const errorMsg = document.getElementById('login-error-msg');
+    if (!errorBox || !errorMsg) return;
+    if (msg) {
+      errorMsg.textContent = msg;
+      errorBox.hidden = false;
+    } else {
+      errorMsg.textContent = '';
+      errorBox.hidden = true;
+    }
   }
 
   function initLoginAndLogout() {
@@ -640,21 +713,8 @@
     const passwordInput = document.getElementById('login-password');
     const toggleBtn = document.getElementById('btn-toggle-password');
     const submitBtn = document.getElementById('btn-login-submit');
-    const errorBox = document.getElementById('login-error-box');
-    const errorMsg = document.getElementById('login-error-msg');
     const logoutBtn = document.getElementById('btn-logout');
     const recheckBtn = document.getElementById('btn-recheck-api');
-
-    function showLoginError(msg) {
-      if (!errorBox || !errorMsg) return;
-      if (msg) {
-        errorMsg.textContent = msg;
-        errorBox.hidden = false;
-      } else {
-        errorMsg.textContent = '';
-        errorBox.hidden = true;
-      }
-    }
 
     if (recheckBtn) {
       recheckBtn.addEventListener('click', checkBackendHealth);
@@ -704,28 +764,7 @@
 
     if (logoutBtn) {
       logoutBtn.addEventListener('click', () => {
-        if (root.MDTA_ADMIN && typeof root.MDTA_ADMIN.cleanup === 'function') {
-          root.MDTA_ADMIN.cleanup();
-        }
-        if (root.MDTA_GURU && typeof root.MDTA_GURU.cleanup === 'function') {
-          root.MDTA_GURU.cleanup();
-        }
-        clearSession();
-        if (usernameInput) usernameInput.value = '';
-        if (passwordInput) {
-          passwordInput.value = '';
-          passwordInput.type = 'password';
-        }
-        if (toggleBtn) {
-          toggleBtn.setAttribute('aria-pressed', 'false');
-          toggleBtn.setAttribute('aria-label', 'Tampilkan kata sandi');
-          toggleBtn.innerHTML = '<i data-lucide="eye" aria-hidden="true"></i>';
-          UI.refreshIcons(toggleBtn);
-        }
-        showLoginError('');
-        routeToPortal(null);
-        UI.toast('Anda telah keluar dari sistem.', 'info');
-        if (usernameInput) usernameInput.focus();
+        performLogout('Anda telah keluar dari sistem.', 'info');
       });
     }
   }
@@ -770,6 +809,8 @@
   document.addEventListener('DOMContentLoaded', () => {
     UI.refreshIcons(document);
     UI.bindSpotlights(document);
+    if (typeof UI.initMotionInteractions === 'function') UI.initMotionInteractions();
+    if (typeof UI.initCustomSelects === 'function') UI.initCustomSelects(document);
     initTheme();
     initScrollProgress();
     initNavDrawer();

@@ -67,6 +67,55 @@
     return `N:${String((s && (s.nama_lengkap || s.nama_santri)) || '').trim().toLowerCase()}||${normKelasKey(s && s.kelas)}`;
   }
 
+  function resolveClassKategori(kelasName) {
+    const kKey = normKelasKey(kelasName);
+    const found = (STATE.kelas || []).find((c) => normKelasKey(c.nama_kelas) === kKey);
+    if (found && found.kategori_program) return found.kategori_program;
+    if (typeof API.normalizeKategoriProgram === 'function') {
+      return API.normalizeKategoriProgram('', kelasName);
+    }
+    return 'Diniyyah';
+  }
+
+  function resolveSingleClassForSantri(santriKelasRaw, preferredKelas, allowedList) {
+    const classes = API.parseKelasAmpu(santriKelasRaw);
+    const pref = String(preferredKelas || '').trim();
+    if (pref && (classes.length === 0 || API.isKelasAllowed(pref, classes))) {
+      return classes.find((c) => normKelasKey(c) === normKelasKey(pref)) || pref;
+    }
+    if (Array.isArray(allowedList) && allowedList.length > 0) {
+      const scoped = classes.find((c) => API.isKelasAllowed(c, allowedList));
+      if (scoped) return scoped;
+    }
+    return classes[0] || pref || String(santriKelasRaw || '').trim();
+  }
+
+  function buildGroupedClassOptionsHtml(classNames, scope, emptyLabel, includeAllOption) {
+    const list = Array.isArray(classNames) ? classNames : [];
+    if (scope === 'guru' && list.length === 0) {
+      return `<option value="">${UI.esc(emptyLabel || 'Belum ada kelas ampu')}</option>`;
+    }
+    const groups = new Map();
+    list.forEach((k) => {
+      const kat = resolveClassKategori(k);
+      if (!groups.has(kat)) groups.set(kat, []);
+      groups.get(kat).push(k);
+    });
+    const parts = includeAllOption ? ['<option value="">Semua Kelas</option>'] : [];
+    if (groups.size > 1) {
+      const order = CONFIG.PROGRAM_CATEGORIES || ['Diniyyah', 'Tahfidz', 'Tarikh', 'Wustho'];
+      Array.from(groups.keys())
+        .sort((a, b) => ((order.indexOf(a) >= 0 ? order.indexOf(a) : 99) - (order.indexOf(b) >= 0 ? order.indexOf(b) : 99)))
+        .forEach((kat) => {
+          const opts = (groups.get(kat) || []).map((k) => `<option value="${UI.esc(k)}">${UI.esc(k)}</option>`).join('');
+          parts.push(`<optgroup label="Program ${UI.esc(kat)}">${opts}</optgroup>`);
+        });
+    } else {
+      list.forEach((k) => parts.push(`<option value="${UI.esc(k)}">${UI.esc(k)}</option>`));
+    }
+    return parts.join('');
+  }
+
   function getActiveScopedSantri(scope, sessionObj, selectedKelas) {
     const sess = sessionObj || getScopeSession(scope);
     const pool = Array.isArray(STATE.santri) ? STATE.santri : [];
@@ -207,7 +256,7 @@
           <div class="section-toolbar" style="margin-bottom:0;">
             <div>
               <h3 class="heading-md">Daftar Santri Kelas</h3>
-              <p id="${scope}-uas-limits-hint" class="text-muted" style="margin:4px 0 0;font-size:0.8125rem;">Batas skema: Maks 25 PG, Maks 10 Essay (Setengah Benar = 0.5x Essay).</p>
+              <p id="${scope}-uas-limits-hint" class="text-muted" style="margin:2px 0 0;font-size:0.78rem;">Batas skema: Maks 25 PG, Maks 10 Essay (Setengah Benar = 0.5x Essay).</p>
             </div>
             <span id="${scope}-uas-roster-count" class="status-badge status-izin mono-num">0 santri</span>
           </div>
@@ -257,7 +306,7 @@
           <div class="section-toolbar" style="margin-bottom:0;">
             <div>
               <h3 class="heading-md">Riwayat Nilai UAS</h3>
-              <p class="text-muted" style="margin:4px 0 0;font-size:0.8125rem;">Data resmi yang tersimpan di Admin. Gunakan Bersihkan Log / Reset Sesi sebelum memulai sesi penilaian baru.</p>
+              <p class="text-muted" style="margin:2px 0 0;font-size:0.78rem;">Data resmi yang tersimpan di Admin. Gunakan Bersihkan Log / Reset Sesi sebelum memulai sesi penilaian baru.</p>
             </div>
             <div class="toolbar-actions">
               <button type="button" id="${scope}-uas-clear-session" class="btn btn-danger btn-sm">
@@ -408,26 +457,7 @@
         return;
       }
       kelasInput.disabled = false;
-      const groups = new Map();
-      allowed.forEach((k) => {
-        const found = (STATE.kelas || []).find((c) => normKelasKey(c.nama_kelas) === normKelasKey(k));
-        const kat = (found && found.kategori_program) || (typeof API.normalizeKategoriProgram === 'function' ? API.normalizeKategoriProgram('', k) : 'Diniyyah');
-        if (!groups.has(kat)) groups.set(kat, []);
-        groups.get(kat).push(k);
-      });
-      const parts = scope === 'guru' ? [] : ['<option value="">Semua Kelas</option>'];
-      if (groups.size > 1) {
-        const order = CONFIG.PROGRAM_CATEGORIES || ['Diniyyah', 'Tahfidz', 'Tarikh', 'Wustho'];
-        Array.from(groups.keys())
-          .sort((a, b) => ((order.indexOf(a) >= 0 ? order.indexOf(a) : 99) - (order.indexOf(b) >= 0 ? order.indexOf(b) : 99)))
-          .forEach((kat) => {
-            const opts = (groups.get(kat) || []).map((k) => `<option value="${UI.esc(k)}">${UI.esc(k)}</option>`).join('');
-            parts.push(`<optgroup label="Program ${UI.esc(kat)}">${opts}</optgroup>`);
-          });
-      } else {
-        allowed.forEach((k) => parts.push(`<option value="${UI.esc(k)}">${UI.esc(k)}</option>`));
-      }
-      kelasInput.innerHTML = parts.join('');
+      kelasInput.innerHTML = buildGroupedClassOptionsHtml(allowed, scope, 'Belum ada kelas ampu', scope !== 'guru');
       if (cur && allowed.some((k) => normKelasKey(k) === normKelasKey(cur))) {
         const exact = allowed.find((k) => normKelasKey(k) === normKelasKey(cur));
         if (exact) kelasInput.value = exact;
@@ -916,6 +946,7 @@
       }
 
       const periode = `${semSelect.value} ${tahunInput.value.trim()}`;
+      const activeKelasFilter = kelasInput ? String(kelasInput.value || '').trim() : '';
       const batchPayloads = [];
 
       evalState.roster.forEach((s) => {
@@ -927,11 +958,17 @@
         if (scope === 'guru' && !API.isKelasAllowed(s.kelas, allowedClasses)) {
           return;
         }
+        const targetKelas = resolveSingleClassForSantri(
+          s.kelas,
+          activeKelasFilter,
+          scope === 'guru' ? allowedClasses : null
+        );
         batchPayloads.push({
           id_uas: draft.id_uas || '',
           id_santri: s.id_santri || '',
           nama_santri: s.nama_lengkap,
-          kelas: s.kelas,
+          kelas: targetKelas,
+          kategori_program: resolveClassKategori(targetKelas),
           periode,
           skema_soal: evalState.scheme.label,
           pg_benar: calc.pgVal,
@@ -1068,16 +1105,23 @@
           return;
         }
 
+        const activeKelasFilter = kelasInput ? String(kelasInput.value || '').trim() : '';
+        const allowedForCopy = getAllowedClasses(scope, getScopeSession(scope));
         let entries = [];
         evalState.roster.forEach((s) => {
           const sKey = getSantriRowKey(s);
           const draft = getRowDraft(sKey);
           const calc = computeRowUAS(draft, evalState.scheme);
           if (!calc.hasValue) return;
+          const targetKelas = resolveSingleClassForSantri(
+            s.kelas,
+            activeKelasFilter,
+            scope === 'guru' ? allowedForCopy : null
+          );
           entries.push({
             id_santri: s.id_santri || '',
             nama_lengkap: s.nama_lengkap,
-            kelas: s.kelas,
+            kelas: targetKelas,
             uas: calc.nilaiAkhir,
           });
         });
@@ -1548,7 +1592,7 @@
 
         <!-- Pengaturan Bobot (Default 40 / 40 / 20) -->
         <div class="sub-surface no-print">
-          <div class="section-toolbar" style="margin-bottom:10px;">
+          <div class="section-toolbar" style="margin-bottom:8px;">
             <strong style="font-size:0.9rem;">Pengaturan Bobot Penilaian (%)</strong>
             <div class="toolbar-actions">
               <span id="${scope}-raport-weight-badge" class="status-badge status-hadir mono-num">Total: 100%</span>
@@ -1574,7 +1618,7 @@
               <datalist id="${scope}-raport-mapel-list">${mapelOptions}</datalist>
             </div>
           </div>
-          <div class="form-grid" style="margin-top:12px;">
+          <div class="form-grid" style="margin-top:8px;">
             <div class="field-group">
               <label class="field-label" for="${scope}-raport-kelas-filter">Filter Kelas</label>
               <select id="${scope}-raport-kelas-filter" class="select-control">
@@ -1727,9 +1771,7 @@
           return;
         }
         kelasFilter.disabled = false;
-        kelasFilter.innerHTML = allowed
-          .map((k) => `<option value="${UI.esc(k)}">${UI.esc(k)}</option>`)
-          .join('');
+        kelasFilter.innerHTML = buildGroupedClassOptionsHtml(allowed, 'guru', 'Belum ada kelas ampu', false);
         if (cur && API.isKelasAllowed(cur, allowed)) {
           const matchedOpt = allowed.find((k) => normKelasKey(k) === normKelasKey(cur));
           kelasFilter.value = matchedOpt || allowed[0];
@@ -1741,17 +1783,16 @@
 
       const set = new Set(getAllowedClasses('admin', sess));
       (STATE.santri || []).forEach((s) => {
-        if (s.kelas) set.add(s.kelas);
+        if (s.kelas) {
+          API.parseKelasAmpu(s.kelas).forEach((k) => set.add(k));
+        }
       });
       STATE.raportRows.forEach((r) => {
         if (r.kelas) set.add(r.kelas);
       });
+      const allSorted = Array.from(set);
       kelasFilter.disabled = false;
-      kelasFilter.innerHTML =
-        '<option value="">Semua Kelas</option>' +
-        Array.from(set)
-          .map((k) => `<option value="${UI.esc(k)}">${UI.esc(k)}</option>`)
-          .join('');
+      kelasFilter.innerHTML = buildGroupedClassOptionsHtml(allSorted, 'admin', 'Belum ada kelas', true);
       if (cur && set.has(cur)) kelasFilter.value = cur;
     }
 
@@ -1950,14 +1991,19 @@
           );
           if (match) {
             targetRow.id_santri = match.id_santri;
-            if ((!targetRow.kelas || scope === 'guru') && match.kelas) {
-              targetRow.kelas = match.kelas;
+            const resolvedMatchKelas = resolveSingleClassForSantri(
+              match.kelas,
+              kelasFilter.value,
+              scope === 'guru' ? getAllowedClasses(scope, liveSess) : null
+            );
+            if ((!targetRow.kelas || scope === 'guru') && resolvedMatchKelas) {
+              targetRow.kelas = resolvedMatchKelas;
               const kEl = tr.querySelector('[data-field="kelas"]');
               if (kEl) {
                 const matchOpt = Array.from(kEl.options || []).find(
-                  (o) => normKelasKey(o.value) === normKelasKey(match.kelas)
+                  (o) => normKelasKey(o.value) === normKelasKey(resolvedMatchKelas)
                 );
-                kEl.value = matchOpt ? matchOpt.value : match.kelas;
+                kEl.value = matchOpt ? matchOpt.value : resolvedMatchKelas;
               }
             }
           }
@@ -2178,11 +2224,27 @@
       }
       try {
         const now = new Date();
+        const semVal = (semSelect && semSelect.value) || '';
+        const taVal = (tahunInput && tahunInput.value) || '';
+        const needSantri = force || !STATE.santri || STATE.santri.length === 0 || !STATE.loaded.santri;
+        const needRaport = force || !STATE.nilaiRaportSaved || STATE.nilaiRaportSaved.length === 0 || !STATE.loaded.bootstrap;
+
+        const [santriOutcome, rekapOutcome, raportOutcome] = await Promise.allSettled([
+          needSantri ? API.getSantri() : Promise.resolve(null),
+          API.getRekapLaporan(now.getMonth() + 1, now.getFullYear(), {
+            semester: semVal,
+            tahun_ajaran: taVal,
+          }).catch(() => null),
+          needRaport ? API.getNilaiRaport().catch(() => null) : Promise.resolve(null),
+        ]);
+        if (mySeq !== raportSyncSeq) return;
+
         let santriList = STATE.santri || [];
-        if (force || santriList.length === 0 || !STATE.loaded.santri) {
-          const santriRes = await API.getSantri();
-          if (mySeq !== raportSyncSeq) return;
-          santriList = API.extractArray(santriRes, ['santri']).map(API.normalizeSantri);
+        if (needSantri) {
+          if (santriOutcome.status === 'rejected') {
+            throw santriOutcome.reason;
+          }
+          santriList = API.extractArray(santriOutcome.value, ['santri']).map(API.normalizeSantri);
           if (scope === 'guru') santriList = API.filterByGuruScope(santriList, sess, 'kelas');
           STATE.santri = santriList;
           STATE.loaded.santri = true;
@@ -2192,15 +2254,9 @@
         }
         santriList = santriList.filter((s) => API.isActiveSantri(s));
 
-        let rekapMap = new Map();
-        try {
-          const semVal = (typeof semesterSelect !== 'undefined' && semesterSelect && semesterSelect.value) || '';
-          const taVal = (typeof tahunAjaranInput !== 'undefined' && tahunAjaranInput && tahunAjaranInput.value) || '';
-          const rekapRes = await API.getRekapLaporan(now.getMonth() + 1, now.getFullYear(), {
-            semester: semVal,
-            tahun_ajaran: taVal,
-          });
-          if (mySeq !== raportSyncSeq) return;
+        const rekapMap = new Map();
+        const rekapRes = rekapOutcome.status === 'fulfilled' ? rekapOutcome.value : null;
+        if (rekapRes) {
           const rekapList = API.extractArray(rekapRes, ['rekap']).map(API.normalizeRekap);
           rekapList.forEach((rk) => {
             if (rk.total > 0) {
@@ -2209,23 +2265,20 @@
               rekapMap.set(`${rk.nama_lengkap.trim().toLowerCase()}::${kKey}`, rk.persentase);
             }
           });
-        } catch (err) {
-          // Gunakan nilai raport tersimpan bila rekap bulan belum tersedia
         }
 
         let savedRaportList = STATE.nilaiRaportSaved || [];
-        if (force || savedRaportList.length === 0 || !STATE.loaded.bootstrap) {
-          try {
-            const rptRes = await API.getNilaiRaport();
-            if (mySeq !== raportSyncSeq) return;
+        if (needRaport) {
+          const rptRes = raportOutcome.status === 'fulfilled' ? raportOutcome.value : null;
+          if (rptRes) {
             savedRaportList = API.extractArray(rptRes, ['raport'])
               .map(API.normalizeNilaiRaport)
               .filter((r) => isValidNamaSantri(r.nama_santri));
             if (scope === 'guru') savedRaportList = API.filterByGuruScope(savedRaportList, sess, 'kelas');
             STATE.nilaiRaportSaved = savedRaportList;
             if (CACHE_CUR) CACHE_CUR.write('nilaiRaportSaved', savedRaportList);
-          } catch (err) {
-            savedRaportList = STATE.nilaiRaportSaved || [];
+          } else if (scope === 'guru') {
+            savedRaportList = API.filterByGuruScope(savedRaportList, sess, 'kelas');
           }
         } else if (scope === 'guru') {
           savedRaportList = API.filterByGuruScope(savedRaportList, sess, 'kelas');

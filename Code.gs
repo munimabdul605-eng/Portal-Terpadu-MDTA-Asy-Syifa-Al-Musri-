@@ -30,6 +30,17 @@ const LOG_SETORAN_HEADERS = [
   'waktu_submit'
 ];
 
+const KELAS_SCHEDULE_COLUMNS = [
+  'hari_mengajar',
+  'jam_mulai',
+  'jam_selesai',
+  'override_tanggal',
+  'override_status',
+  'override_jam_mulai',
+  'override_jam_selesai',
+  'override_catatan'
+];
+
 const KELAS_HEADERS = [
   'id_kelas',
   'nama_kelas',
@@ -38,7 +49,7 @@ const KELAS_HEADERS = [
   'keterangan',
   'status',
   'created_at'
-];
+].concat(KELAS_SCHEDULE_COLUMNS);
 
 const USER_PROFILE_COLUMNS = [
   'no_wa',
@@ -68,7 +79,8 @@ const SANTRI_EXTRA_COLUMNS = [
   'nis',
   'nik',
   'tempat_lahir',
-  'tanggal_lahir'
+  'tanggal_lahir',
+  'nama_ayah_kandung'
 ];
 
 /**
@@ -233,6 +245,7 @@ const STATIC_CACHE_KEYS = [
   'mdta_getDashboard',
   'mdta_getSantri',
   'mdta_getUsers',
+  'mdta_loginUsers',
   'mdta_getDokumenArsip',
   'mdta_getNilaiRaport',
   'mdta_getLogSetoran_all',
@@ -351,41 +364,215 @@ function invalidateScriptCache() {
   return bumpSyncVersion();
 }
 
+function isSchemaCached(key) {
+  const cache = getScriptCacheSafe();
+  if (!cache) return false;
+  try {
+    return cache.get('mdta_schema_ok_v2_' + key) === '1';
+  } catch (err) {
+    return false;
+  }
+}
+
+function markSchemaCached(key) {
+  const cache = getScriptCacheSafe();
+  if (!cache) return;
+  try {
+    cache.put('mdta_schema_ok_v2_' + key, '1', 21600);
+  } catch (err) {
+    // Abaikan jika CacheService tidak tersedia
+  }
+}
+
+function buildRowArrayForHeaders(headers, valuesByHeader, existingRow) {
+  return headers.map(h => {
+    if (valuesByHeader && Object.prototype.hasOwnProperty.call(valuesByHeader, h) && valuesByHeader[h] !== undefined) {
+      return valuesByHeader[h];
+    }
+    if (existingRow && Object.prototype.hasOwnProperty.call(existingRow, h) && existingRow[h] !== undefined) {
+      return existingRow[h];
+    }
+    return '';
+  });
+}
+
+function batchWriteRows(sheet, rowUpdates) {
+  if (!sheet || !Array.isArray(rowUpdates) || rowUpdates.length === 0) return;
+  const sorted = rowUpdates
+    .filter(u => u && u.rowIndex >= 2 && Array.isArray(u.values) && u.values.length > 0)
+    .slice()
+    .sort((a, b) => a.rowIndex - b.rowIndex);
+  if (sorted.length === 0) return;
+
+  let runStart = sorted[0].rowIndex;
+  let runWidth = sorted[0].values.length;
+  let runValues = [sorted[0].values];
+
+  for (let i = 1; i < sorted.length; i++) {
+    const item = sorted[i];
+    if (item.rowIndex === runStart + runValues.length && item.values.length === runWidth) {
+      runValues.push(item.values);
+    } else {
+      sheet.getRange(runStart, 1, runValues.length, runWidth).setValues(runValues);
+      runStart = item.rowIndex;
+      runWidth = item.values.length;
+      runValues = [item.values];
+    }
+  }
+  sheet.getRange(runStart, 1, runValues.length, runWidth).setValues(runValues);
+}
+
+function batchAppendRows(sheet, rowsMatrix) {
+  if (!sheet || !Array.isArray(rowsMatrix) || rowsMatrix.length === 0) {
+    return sheet ? sheet.getLastRow() : 0;
+  }
+  const width = rowsMatrix.reduce((mx, r) => Math.max(mx, Array.isArray(r) ? r.length : 0), 0);
+  if (width <= 0) return sheet.getLastRow();
+  const normalized = rowsMatrix.map(r => {
+    const arr = Array.isArray(r) ? r.slice(0, width) : [];
+    while (arr.length < width) arr.push('');
+    return arr;
+  });
+  const startRow = Math.max(2, sheet.getLastRow() + 1);
+  const endRow = startRow + normalized.length - 1;
+  if (typeof sheet.getMaxRows === 'function' && typeof sheet.insertRowsAfter === 'function') {
+    const maxR = sheet.getMaxRows();
+    if (endRow > maxR) {
+      sheet.insertRowsAfter(maxR, endRow - maxR);
+    }
+  }
+  sheet.getRange(startRow, 1, normalized.length, width).setValues(normalized);
+  return endRow;
+}
+
+function batchWriteColumnValues(sheet, colIdx, totalDataRows, updates, allValuesByRow) {
+  if (!sheet || colIdx <= 0 || !Array.isArray(updates) || updates.length === 0) return;
+  if (updates.length > 3 && Array.isArray(allValuesByRow) && totalDataRows > 0 && allValuesByRow.length === totalDataRows) {
+    const matrix = allValuesByRow.map(v => [v !== undefined ? v : '']);
+    sheet.getRange(2, colIdx, totalDataRows, 1).setValues(matrix);
+    return;
+  }
+  const sorted = updates
+    .filter(u => u && u.rowIndex >= 2)
+    .slice()
+    .sort((a, b) => a.rowIndex - b.rowIndex);
+  if (sorted.length === 0) return;
+
+  let runStart = sorted[0].rowIndex;
+  let runVals = [[sorted[0].value !== undefined ? sorted[0].value : '']];
+  for (let i = 1; i < sorted.length; i++) {
+    const item = sorted[i];
+    if (item.rowIndex === runStart + runVals.length) {
+      runVals.push([item.value !== undefined ? item.value : '']);
+    } else {
+      sheet.getRange(runStart, colIdx, runVals.length, 1).setValues(runVals);
+      runStart = item.rowIndex;
+      runVals = [[item.value !== undefined ? item.value : '']];
+    }
+  }
+  sheet.getRange(runStart, colIdx, runVals.length, 1).setValues(runVals);
+}
+
+function deleteSheetRowIndices(sheet, rowIndices) {
+  if (!sheet || !Array.isArray(rowIndices) || rowIndices.length === 0) return;
+  const uniqueAsc = Array.from(new Set(rowIndices.filter(idx => idx >= 2))).sort((a, b) => a - b);
+  if (uniqueAsc.length === 0) return;
+
+  const runs = [];
+  let start = uniqueAsc[0];
+  let len = 1;
+  for (let i = 1; i < uniqueAsc.length; i++) {
+    if (uniqueAsc[i] === start + len) {
+      len++;
+    } else {
+      runs.push({ start, len });
+      start = uniqueAsc[i];
+      len = 1;
+    }
+  }
+  runs.push({ start, len });
+
+  for (let i = runs.length - 1; i >= 0; i--) {
+    const run = runs[i];
+    if (typeof sheet.deleteRows === 'function') {
+      sheet.deleteRows(run.start, run.len);
+    } else {
+      for (let r = run.start + run.len - 1; r >= run.start; r--) {
+        sheet.deleteRow(r);
+      }
+    }
+  }
+}
+
+/**
+ * Helper Auto-Schema batch: memastikan daftar kolom ada di baris header dalam 1 batch write
+ */
+function ensureColumns(sheet, columnNames) {
+  const cleanCols = [];
+  const seen = new Set();
+  (Array.isArray(columnNames) ? columnNames : [columnNames]).forEach(col => {
+    const name = String(col || '').trim();
+    if (!name) return;
+    const key = name.toLowerCase();
+    if (!seen.has(key)) {
+      seen.add(key);
+      cleanCols.push(name);
+    }
+  });
+  if (!sheet || cleanCols.length === 0) return [];
+
+  const sheetName = typeof sheet.getName === 'function' ? sheet.getName() : '';
+  if (sheet.getLastRow() === 0 || sheet.getLastColumn() === 0) {
+    sheet.appendRow(cleanCols);
+    sheet.getRange(1, 1, 1, cleanCols.length).setFontWeight('bold');
+    if (sheetName) delete _requestSheetData[sheetName];
+    return cleanCols;
+  }
+
+  const lastCol = sheet.getLastColumn();
+  const headers = sheet.getRange(1, 1, 1, lastCol).getValues()[0].map(h => String(h || '').trim());
+  const existingSet = new Set(headers.map(h => h.toLowerCase()));
+  const missing = cleanCols.filter(col => !existingSet.has(col.toLowerCase()));
+
+  if (missing.length > 0) {
+    const startCol = headers.length + 1;
+    const neededTotal = headers.length + missing.length;
+    if (typeof sheet.getMaxColumns === 'function') {
+      let maxCols = sheet.getMaxColumns();
+      if (neededTotal > maxCols) {
+        if (typeof sheet.insertColumnsAfter === 'function') {
+          sheet.insertColumnsAfter(maxCols, neededTotal - maxCols);
+        } else if (typeof sheet.insertColumnAfter === 'function') {
+          while (sheet.getMaxColumns() < neededTotal) {
+            sheet.insertColumnAfter(sheet.getMaxColumns());
+          }
+        }
+      }
+    }
+    sheet.getRange(1, startCol, 1, missing.length).setValues([missing]).setFontWeight('bold');
+    if (sheetName) delete _requestSheetData[sheetName];
+    return headers.concat(missing);
+  }
+  return headers;
+}
+
 /**
  * Helper Auto-Schema: memastikan kolom tertentu ada di baris header suatu sheet
  */
 function ensureColumn(sheet, columnName) {
   const targetName = String(columnName || '').trim();
   if (!sheet || !targetName) return -1;
-
-  const sheetName = typeof sheet.getName === 'function' ? sheet.getName() : '';
-  if (sheet.getLastRow() === 0 || sheet.getLastColumn() === 0) {
-    sheet.appendRow([targetName]);
-    sheet.getRange(1, 1, 1, 1).setFontWeight('bold');
-    if (sheetName) delete _requestSheetData[sheetName];
-    return 1;
-  }
-
-  const lastCol = sheet.getLastColumn();
-  const headers = sheet.getRange(1, 1, 1, lastCol).getValues()[0].map(h => String(h || '').trim());
-  const existingIdx = headers.findIndex(h => h.toLowerCase() === targetName.toLowerCase());
-  if (existingIdx >= 0) {
-    return existingIdx + 1;
-  }
-
-  const newCol = headers.length + 1;
-  if (typeof sheet.getMaxColumns === 'function' && typeof sheet.insertColumnAfter === 'function' && newCol > sheet.getMaxColumns()) {
-    sheet.insertColumnAfter(sheet.getMaxColumns());
-  }
-  sheet.getRange(1, newCol).setValue(targetName).setFontWeight('bold');
-  if (sheetName) delete _requestSheetData[sheetName];
-  return newCol;
+  const headers = ensureColumns(sheet, [targetName]);
+  const idx = headers.findIndex(h => h.toLowerCase() === targetName.toLowerCase());
+  return idx >= 0 ? idx + 1 : -1;
 }
 
 /**
  * Helper Auto-Schema: memastikan sheet beserta kolom header-nya ada
  */
 function ensureSheet(sheetName, headers) {
+  const flagKey = 'sheet_' + sheetName;
+  if (_requestEnsured[flagKey]) return _requestEnsured[flagKey];
   const ss = getSpreadsheet();
   const hdrs = Array.isArray(headers) ? headers.slice() : [];
   let sheet = ss.getSheetByName(sheetName);
@@ -395,8 +582,10 @@ function ensureSheet(sheetName, headers) {
       sheet.appendRow(hdrs);
       sheet.getRange(1, 1, 1, hdrs.length).setFontWeight('bold');
       sheet.setFrozenRows(1);
+      markSchemaCached(flagKey);
     }
     delete _requestSheetData[sheetName];
+    _requestEnsured[flagKey] = sheet;
     return sheet;
   }
 
@@ -404,11 +593,19 @@ function ensureSheet(sheetName, headers) {
     sheet.appendRow(hdrs);
     sheet.getRange(1, 1, 1, hdrs.length).setFontWeight('bold');
     sheet.setFrozenRows(1);
+    markSchemaCached(flagKey);
     delete _requestSheetData[sheetName];
+    _requestEnsured[flagKey] = sheet;
     return sheet;
   }
 
-  hdrs.forEach(h => ensureColumn(sheet, h));
+  if (hdrs.length > 0 && !isSchemaCached(flagKey)) {
+    ensureColumns(sheet, hdrs);
+    if (sheet.getLastRow() > 0) {
+      markSchemaCached(flagKey);
+    }
+  }
+  _requestEnsured[flagKey] = sheet;
   return sheet;
 }
 
@@ -484,10 +681,114 @@ function ensureSheetProgramColumn(sheetName) {
   const ss = getSpreadsheet();
   const sheet = ss.getSheetByName(sheetName);
   if (sheet) {
-    ensureColumn(sheet, 'kategori_program');
+    if (!(sheet.getLastRow() > 0 && isSchemaCached(flagKey))) {
+      ensureColumns(sheet, ['kategori_program']);
+      if (sheet.getLastRow() > 0) markSchemaCached(flagKey);
+    }
   }
   _requestEnsured[flagKey] = sheet || true;
   return sheet;
+}
+
+const KELAS_DAY_ORDER = ['Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab', 'Min'];
+
+function defaultHariMengajarForProgram(kategoriProgram) {
+  const kat = normalizeKategoriProgram(kategoriProgram, '');
+  return kat === 'Wustho' ? 'Sen,Sel,Rab,Kam,Jum,Sab,Min' : 'Sen,Sel,Rab,Kam,Jum';
+}
+
+function padTwoDigits(n) {
+  const num = Number(n);
+  return (num < 10 ? '0' : '') + String(num);
+}
+
+function normalizeTimeHHMM(val) {
+  if (val === undefined || val === null || val === '') return '';
+  if (val instanceof Date) {
+    const hms = Utilities.formatDate(val, 'Asia/Jakarta', 'HH:mm:ss');
+    return String(hms || '').slice(0, 5);
+  }
+  const s = String(val).trim();
+  if (!s) return '';
+  const directMatch = s.match(/^(\d{1,2})[:.](\d{2})(?::\d{2})?$/);
+  if (directMatch) {
+    const hh = parseInt(directMatch[1], 10);
+    const mm = parseInt(directMatch[2], 10);
+    if (hh >= 0 && hh <= 23 && mm >= 0 && mm <= 59) {
+      return padTwoDigits(hh) + ':' + padTwoDigits(mm);
+    }
+    return '';
+  }
+  const isoParsed = new Date(s);
+  if (!isNaN(isoParsed.getTime())) {
+    const hms = Utilities.formatDate(isoParsed, 'Asia/Jakarta', 'HH:mm:ss');
+    return String(hms || '').slice(0, 5);
+  }
+  return '';
+}
+
+function parseLegacyJadwalRange(rawJadwal) {
+  const raw = String(rawJadwal || '').trim();
+  if (!raw) return { jam_mulai: '', jam_selesai: '' };
+  const matches = raw.match(/\d{1,2}[:.]\d{2}/g) || [];
+  const start = matches[0] ? normalizeTimeHHMM(matches[0]) : '';
+  const end = matches[1] ? normalizeTimeHHMM(matches[1]) : '';
+  return { jam_mulai: start, jam_selesai: end };
+}
+
+function mapSingleHariToken(tok) {
+  const clean = String(tok || '').trim().toLowerCase().replace(/[^a-z]/g, '');
+  if (!clean) return '';
+  if (clean.indexOf('sen') === 0) return 'Sen';
+  if (clean.indexOf('sel') === 0) return 'Sel';
+  if (clean.indexOf('rab') === 0) return 'Rab';
+  if (clean.indexOf('kam') === 0) return 'Kam';
+  if (clean.indexOf('jum') === 0) return 'Jum';
+  if (clean.indexOf('sab') === 0) return 'Sab';
+  if (clean.indexOf('min') === 0 || clean.indexOf('ahad') === 0) return 'Min';
+  return '';
+}
+
+function normalizeHariMengajar(raw, kategoriProgram, allowEmpty) {
+  const picked = {};
+  const list = Array.isArray(raw)
+    ? raw
+    : String(raw || '').split(/[,;|]+/);
+
+  list.forEach(item => {
+    const part = String(item || '').trim();
+    if (!part) return;
+    const rangeParts = part.split(/\s*(?:-|s\/d|sd|hingga)\s*/i);
+    if (rangeParts.length === 2) {
+      const d1 = mapSingleHariToken(rangeParts[0]);
+      const d2 = mapSingleHariToken(rangeParts[1]);
+      const i1 = KELAS_DAY_ORDER.indexOf(d1);
+      const i2 = KELAS_DAY_ORDER.indexOf(d2);
+      if (i1 >= 0 && i2 >= i1) {
+        for (let idx = i1; idx <= i2; idx++) {
+          picked[KELAS_DAY_ORDER[idx]] = true;
+        }
+        return;
+      }
+    }
+    part.split(/\s+/).forEach(word => {
+      const mapped = mapSingleHariToken(word);
+      if (mapped) picked[mapped] = true;
+    });
+  });
+
+  const ordered = KELAS_DAY_ORDER.filter(d => Boolean(picked[d]));
+  if (ordered.length === 0) {
+    return allowEmpty ? '' : defaultHariMengajarForProgram(kategoriProgram);
+  }
+  return ordered.join(',');
+}
+
+function normalizeOverrideStatus(raw) {
+  const s = String(raw || '').trim().toLowerCase();
+  if (s === 'libur') return 'Libur';
+  if (s === 'ubah jam' || s === 'ubah_jam' || s === 'ganti jam') return 'Ubah Jam';
+  return 'Normal';
 }
 
 function ensureAbsensiGuruSheet() {
@@ -505,22 +806,27 @@ function ensureUsersSchema() {
   const ss = getSpreadsheet();
   const sheet = ss.getSheetByName('Users');
   if (sheet) {
-    ensureColumn(sheet, 'kelas_ampu');
-    USER_PROFILE_COLUMNS.forEach(col => ensureColumn(sheet, col));
+    if (!(sheet.getLastRow() > 0 && isSchemaCached('users'))) {
+      ensureColumns(sheet, ['kelas_ampu'].concat(USER_PROFILE_COLUMNS));
+      if (sheet.getLastRow() > 0) markSchemaCached('users');
+    }
   }
   _requestEnsured.users = sheet || true;
   return sheet;
 }
 
 /**
- * Memastikan sheet Santri memiliki kolom nis, nik, tempat_lahir, dan tanggal_lahir
+ * Memastikan sheet Santri memiliki kolom nis, nik, tempat_lahir, tanggal_lahir, dan nama_ayah_kandung
  */
 function ensureSantriSchema() {
   if (_requestEnsured.santri) return _requestEnsured.santri;
   const ss = getSpreadsheet();
   const sheet = ss.getSheetByName('Santri');
   if (sheet) {
-    SANTRI_EXTRA_COLUMNS.forEach(col => ensureColumn(sheet, col));
+    if (!(sheet.getLastRow() > 0 && isSchemaCached('santri'))) {
+      ensureColumns(sheet, SANTRI_EXTRA_COLUMNS);
+      if (sheet.getLastRow() > 0) markSchemaCached('santri');
+    }
   }
   _requestEnsured.santri = sheet || true;
   return sheet;
@@ -534,7 +840,15 @@ function ensureKelasSheet() {
   const ss = getSpreadsheet();
   const existing = ss.getSheetByName('Kelas');
   const hadData = Boolean(existing && existing.getLastRow() > 1);
+  if (hadData && isSchemaCached('kelas')) {
+    _requestEnsured.kelas = existing;
+    return existing;
+  }
   const sheet = ensureSheet('Kelas', KELAS_HEADERS);
+  if (!isSchemaCached('kelas_schedule')) {
+    KELAS_SCHEDULE_COLUMNS.forEach(col => ensureColumn(sheet, col));
+    markSchemaCached('kelas_schedule');
+  }
 
   if (!hadData) {
     const uniqueMap = {};
@@ -560,11 +874,34 @@ function ensureKelasSheet() {
 
     const now = Utilities.formatDate(new Date(), 'Asia/Jakarta', 'yyyy-MM-dd');
     const sortedNames = Object.keys(uniqueMap).map(k => uniqueMap[k]).sort();
-    sortedNames.forEach((namaKelas, idx) => {
-      const idKls = 'KLS-' + String(idx + 1).padStart(3, '0');
-      sheet.appendRow([idKls, namaKelas, '', 'Sinkron otomatis dari data santri', 'aktif', now]);
+    const seedRows = sortedNames.map((namaKelas, idx) => {
+      const katProg = normalizeKategoriProgram('', namaKelas);
+      const rowObj = {
+        id_kelas: 'KLS-' + String(idx + 1).padStart(3, '0'),
+        nama_kelas: namaKelas,
+        kategori_program: katProg,
+        tingkat: '',
+        keterangan: 'Sinkron otomatis dari data santri',
+        status: 'aktif',
+        created_at: now,
+        hari_mengajar: defaultHariMengajarForProgram(katProg),
+        jam_mulai: '',
+        jam_selesai: '',
+        override_tanggal: '',
+        override_status: 'Normal',
+        override_jam_mulai: '',
+        override_jam_selesai: '',
+        override_catatan: ''
+      };
+      return KELAS_HEADERS.map(h => rowObj[h] !== undefined ? rowObj[h] : '');
     });
+    if (seedRows.length > 0) {
+      batchAppendRows(sheet, seedRows);
+    }
     delete _requestSheetData['Kelas'];
+  }
+  if (sheet && sheet.getLastRow() > 1) {
+    markSchemaCached('kelas');
   }
 
   _requestEnsured.kelas = sheet;
@@ -737,12 +1074,23 @@ function doGet(e) {
       }
       case 'getPresensi':
         return jsonResponse(true, filterRowsByGuruScope(getSheetData('Presensi'), scope, 'kelas'));
-      case 'getRekapLaporan':
-        return jsonResponse(true, handleGetRekapLaporan(params.bulan, params.tahun, scope, params));
-      case 'getMonitoringGuru':
-        return jsonResponse(true, handleGetMonitoringGuru(params, scope));
-      case 'getNilaiUAS':
-        return jsonResponse(true, filterRowsByGuruScope(getSheetData('Nilai_UAS'), scope, 'kelas'));
+      case 'getRekapLaporan': {
+        const rkKey = 'mdta_rekap_v' + ver + '_' + String(params.bulan || '') + '_' + String(params.tahun || '') +
+          '_' + String(params.kategori_program || '').trim().toLowerCase() +
+          '_' + String(params.semester || '').trim().toLowerCase() +
+          '_' + String(params.tahun_ajaran || '').trim() + guruCacheSuffix;
+        return jsonResponse(true, cachedRead(rkKey, () => handleGetRekapLaporan(params.bulan, params.tahun, scope, params)));
+      }
+      case 'getMonitoringGuru': {
+        const monTgl = params.tanggal ? formatDateOnlyWIB(params.tanggal) : '';
+        const monKey = 'mdta_monGuru_v' + ver + '_' + monTgl + '_' + String(params.bulan || '') +
+          '_' + String(params.tahun || '') + '_' + String(params.id_guru || '').trim() + guruCacheSuffix;
+        return jsonResponse(true, cachedRead(monKey, () => handleGetMonitoringGuru(params, scope)));
+      }
+      case 'getNilaiUAS': {
+        const uasCacheKey = 'mdta_uas_v' + ver + guruCacheSuffix;
+        return jsonResponse(true, cachedRead(uasCacheKey, () => filterRowsByGuruScope(getSheetData('Nilai_UAS'), scope, 'kelas')));
+      }
       case 'getNilaiRaport': {
         const rptCacheKey = scope.isGuru ? ('mdta_nilaiRaport_v' + ver + guruCacheSuffix) : 'mdta_getNilaiRaport';
         return jsonResponse(true, cachedRead(rptCacheKey, () => handleGetNilaiRaport(scope)));
@@ -787,11 +1135,20 @@ function doGet(e) {
  * Menggunakan text/plain JSON body agar bebas dari masalah CORS preflight
  */
 function doPost(e) {
-  const lock = LockService.getScriptLock();
+  let lock = null;
+  let lockAcquired = false;
   try {
-    lock.waitLock(15000);
-    const payload = JSON.parse(e.postData.contents || '{}');
+    const payload = JSON.parse((e && e.postData && e.postData.contents) || '{}');
     const action = payload.action;
+
+    if (action === 'login') {
+      return jsonResponse(true, handleLogin(payload));
+    }
+
+    lock = LockService.getScriptLock();
+    lock.waitLock(15000);
+    lockAcquired = true;
+
     const rootScope = {
       role: payload.role,
       id_user: payload.id_user || payload.id_guru || payload.id_guru_piket,
@@ -799,15 +1156,14 @@ function doPost(e) {
     };
 
     switch (action) {
-      case 'login':
-        return jsonResponse(true, handleLogin(payload));
       case 'saveUser': {
         const res = handleSaveUser(payload.data);
         return jsonResponse(true, res, 'Data pengguna tersimpan.');
       }
       case 'deleteUser': {
         const res = handleDeleteById('Users', 'id_user', payload.id_user);
-        invalidateScriptCache();
+        const ts = invalidateScriptCache();
+        if (res && typeof res === 'object') res.sync_ts = ts;
         return jsonResponse(true, res, 'Pengguna dihapus.');
       }
       case 'saveKelas': {
@@ -816,22 +1172,24 @@ function doPost(e) {
       }
       case 'deleteKelas': {
         const res = handleDeleteKelas(payload);
-        invalidateScriptCache();
+        const ts = invalidateScriptCache();
+        if (res && typeof res === 'object') res.sync_ts = ts;
         return jsonResponse(true, res, 'Kelas berhasil dihapus.');
       }
       case 'saveKelasMapping': {
         const res = handleSaveKelasMapping(payload.data);
-        invalidateScriptCache();
+        const ts = invalidateScriptCache();
+        if (res && typeof res === 'object') res.sync_ts = ts;
         return jsonResponse(true, res, 'Pemetaan guru kelas berhasil disimpan.');
       }
       case 'saveKelasSantri': {
         const res = handleSaveKelasSantri(payload.data);
-        invalidateScriptCache();
         return jsonResponse(true, res, 'Anggota santri kelas berhasil disimpan.');
       }
       case 'bulkMoveSantriKelas': {
         const res = handleBulkMoveSantriKelas(payload.data);
-        invalidateScriptCache();
+        const ts = invalidateScriptCache();
+        if (res && typeof res === 'object') res.sync_ts = ts;
         return jsonResponse(true, res, 'Kelas santri berhasil diperbarui.');
       }
       case 'saveSantri': {
@@ -840,7 +1198,8 @@ function doPost(e) {
       }
       case 'deleteSantri': {
         const res = handleDeleteById('Santri', 'id_santri', payload.id_santri);
-        invalidateScriptCache();
+        const ts = invalidateScriptCache();
+        if (res && typeof res === 'object') res.sync_ts = ts;
         return jsonResponse(true, res, 'Data santri dihapus.');
       }
       case 'savePresensi': {
@@ -871,7 +1230,8 @@ function doPost(e) {
       }
       case 'uploadDokumenDrive': {
         const res = handleUploadDokumenDrive(payload.data);
-        invalidateScriptCache();
+        const ts = invalidateScriptCache();
+        if (res && typeof res === 'object') res.sync_ts = ts;
         return jsonResponse(true, res, 'Dokumen berhasil diunggah ke Drive.');
       }
       case 'importNilaiAI': {
@@ -885,17 +1245,14 @@ function doPost(e) {
       }
       case 'updateProfilGuru': {
         const res = handleUpdateProfilGuru(payload.data || payload, rootScope);
-        invalidateScriptCache();
         return jsonResponse(true, res, 'Profil guru berhasil diperbarui.');
       }
       case 'saveAbsensiGuru': {
         const res = handleSaveAbsensiGuru(payload.data || payload, rootScope);
-        invalidateScriptCache();
         return jsonResponse(true, res, 'Absensi dan laporan materi harian guru tersimpan.');
       }
       case 'verifikasiAbsensiGuru': {
         const res = handleVerifikasiAbsensiGuru(payload.data || payload, rootScope);
-        invalidateScriptCache();
         return jsonResponse(true, res, 'Status pengecekan guru diperbarui.');
       }
       default:
@@ -905,7 +1262,7 @@ function doPost(e) {
     return jsonResponse(false, null, err.message);
   } finally {
     resetRequestContext();
-    lock.releaseLock();
+    if (lockAcquired && lock) lock.releaseLock();
   }
 }
 
@@ -917,8 +1274,10 @@ function handleLogin(payload) {
   const { username, password } = payload;
   if (!username || !password) throw new Error('Username dan kata sandi wajib diisi.');
 
-  ensureUsersSchema();
-  const users = getSheetData('Users');
+  const users = cachedRead('mdta_loginUsers', () => {
+    ensureUsersSchema();
+    return getSheetData('Users');
+  });
   const found = users.find(u =>
     String(u.username).trim() === String(username).trim() &&
     String(u.password) === String(password)
@@ -1081,10 +1440,21 @@ function handleSaveUser(data) {
       if (h === 'created_at') return existing.created_at || now;
       return data[h] !== undefined ? data[h] : existing[h];
     });
+    const statusAktif = (data && data.status_aktif) ? String(data.status_aktif).trim() : String(existing.status_aktif || 'aktif');
     sheet.getRange(existing._rowIndex, 1, 1, headers.length).setValues([updated]);
     delete _requestSheetData['Users'];
-    bumpSyncVersion();
-    return { id_user: finalId, kelas_ampu: parseKelasAmpu(kelasAmpuStr), updated: true };
+    const syncTs = bumpSyncVersion();
+    return {
+      id_user: finalId,
+      username: username,
+      nama_lengkap: namaLengkap,
+      role: nextRole,
+      status_aktif: statusAktif,
+      kelas_ampu: parseKelasAmpu(kelasAmpuStr),
+      created_at: existing.created_at || now,
+      updated: true,
+      sync_ts: syncTs
+    };
   }
 
   const dupNewUsername = rows.some(
@@ -1095,6 +1465,7 @@ function handleSaveUser(data) {
   }
 
   const nextRole = (data && data.role) ? String(data.role).trim().toLowerCase() : 'guru';
+  const statusAktifNew = (data && data.status_aktif) ? String(data.status_aktif).trim() : 'aktif';
   const kelasAmpuStr = nextRole === 'admin' ? '' : formatKelasAmpu(data && data.kelas_ampu);
   const newId = generateUniqueSequentialId(rows, 'id_user', 'USR-', 3);
   const newRowValues = {
@@ -1103,14 +1474,24 @@ function handleSaveUser(data) {
     password: (data && data.password) ? String(data.password) : '123456',
     nama_lengkap: namaLengkap,
     role: nextRole,
-    status_aktif: (data && data.status_aktif) ? String(data.status_aktif).trim() : 'aktif',
+    status_aktif: statusAktifNew,
     kelas_ampu: kelasAmpuStr,
     created_at: now
   };
   sheet.appendRow(headers.map(h => newRowValues[h] !== undefined ? newRowValues[h] : ''));
   delete _requestSheetData['Users'];
-  bumpSyncVersion();
-  return { id_user: newId, kelas_ampu: parseKelasAmpu(kelasAmpuStr), created: true };
+  const syncTs = bumpSyncVersion();
+  return {
+    id_user: newId,
+    username: username,
+    nama_lengkap: namaLengkap,
+    role: nextRole,
+    status_aktif: statusAktifNew,
+    kelas_ampu: parseKelasAmpu(kelasAmpuStr),
+    created_at: now,
+    created: true,
+    sync_ts: syncTs
+  };
 }
 
 /* ============================================================================
@@ -1119,19 +1500,38 @@ function handleSaveUser(data) {
 
 function handleGetKelas(scope) {
   ensureKelasSheet();
-  const { sheet } = getSheetAndHeaders('Kelas');
-  if (sheet) ensureColumn(sheet, 'kategori_program');
   const list = getSheetData('Kelas')
     .map(k => {
       const nama = String(k.nama_kelas || '').trim();
+      const katProg = normalizeKategoriProgram(k.kategori_program, nama);
+      const legacy = parseLegacyJadwalRange(k.jadwal || k.jadwal_kelas || '');
+      const jamMulai = normalizeTimeHHMM(k.jam_mulai) || legacy.jam_mulai;
+      const jamSelesai = normalizeTimeHHMM(k.jam_selesai) || legacy.jam_selesai;
+      const hariMengajar = normalizeHariMengajar(k.hari_mengajar, katProg, false);
+      const overrideStatus = normalizeOverrideStatus(k.override_status);
+      const overrideTanggal = formatDateOnlyWIB(k.override_tanggal);
+      const overrideJamMulai = overrideStatus === 'Ubah Jam' ? normalizeTimeHHMM(k.override_jam_mulai) : '';
+      const overrideJamSelesai = overrideStatus === 'Ubah Jam' ? normalizeTimeHHMM(k.override_jam_selesai) : '';
+      const overrideCatatan = String(k.override_catatan || '').trim();
+      const jadwalDisplay = String(k.jadwal || '').trim() || (jamMulai && jamSelesai ? (jamMulai + '-' + jamSelesai) : '');
+
       return {
         id_kelas: String(k.id_kelas || ''),
         nama_kelas: nama,
-        kategori_program: normalizeKategoriProgram(k.kategori_program, nama),
+        kategori_program: katProg,
         tingkat: String(k.tingkat || '').trim(),
         keterangan: String(k.keterangan || '').trim(),
         status: String(k.status || 'aktif').trim().toLowerCase(),
-        created_at: formatDateOnlyWIB(k.created_at)
+        created_at: formatDateOnlyWIB(k.created_at),
+        jadwal: jadwalDisplay,
+        hari_mengajar: hariMengajar,
+        jam_mulai: jamMulai,
+        jam_selesai: jamSelesai,
+        override_tanggal: overrideTanggal,
+        override_status: overrideStatus,
+        override_jam_mulai: overrideJamMulai,
+        override_jam_selesai: overrideJamSelesai,
+        override_catatan: overrideCatatan
       };
     })
     .filter(k => Boolean(k.nama_kelas));
@@ -1146,7 +1546,6 @@ function handleGetKelas(scope) {
 function handleSaveKelas(data) {
   ensureKelasSheet();
   const { sheet, headers } = getSheetAndHeaders('Kelas');
-  if (sheet) ensureColumn(sheet, 'kategori_program');
   const rows = getSheetData('Kelas');
   const now = Utilities.formatDate(new Date(), 'Asia/Jakarta', 'yyyy-MM-dd');
   const namaKelas = String((data && data.nama_kelas) || '').trim();
@@ -1154,6 +1553,45 @@ function handleSaveKelas(data) {
   const tingkat = String((data && data.tingkat) || '').trim();
   const keterangan = String((data && data.keterangan) || '').trim();
   const status = String((data && data.status) || 'aktif').trim().toLowerCase();
+
+  const hariMengajar = normalizeHariMengajar(data && data.hari_mengajar, kategoriProgram, false);
+  const legacyReq = parseLegacyJadwalRange(data && (data.jadwal || data.jadwal_kelas || ''));
+  const jamMulai = normalizeTimeHHMM(data && data.jam_mulai) || legacyReq.jam_mulai;
+  const jamSelesai = normalizeTimeHHMM(data && data.jam_selesai) || legacyReq.jam_selesai;
+  if ((jamMulai && !jamSelesai) || (!jamMulai && jamSelesai)) {
+    throw new Error('Lengkapi Jam Mulai dan Jam Selesai jadwal tetap.');
+  }
+  if (jamMulai && jamSelesai && jamSelesai <= jamMulai) {
+    throw new Error('Jam Selesai jadwal tetap harus lebih akhir dari Jam Mulai.');
+  }
+
+  let overrideStatus = normalizeOverrideStatus(data && data.override_status);
+  let overrideTanggal = formatDateOnlyWIB(data && data.override_tanggal);
+  let overrideJamMulai = normalizeTimeHHMM(data && data.override_jam_mulai);
+  let overrideJamSelesai = normalizeTimeHHMM(data && data.override_jam_selesai);
+  let overrideCatatan = String((data && data.override_catatan) || '').trim();
+
+  if (overrideStatus === 'Normal') {
+    overrideTanggal = '';
+    overrideJamMulai = '';
+    overrideJamSelesai = '';
+    overrideCatatan = '';
+  } else {
+    if (!overrideTanggal) {
+      throw new Error('Tanggal berlaku penyesuaian sementara wajib diisi.');
+    }
+    if (overrideStatus === 'Ubah Jam') {
+      if (!overrideJamMulai || !overrideJamSelesai) {
+        throw new Error('Jam mulai dan jam selesai pengganti wajib diisi untuk status Ubah Jam.');
+      }
+      if (overrideJamSelesai <= overrideJamMulai) {
+        throw new Error('Jam selesai pengganti harus lebih akhir dari jam mulai pengganti.');
+      }
+    } else {
+      overrideJamMulai = '';
+      overrideJamSelesai = '';
+    }
+  }
 
   if (!namaKelas) {
     throw new Error('Nama kelas wajib diisi.');
@@ -1191,21 +1629,34 @@ function handleSaveKelas(data) {
       if (h === 'keterangan') return keterangan;
       if (h === 'status') return status;
       if (h === 'created_at') return existing.created_at || now;
+      if (h === 'hari_mengajar') return hariMengajar;
+      if (h === 'jam_mulai') return jamMulai;
+      if (h === 'jam_selesai') return jamSelesai;
+      if (h === 'override_tanggal') return overrideTanggal;
+      if (h === 'override_status') return overrideStatus;
+      if (h === 'override_jam_mulai') return overrideJamMulai;
+      if (h === 'override_jam_selesai') return overrideJamSelesai;
+      if (h === 'override_catatan') return overrideCatatan;
       return existing[h] !== undefined ? existing[h] : '';
     });
     sheet.getRange(existing._rowIndex, 1, 1, headers.length).setValues([updated]);
     delete _requestSheetData['Kelas'];
 
-    // Cascade rename ke Santri & Users.kelas_ampu bila nama kelas berubah
+    // Cascade rename ke Santri & Users.kelas_ampu bila nama kelas berubah (batch write)
     if (oldName && normalizeKelasName(oldName) !== normalizeKelasName(namaKelas)) {
       const santriMeta = getSheetAndHeaders('Santri');
       const santriKelasCol = santriMeta.headers.findIndex(h => h.toLowerCase() === 'kelas') + 1;
       if (santriKelasCol > 0) {
-        getSheetData('Santri').forEach(s => {
+        const santriRows = getSheetData('Santri');
+        const santriUpdates = [];
+        const santriColValues = santriRows.map(s => {
           if (normalizeKelasName(s.kelas) === normalizeKelasName(oldName)) {
-            santriMeta.sheet.getRange(s._rowIndex, santriKelasCol).setValue(namaKelas);
+            santriUpdates.push({ rowIndex: s._rowIndex, value: namaKelas });
+            return namaKelas;
           }
+          return s.kelas !== undefined ? s.kelas : '';
         });
+        batchWriteColumnValues(santriMeta.sheet, santriKelasCol, santriRows.length, santriUpdates, santriColValues);
         delete _requestSheetData['Santri'];
       }
 
@@ -1213,7 +1664,9 @@ function handleSaveKelas(data) {
       const usersMeta = getSheetAndHeaders('Users');
       const kelasAmpuCol = usersMeta.headers.findIndex(h => h.toLowerCase() === 'kelas_ampu') + 1;
       if (kelasAmpuCol > 0) {
-        getSheetData('Users').forEach(u => {
+        const userRows = getSheetData('Users');
+        const userUpdates = [];
+        const userColValues = userRows.map(u => {
           const list = parseKelasAmpu(u.kelas_ampu);
           let changed = false;
           const replaced = list.map(k => {
@@ -1224,19 +1677,38 @@ function handleSaveKelas(data) {
             return k;
           });
           if (changed) {
-            usersMeta.sheet.getRange(u._rowIndex, kelasAmpuCol).setValue(formatKelasAmpu(replaced));
+            const formatted = formatKelasAmpu(replaced);
+            userUpdates.push({ rowIndex: u._rowIndex, value: formatted });
+            return formatted;
           }
+          return u.kelas_ampu !== undefined ? u.kelas_ampu : '';
         });
+        batchWriteColumnValues(usersMeta.sheet, kelasAmpuCol, userRows.length, userUpdates, userColValues);
         delete _requestSheetData['Users'];
       }
     }
 
-    bumpSyncVersion();
+    const syncTs = bumpSyncVersion();
     return {
       id_kelas: existing.id_kelas,
       nama_kelas: namaKelas,
+      kategori_program: kategoriProgram,
+      tingkat: tingkat,
+      keterangan: keterangan,
+      status: status,
+      created_at: formatDateOnlyWIB(existing.created_at || now),
+      hari_mengajar: hariMengajar,
+      jam_mulai: jamMulai,
+      jam_selesai: jamSelesai,
+      jadwal: jamMulai && jamSelesai ? (jamMulai + '-' + jamSelesai) : '',
+      override_tanggal: overrideTanggal,
+      override_status: overrideStatus,
+      override_jam_mulai: overrideJamMulai,
+      override_jam_selesai: overrideJamSelesai,
+      override_catatan: overrideCatatan,
       renamed_from: normalizeKelasName(oldName) !== normalizeKelasName(namaKelas) ? oldName : '',
-      updated: true
+      updated: true,
+      sync_ts: syncTs
     };
   }
 
@@ -1253,12 +1725,39 @@ function handleSaveKelas(data) {
     tingkat: tingkat,
     keterangan: keterangan,
     status: status || 'aktif',
-    created_at: now
+    created_at: now,
+    hari_mengajar: hariMengajar,
+    jam_mulai: jamMulai,
+    jam_selesai: jamSelesai,
+    override_tanggal: overrideTanggal,
+    override_status: overrideStatus,
+    override_jam_mulai: overrideJamMulai,
+    override_jam_selesai: overrideJamSelesai,
+    override_catatan: overrideCatatan
   };
   sheet.appendRow(headers.map(h => newRowValues[h] !== undefined ? newRowValues[h] : ''));
   delete _requestSheetData['Kelas'];
-  bumpSyncVersion();
-  return { id_kelas: newId, nama_kelas: namaKelas, kategori_program: kategoriProgram, created: true };
+  const syncTs = bumpSyncVersion();
+  return {
+    id_kelas: newId,
+    nama_kelas: namaKelas,
+    kategori_program: kategoriProgram,
+    tingkat: tingkat,
+    keterangan: keterangan,
+    status: status || 'aktif',
+    created_at: now,
+    hari_mengajar: hariMengajar,
+    jam_mulai: jamMulai,
+    jam_selesai: jamSelesai,
+    jadwal: jamMulai && jamSelesai ? (jamMulai + '-' + jamSelesai) : '',
+    override_tanggal: overrideTanggal,
+    override_status: overrideStatus,
+    override_jam_mulai: overrideJamMulai,
+    override_jam_selesai: overrideJamSelesai,
+    override_catatan: overrideCatatan,
+    created: true,
+    sync_ts: syncTs
+  };
 }
 
 function handleDeleteKelas(payload) {
@@ -1297,13 +1796,19 @@ function handleDeleteKelas(payload) {
   const usersMeta = getSheetAndHeaders('Users');
   const kelasAmpuCol = usersMeta.headers.findIndex(h => h.toLowerCase() === 'kelas_ampu') + 1;
   if (kelasAmpuCol > 0) {
-    getSheetData('Users').forEach(u => {
+    const userRows = getSheetData('Users');
+    const userUpdates = [];
+    const userColValues = userRows.map(u => {
       const list = parseKelasAmpu(u.kelas_ampu);
       const filtered = list.filter(k => normalizeKelasName(k) !== normalizeKelasName(namaKelas));
       if (filtered.length !== list.length) {
-        usersMeta.sheet.getRange(u._rowIndex, kelasAmpuCol).setValue(formatKelasAmpu(filtered));
+        const formatted = formatKelasAmpu(filtered);
+        userUpdates.push({ rowIndex: u._rowIndex, value: formatted });
+        return formatted;
       }
+      return u.kelas_ampu !== undefined ? u.kelas_ampu : '';
     });
+    batchWriteColumnValues(usersMeta.sheet, kelasAmpuCol, userRows.length, userUpdates, userColValues);
     delete _requestSheetData['Users'];
   }
 
@@ -1326,10 +1831,10 @@ function handleSaveKelasMapping(data) {
       .filter(Boolean)
   );
 
-  let updatedCount = 0;
-  rows.forEach(u => {
+  const updates = [];
+  const allColValues = rows.map(u => {
     const role = String(u.role || '').trim().toLowerCase();
-    if (role === 'admin') return;
+    if (role === 'admin') return u.kelas_ampu !== undefined ? u.kelas_ampu : '';
 
     const uid = String(u.id_user || '').trim();
     const uname = String(u.username || '').trim();
@@ -1344,15 +1849,17 @@ function handleSaveKelasMapping(data) {
     } else if (!shouldAssign && hasClass) {
       nextList = currentList.filter(k => normalizeKelasName(k) !== normalizeKelasName(namaKelas));
     } else {
-      return;
+      return u.kelas_ampu !== undefined ? u.kelas_ampu : '';
     }
 
-    sheet.getRange(u._rowIndex, colIdx).setValue(formatKelasAmpu(nextList));
-    updatedCount++;
+    const formatted = formatKelasAmpu(nextList);
+    updates.push({ rowIndex: u._rowIndex, value: formatted });
+    return formatted;
   });
 
+  batchWriteColumnValues(sheet, colIdx, rows.length, updates, allColValues);
   delete _requestSheetData['Users'];
-  return { nama_kelas: namaKelas, updatedCount: updatedCount };
+  return { nama_kelas: namaKelas, updatedCount: updates.length };
 }
 
 function handleSaveKelasSantri(data) {
@@ -1377,12 +1884,12 @@ function handleSaveKelasSantri(data) {
   );
 
   const rows = getSheetData('Santri');
-  let updatedCount = 0;
   const targetNorm = normalizeKelasName(namaKelas);
+  const updates = [];
 
-  rows.forEach(s => {
+  const allColValues = rows.map(s => {
     const sid = String(s.id_santri || '').trim();
-    if (!sid) return;
+    if (!sid) return s.kelas !== undefined ? s.kelas : '';
 
     const shouldAssign = targetSantriIds.has(sid);
     const currentList = parseKelasAmpu(s.kelas);
@@ -1394,16 +1901,18 @@ function handleSaveKelasSantri(data) {
     } else if (!shouldAssign && hasClass) {
       nextList = currentList.filter(k => normalizeKelasName(k) !== targetNorm);
     } else {
-      return;
+      return s.kelas !== undefined ? s.kelas : '';
     }
 
-    sheet.getRange(s._rowIndex, kelasCol).setValue(formatKelasAmpu(nextList));
-    updatedCount++;
+    const formatted = formatKelasAmpu(nextList);
+    updates.push({ rowIndex: s._rowIndex, value: formatted });
+    return formatted;
   });
 
+  batchWriteColumnValues(sheet, kelasCol, rows.length, updates, allColValues);
   delete _requestSheetData['Santri'];
-  bumpSyncVersion();
-  return { nama_kelas: namaKelas, updatedCount: updatedCount };
+  const syncTs = bumpSyncVersion();
+  return { nama_kelas: namaKelas, updatedCount: updates.length, sync_ts: syncTs };
 }
 
 function handleBulkMoveSantriKelas(data) {
@@ -1430,18 +1939,20 @@ function handleBulkMoveSantriKelas(data) {
 
   const idSet = new Set(ids);
   const rows = getSheetData('Santri');
-  let updatedCount = 0;
+  const updates = [];
 
-  rows.forEach(s => {
+  const allColValues = rows.map(s => {
     const sid = String(s.id_santri || '').trim();
     if (sid && idSet.has(sid)) {
-      sheet.getRange(s._rowIndex, kelasCol).setValue(canonicalKelas);
-      updatedCount++;
+      updates.push({ rowIndex: s._rowIndex, value: canonicalKelas });
+      return canonicalKelas;
     }
+    return s.kelas !== undefined ? s.kelas : '';
   });
 
+  batchWriteColumnValues(sheet, kelasCol, rows.length, updates, allColValues);
   delete _requestSheetData['Santri'];
-  return { updatedCount: updatedCount, target_kelas: canonicalKelas };
+  return { updatedCount: updates.length, target_kelas: canonicalKelas };
 }
 
 function formatSantriTextCols(sheet, headers, rowIndex, valuesByHeader) {
@@ -1465,6 +1976,7 @@ function handleGetSantri(scope) {
   return rows.map(s => ({
     id_santri: String(s.id_santri || '').trim(),
     nama_lengkap: String(s.nama_lengkap || ''),
+    nama_ayah_kandung: String(s.nama_ayah_kandung || '').trim(),
     nis: String(s.nis || '').trim(),
     nik: String(s.nik || '').trim(),
     tempat_lahir: String(s.tempat_lahir || '').trim(),
@@ -1478,6 +1990,7 @@ function handleGetSantri(scope) {
 }
 
 function handleSaveSantri(data) {
+  ensureSantriSchema();
   const { sheet, headers } = getSheetAndHeaders('Santri');
   const rows = getSheetData('Santri');
   const now = Utilities.formatDate(new Date(), 'Asia/Jakarta', 'yyyy-MM-dd');
@@ -1491,6 +2004,7 @@ function handleSaveSantri(data) {
   const nikVal = data && data.nik !== undefined ? String(data.nik || '').replace(/\s+/g, '').trim() : undefined;
   const tempatLahirVal = data && data.tempat_lahir !== undefined ? String(data.tempat_lahir || '').trim() : undefined;
   const tanggalLahirVal = data && data.tanggal_lahir !== undefined ? formatDateOnlyWIB(data.tanggal_lahir) : undefined;
+  const namaAyahVal = data && data.nama_ayah_kandung !== undefined ? String(data.nama_ayah_kandung || '').trim() : undefined;
 
   const isEdit = Boolean(data && data.isEdit === true);
   const targetId = String((data && data.id_santri) || '').trim();
@@ -1512,6 +2026,7 @@ function handleSaveSantri(data) {
     const finalNik = nikVal !== undefined ? nikVal : String(existing.nik || '').replace(/\s+/g, '').trim();
     const finalTempatLahir = tempatLahirVal !== undefined ? tempatLahirVal : String(existing.tempat_lahir || '').trim();
     const finalTanggalLahir = tanggalLahirVal !== undefined ? tanggalLahirVal : formatDateOnlyWIB(existing.tanggal_lahir);
+    const finalNamaAyah = namaAyahVal !== undefined ? namaAyahVal : String(existing.nama_ayah_kandung || '').trim();
 
     const updated = headers.map(h => {
       if (h === 'id_santri') return existing.id_santri;
@@ -1520,6 +2035,7 @@ function handleSaveSantri(data) {
       if (h === 'nik') return finalNik;
       if (h === 'tempat_lahir') return finalTempatLahir;
       if (h === 'tanggal_lahir') return finalTanggalLahir;
+      if (h === 'nama_ayah_kandung') return finalNamaAyah;
       if (h === 'qr_token') return finalQrToken;
       if (h === 'created_at') return existing.created_at || now;
       return data[h] !== undefined ? data[h] : existing[h];
@@ -1527,15 +2043,22 @@ function handleSaveSantri(data) {
     formatSantriTextCols(sheet, headers, existing._rowIndex, null);
     sheet.getRange(existing._rowIndex, 1, 1, headers.length).setValues([updated]);
     delete _requestSheetData['Santri'];
-    bumpSyncVersion();
+    const syncTs = bumpSyncVersion();
     return {
       id_santri: existing.id_santri,
+      nama_lengkap: namaLengkap,
+      kelas: data && data.kelas !== undefined ? String(data.kelas || '').trim() : String(existing.kelas || '').trim(),
+      no_wa_ortu: data && data.no_wa_ortu !== undefined ? String(data.no_wa_ortu || '').trim() : String(existing.no_wa_ortu || '').trim(),
+      status: data && data.status !== undefined ? String(data.status || 'aktif').trim() : String(existing.status || 'aktif').trim(),
+      created_at: formatDateOnlyWIB(existing.created_at || now),
       nis: finalNis,
       nik: finalNik,
       tempat_lahir: finalTempatLahir,
       tanggal_lahir: finalTanggalLahir,
+      nama_ayah_kandung: finalNamaAyah,
       qr_token: finalQrToken,
-      updated: true
+      updated: true,
+      sync_ts: syncTs
     };
   }
 
@@ -1558,20 +2081,30 @@ function handleSaveSantri(data) {
     nis: nisVal || '',
     nik: nikVal || '',
     tempat_lahir: tempatLahirVal || '',
-    tanggal_lahir: tanggalLahirVal || ''
+    tanggal_lahir: tanggalLahirVal || '',
+    nama_ayah_kandung: namaAyahVal || ''
   };
-  sheet.appendRow(headers.map(h => newRowValues[h] !== undefined ? newRowValues[h] : ''));
-  formatSantriTextCols(sheet, headers, sheet.getLastRow(), newRowValues);
+  const newRowArr = buildRowArrayForHeaders(headers, newRowValues, null);
+  const nextRowIdx = Math.max(2, sheet.getLastRow() + 1);
+  formatSantriTextCols(sheet, headers, nextRowIdx, null);
+  batchAppendRows(sheet, [newRowArr]);
   delete _requestSheetData['Santri'];
-  bumpSyncVersion();
+  const syncTs = bumpSyncVersion();
   return {
     id_santri: idSantri,
+    nama_lengkap: newRowValues.nama_lengkap,
+    kelas: newRowValues.kelas,
+    no_wa_ortu: newRowValues.no_wa_ortu,
+    status: newRowValues.status,
+    created_at: now,
     nis: newRowValues.nis,
     nik: newRowValues.nik,
     tempat_lahir: newRowValues.tempat_lahir,
     tanggal_lahir: newRowValues.tanggal_lahir,
+    nama_ayah_kandung: newRowValues.nama_ayah_kandung,
     qr_token: qrToken,
-    created: true
+    created: true,
+    sync_ts: syncTs
   };
 }
 
@@ -1594,9 +2127,18 @@ function handleSavePresensi(data, rootScope) {
     throw new Error('Daftar presensi yang dikirim kosong.');
   }
 
-  const { sheet } = getSheetAndHeaders('Presensi');
+  ensureSheetProgramColumn('Presensi');
+  const { sheet, headers } = getSheetAndHeaders('Presensi');
   const rows = getSheetData('Presensi');
   const santriList = getSheetData('Santri');
+  const kelasKatMap = getKelasKategoriMap();
+  const lookupKategori = (kelasName, explicitKat) => {
+    const cleanExp = String(explicitKat || '').trim();
+    if (cleanExp) return normalizeKategoriProgram(cleanExp, kelasName);
+    const key = normalizeKelasName(kelasName);
+    if (key && kelasKatMap[key]) return kelasKatMap[key];
+    return normalizeKategoriProgram('', kelasName);
+  };
 
   const scopeBase = (rootScope && (rootScope.role || rootScope.id_user || rootScope.username))
     ? rootScope
@@ -1635,6 +2177,9 @@ function handleSavePresensi(data, rootScope) {
   let createdCount = 0;
   let updatedCount = 0;
   const savedItems = [];
+  const rowUpdates = [];
+  const rowsToAppend = [];
+  const nextAppendRowBase = Math.max(2, sheet.getLastRow() + 1);
 
   prepared.forEach(({ item, santri }) => {
     const tanggal = formatDateOnlyWIB(item.tanggal) || defaultTanggal;
@@ -1646,11 +2191,16 @@ function handleSavePresensi(data, rootScope) {
     const sNama = String(santri.nama_lengkap || '').trim();
     const sNamaKey = sNama.toLowerCase();
     const santriClasses = parseKelasAmpu(santri.kelas);
+    const requestedClasses = parseKelasAmpu(item.kelas);
+    const requestedSingle = requestedClasses.length > 1
+      ? ((scope.isGuru ? requestedClasses.find(k => isKelasAllowed(k, scope.kelas_ampu)) : null) || requestedClasses[0])
+      : (requestedClasses[0] || '');
     const scopedSantriKelas = scope.isGuru
       ? santriClasses.find(k => isKelasAllowed(k, scope.kelas_ampu))
       : santriClasses[0];
-    const targetKelas = String(item.kelas || '').trim() || scopedSantriKelas || String(santri.kelas || '').trim();
+    const targetKelas = requestedSingle || scopedSantriKelas || '';
     const targetKelasKey = normalizeKelasName(targetKelas);
+    const katProg = lookupKategori(targetKelas, item.kategori_program);
 
     const existing = rows.find(r => {
       if (formatDateOnlyWIB(r.tanggal) !== tanggal) return false;
@@ -1665,22 +2215,25 @@ function handleSavePresensi(data, rootScope) {
       const finalId = String(existing.id_presensi || '').trim() || generateUniqueSequentialId(rows, 'id_presensi', 'PRS-', 4, usedIds);
       const idGuruPiket = item.id_guru_piket !== undefined && item.id_guru_piket !== '' ? item.id_guru_piket : (existing.id_guru_piket || '');
       const namaGuruPiket = item.nama_guru_piket !== undefined && item.nama_guru_piket !== '' ? item.nama_guru_piket : (existing.nama_guru_piket || '');
-      const rowValues = [
-        finalId,
-        tanggal,
-        waktu,
-        santri.id_santri,
-        santri.nama_lengkap,
-        targetKelas,
-        status,
-        idGuruPiket,
-        namaGuruPiket,
-        metode,
-        catatan
-      ];
-      sheet.getRange(existing._rowIndex, 1, 1, rowValues.length).setValues([rowValues]);
-      const katProg = resolveKelasKategoriProgram(targetKelas, item.kategori_program);
-      writeSheetKategoriProgramCell('Presensi', existing._rowIndex, katProg);
+      const rowValues = buildRowArrayForHeaders(headers, {
+        id_presensi: finalId,
+        tanggal: tanggal,
+        waktu: waktu,
+        id_santri: santri.id_santri,
+        nama_santri: santri.nama_lengkap,
+        kelas: targetKelas,
+        status: status,
+        id_guru_piket: idGuruPiket,
+        nama_guru_piket: namaGuruPiket,
+        metode: metode,
+        catatan: catatan,
+        kategori_program: katProg
+      }, existing);
+      if (existing._appendIdx !== undefined) {
+        rowsToAppend[existing._appendIdx] = rowValues;
+      } else {
+        rowUpdates.push({ rowIndex: existing._rowIndex, values: rowValues });
+      }
       existing.kategori_program = katProg;
       existing.id_presensi = finalId;
       existing.tanggal = tanggal;
@@ -1711,25 +2264,7 @@ function handleSavePresensi(data, rootScope) {
       const newId = generateUniqueSequentialId(rows, 'id_presensi', 'PRS-', 4, usedIds);
       const idGuruPiket = item.id_guru_piket || '';
       const namaGuruPiket = item.nama_guru_piket || '';
-      const rowValues = [
-        newId,
-        tanggal,
-        waktu,
-        santri.id_santri,
-        santri.nama_lengkap,
-        targetKelas,
-        status,
-        idGuruPiket,
-        namaGuruPiket,
-        metode,
-        catatan
-      ];
-      sheet.appendRow(rowValues);
-      const appendedRowIdx = sheet.getLastRow();
-      const katProg = resolveKelasKategoriProgram(targetKelas, item.kategori_program);
-      writeSheetKategoriProgramCell('Presensi', appendedRowIdx, katProg);
-      rows.push({
-        _rowIndex: appendedRowIdx,
+      const rowValues = buildRowArrayForHeaders(headers, {
         id_presensi: newId,
         tanggal: tanggal,
         waktu: waktu,
@@ -1740,7 +2275,26 @@ function handleSavePresensi(data, rootScope) {
         id_guru_piket: idGuruPiket,
         nama_guru_piket: namaGuruPiket,
         metode: metode,
-        catatan: catatan
+        catatan: catatan,
+        kategori_program: katProg
+      }, null);
+      const appendIdx = rowsToAppend.length;
+      rowsToAppend.push(rowValues);
+      rows.push({
+        _appendIdx: appendIdx,
+        _rowIndex: nextAppendRowBase + appendIdx,
+        id_presensi: newId,
+        tanggal: tanggal,
+        waktu: waktu,
+        id_santri: santri.id_santri,
+        nama_santri: santri.nama_lengkap,
+        kelas: targetKelas,
+        status: status,
+        id_guru_piket: idGuruPiket,
+        nama_guru_piket: namaGuruPiket,
+        metode: metode,
+        catatan: catatan,
+        kategori_program: katProg
       });
       createdCount++;
       savedItems.push({
@@ -1759,15 +2313,19 @@ function handleSavePresensi(data, rootScope) {
     }
   });
 
+  batchWriteRows(sheet, rowUpdates);
+  batchAppendRows(sheet, rowsToAppend);
+
   delete _requestSheetData['Presensi'];
-  bumpSyncVersion();
+  const syncTs = bumpSyncVersion();
 
   if (!isBatch) {
     return Object.assign({}, savedItems[0], {
       savedCount: 1,
       createdCount: createdCount,
       updatedCount: updatedCount,
-      items: savedItems
+      items: savedItems,
+      sync_ts: syncTs
     });
   }
 
@@ -1775,7 +2333,8 @@ function handleSavePresensi(data, rootScope) {
     savedCount: savedItems.length,
     createdCount: createdCount,
     updatedCount: updatedCount,
-    items: savedItems
+    items: savedItems,
+    sync_ts: syncTs
   };
 }
 
@@ -1807,10 +2366,7 @@ function handleClearPresensiHarian(payload, rootScope) {
     return true;
   });
 
-  matches
-    .slice()
-    .sort((a, b) => b._rowIndex - a._rowIndex)
-    .forEach(r => sheet.deleteRow(r._rowIndex));
+  deleteSheetRowIndices(sheet, matches.map(r => r._rowIndex));
 
   const ss = getSpreadsheet();
   const logSheet = ss.getSheetByName('Log_Setoran');
@@ -1827,20 +2383,18 @@ function handleClearPresensiHarian(payload, rootScope) {
       if (hasKelasFilter && normalizeKelasName(k) !== normalizeKelasName(rawKelas)) return false;
       return true;
     });
-    logMatches
-      .slice()
-      .sort((a, b) => b._rowIndex - a._rowIndex)
-      .forEach(l => logSheet.deleteRow(l._rowIndex));
+    deleteSheetRowIndices(logSheet, logMatches.map(l => l._rowIndex));
   }
 
   delete _requestSheetData['Presensi'];
   delete _requestSheetData['Log_Setoran'];
-  bumpSyncVersion();
+  const syncTs = bumpSyncVersion();
 
   return {
     deletedCount: matches.length,
     tanggal: targetTanggal,
-    kelas: hasKelasFilter ? rawKelas : (scope.isGuru ? scope.kelas_ampu.join(', ') : 'Semua Kelas')
+    kelas: hasKelasFilter ? rawKelas : (scope.isGuru ? scope.kelas_ampu.join(', ') : 'Semua Kelas'),
+    sync_ts: syncTs
   };
 }
 
@@ -1981,9 +2535,18 @@ function handleSaveNilaiUAS(data, rootScope) {
     throw new Error('Tidak ada data nilai UAS untuk disimpan.');
   }
 
-  const { sheet } = getSheetAndHeaders('Nilai_UAS');
+  ensureSheetProgramColumn('Nilai_UAS');
+  const { sheet, headers } = getSheetAndHeaders('Nilai_UAS');
   const rows = getSheetData('Nilai_UAS');
   const santriList = getSheetData('Santri');
+  const kelasKatMap = getKelasKategoriMap();
+  const lookupKategori = (kelasName, explicitKat) => {
+    const cleanExp = String(explicitKat || '').trim();
+    if (cleanExp) return normalizeKategoriProgram(cleanExp, kelasName);
+    const key = normalizeKelasName(kelasName);
+    if (key && kelasKatMap[key]) return kelasKatMap[key];
+    return normalizeKategoriProgram('', kelasName);
+  };
 
   const scopeBase = (rootScope && (rootScope.role || rootScope.id_user || rootScope.username))
     ? rootScope
@@ -2058,6 +2621,9 @@ function handleSaveNilaiUAS(data, rootScope) {
   let createdCount = 0;
   let updatedCount = 0;
   const savedItems = [];
+  const rowUpdates = [];
+  const rowsToAppend = [];
+  const nextAppendRowBase = Math.max(2, sheet.getLastRow() + 1);
 
   prepared.forEach(({ item, matched, targetKelas, targetPeriode, namaSantri }) => {
     const existing = findExistingUasRow(item, matched, targetKelas, targetPeriode);
@@ -2068,26 +2634,30 @@ function handleSaveNilaiUAS(data, rootScope) {
     const setengahBenar = Number(item.setengah_benar || 0);
     const nilaiUas = Number(item.nilai_uas || 0);
     const idGuru = String(item.id_guru || (existing ? existing.id_guru : '') || (scope.id_user || ''));
+    const katProg = lookupKategori(targetKelas, item.kategori_program);
 
     if (existing) {
       const finalId = String(existing.id_uas || '').trim() || generateUniqueSequentialId(rows, 'id_uas', 'UAS-', 3, usedIds);
-      const rowValues = [
-        finalId,
-        resolvedIdSantri,
-        namaSantri,
-        targetKelas,
-        targetPeriode,
-        resolvedSkema,
-        pgBenar,
-        essayBenar,
-        setengahBenar,
-        nilaiUas,
-        idGuru,
-        now
-      ];
-      sheet.getRange(existing._rowIndex, 1, 1, rowValues.length).setValues([rowValues]);
-      const katProg = resolveKelasKategoriProgram(targetKelas, item.kategori_program);
-      writeSheetKategoriProgramCell('Nilai_UAS', existing._rowIndex, katProg);
+      const rowValues = buildRowArrayForHeaders(headers, {
+        id_uas: finalId,
+        id_santri: resolvedIdSantri,
+        nama_santri: namaSantri,
+        kelas: targetKelas,
+        periode: targetPeriode,
+        skema_soal: resolvedSkema,
+        pg_benar: pgBenar,
+        essay_benar: essayBenar,
+        setengah_benar: setengahBenar,
+        nilai_uas: nilaiUas,
+        id_guru: idGuru,
+        updated_at: now,
+        kategori_program: katProg
+      }, existing);
+      if (existing._appendIdx !== undefined) {
+        rowsToAppend[existing._appendIdx] = rowValues;
+      } else {
+        rowUpdates.push({ rowIndex: existing._rowIndex, values: rowValues });
+      }
       existing.kategori_program = katProg;
       existing.id_uas = finalId;
       existing.id_santri = resolvedIdSantri;
@@ -2119,26 +2689,7 @@ function handleSaveNilaiUAS(data, rootScope) {
       });
     } else {
       const newId = generateUniqueSequentialId(rows, 'id_uas', 'UAS-', 3, usedIds);
-      const rowValues = [
-        newId,
-        resolvedIdSantri,
-        namaSantri,
-        targetKelas,
-        targetPeriode,
-        resolvedSkema,
-        pgBenar,
-        essayBenar,
-        setengahBenar,
-        nilaiUas,
-        idGuru,
-        now
-      ];
-      sheet.appendRow(rowValues);
-      const appendedRowIdx = sheet.getLastRow();
-      const katProg = resolveKelasKategoriProgram(targetKelas, item.kategori_program);
-      writeSheetKategoriProgramCell('Nilai_UAS', appendedRowIdx, katProg);
-      rows.push({
-        _rowIndex: appendedRowIdx,
+      const rowValues = buildRowArrayForHeaders(headers, {
         id_uas: newId,
         id_santri: resolvedIdSantri,
         nama_santri: namaSantri,
@@ -2150,7 +2701,27 @@ function handleSaveNilaiUAS(data, rootScope) {
         setengah_benar: setengahBenar,
         nilai_uas: nilaiUas,
         id_guru: idGuru,
-        updated_at: now
+        updated_at: now,
+        kategori_program: katProg
+      }, null);
+      const appendIdx = rowsToAppend.length;
+      rowsToAppend.push(rowValues);
+      rows.push({
+        _appendIdx: appendIdx,
+        _rowIndex: nextAppendRowBase + appendIdx,
+        id_uas: newId,
+        id_santri: resolvedIdSantri,
+        nama_santri: namaSantri,
+        kelas: targetKelas,
+        periode: targetPeriode,
+        skema_soal: resolvedSkema,
+        pg_benar: pgBenar,
+        essay_benar: essayBenar,
+        setengah_benar: setengahBenar,
+        nilai_uas: nilaiUas,
+        id_guru: idGuru,
+        updated_at: now,
+        kategori_program: katProg
       });
       createdCount++;
       savedItems.push({
@@ -2171,8 +2742,11 @@ function handleSaveNilaiUAS(data, rootScope) {
     }
   });
 
+  batchWriteRows(sheet, rowUpdates);
+  batchAppendRows(sheet, rowsToAppend);
+
   delete _requestSheetData['Nilai_UAS'];
-  bumpSyncVersion();
+  const syncTs = bumpSyncVersion();
 
   if (!isBatch) {
     return {
@@ -2181,7 +2755,8 @@ function handleSaveNilaiUAS(data, rootScope) {
       savedCount: 1,
       createdCount: createdCount,
       updatedCount: updatedCount,
-      items: savedItems
+      items: savedItems,
+      sync_ts: syncTs
     };
   }
 
@@ -2189,7 +2764,8 @@ function handleSaveNilaiUAS(data, rootScope) {
     savedCount: savedItems.length,
     createdCount: createdCount,
     updatedCount: updatedCount,
-    items: savedItems
+    items: savedItems,
+    sync_ts: syncTs
   };
 }
 
@@ -2219,12 +2795,13 @@ function handleDeleteNilaiUAS(payload, rootScope) {
 
   sheet.deleteRow(found._rowIndex);
   delete _requestSheetData['Nilai_UAS'];
-  bumpSyncVersion();
-  return { deletedId: targetId };
+  const syncTs = bumpSyncVersion();
+  return { deletedId: targetId, sync_ts: syncTs };
 }
 
 function handleSaveNilaiRaport(items, metaCtx) {
-  const { sheet } = getSheetAndHeaders('Nilai_Raport');
+  ensureSheetProgramColumn('Nilai_Raport');
+  const { sheet, headers } = getSheetAndHeaders('Nilai_Raport');
   const rows = getSheetData('Nilai_Raport');
   const list = Array.isArray(items) ? items : [items];
   const scope = resolveGuruScope(metaCtx || (list[0] || {}));
@@ -2244,9 +2821,21 @@ function handleSaveNilaiRaport(items, metaCtx) {
     });
   }
 
+  const kelasKatMap = getKelasKategoriMap();
+  const lookupKategori = (kelasName, explicitKat) => {
+    const cleanExp = String(explicitKat || '').trim();
+    if (cleanExp) return normalizeKategoriProgram(cleanExp, kelasName);
+    const key = normalizeKelasName(kelasName);
+    if (key && kelasKatMap[key]) return kelasKatMap[key];
+    return normalizeKategoriProgram('', kelasName);
+  };
+
   const now = Utilities.formatDate(new Date(), 'Asia/Jakarta', 'yyyy-MM-dd');
   const usedIds = new Set(rows.map(r => String(r.id_raport || '').trim()).filter(Boolean));
   const savedItems = [];
+  const rowUpdates = [];
+  const rowsToAppend = [];
+  const nextAppendRowBase = Math.max(2, sheet.getLastRow() + 1);
 
   list.forEach(item => {
     const incomingId = String((item && item.id_raport) || '').trim();
@@ -2291,29 +2880,34 @@ function handleSaveNilaiRaport(items, metaCtx) {
     const totalBobot = (bHarian + bUas + bKehadiran) || 100;
     const nAkhir = Math.round(((nHarian * bHarian + nUas * bUas + nKehadiran * bKehadiran) / totalBobot) * 100) / 100;
     const pred = computeRaportGrade(nAkhir);
+    const katProg = lookupKategori(item.kelas || '', item.kategori_program);
 
-    const rowValues = [
-      newId,
-      item.id_santri || '',
-      item.nama_santri,
-      item.kelas || '',
-      targetPeriode,
-      nHarian,
-      nUas,
-      nKehadiran,
-      bHarian,
-      bUas,
-      bKehadiran,
-      nAkhir,
-      pred.grade,
-      pred.keterangan,
-      now
-    ];
+    const rowObj = {
+      id_raport: newId,
+      id_santri: item.id_santri || '',
+      nama_santri: item.nama_santri,
+      kelas: item.kelas || '',
+      periode: targetPeriode,
+      n_harian: nHarian,
+      n_uas: nUas,
+      n_kehadiran: nKehadiran,
+      bobot_harian: bHarian,
+      bobot_uas: bUas,
+      bobot_kehadiran: bKehadiran,
+      n_akhir: nAkhir,
+      grade: pred.grade,
+      keterangan: pred.keterangan,
+      updated_at: now,
+      kategori_program: katProg
+    };
+    const rowValues = buildRowArrayForHeaders(headers, rowObj, existing || null);
 
     if (existing) {
-      sheet.getRange(existing._rowIndex, 1, 1, rowValues.length).setValues([rowValues]);
-      const katProg = resolveKelasKategoriProgram(item.kelas || '', item.kategori_program);
-      writeSheetKategoriProgramCell('Nilai_Raport', existing._rowIndex, katProg);
+      if (existing._appendIdx !== undefined) {
+        rowsToAppend[existing._appendIdx] = rowValues;
+      } else {
+        rowUpdates.push({ rowIndex: existing._rowIndex, values: rowValues });
+      }
       existing.kategori_program = katProg;
       existing.id_raport = newId;
       existing.id_santri = item.id_santri || '';
@@ -2328,28 +2922,9 @@ function handleSaveNilaiRaport(items, metaCtx) {
       existing.keterangan = pred.keterangan;
       existing.updated_at = now;
     } else {
-      sheet.appendRow(rowValues);
-      const appendedRowIdx = sheet.getLastRow();
-      const katProg = resolveKelasKategoriProgram(item.kelas || '', item.kategori_program);
-      writeSheetKategoriProgramCell('Nilai_Raport', appendedRowIdx, katProg);
-      rows.push({
-        _rowIndex: appendedRowIdx,
-        id_raport: newId,
-        id_santri: item.id_santri || '',
-        nama_santri: item.nama_santri,
-        kelas: item.kelas || '',
-        periode: targetPeriode,
-        n_harian: nHarian,
-        n_uas: nUas,
-        n_kehadiran: nKehadiran,
-        bobot_harian: bHarian,
-        bobot_uas: bUas,
-        bobot_kehadiran: bKehadiran,
-        n_akhir: nAkhir,
-        grade: pred.grade,
-        keterangan: pred.keterangan,
-        updated_at: now
-      });
+      const appendIdx = rowsToAppend.length;
+      rowsToAppend.push(rowValues);
+      rows.push(Object.assign({ _appendIdx: appendIdx, _rowIndex: nextAppendRowBase + appendIdx }, rowObj));
     }
 
     savedItems.push({
@@ -2363,9 +2938,12 @@ function handleSaveNilaiRaport(items, metaCtx) {
     });
   });
 
+  batchWriteRows(sheet, rowUpdates);
+  batchAppendRows(sheet, rowsToAppend);
+
   delete _requestSheetData['Nilai_Raport'];
-  bumpSyncVersion();
-  return { savedCount: list.length, items: savedItems };
+  const syncTs = bumpSyncVersion();
+  return { savedCount: list.length, items: savedItems, sync_ts: syncTs };
 }
 
 function handleDeleteById(sheetName, idColumn, idValue) {
@@ -2640,7 +3218,8 @@ function handleGetRekapKepsek(tanggalParam, kelasParam) {
       .map(u => ({
         id_user: String(u.id_user || ''),
         nama_lengkap: String(u.nama_lengkap || u.username || ''),
-        username: String(u.username || '')
+        username: String(u.username || ''),
+        foto_url: String(u.foto_url || '')
       }));
     guruMapByKelas[k] = gurus;
   });
@@ -2707,6 +3286,7 @@ function handleGetRekapKepsek(tanggalParam, kelasParam) {
       kelas: String(p.kelas || '-'),
       status: st,
       metode: String(p.metode || 'Manual'),
+      id_guru_piket: String(p.id_guru_piket || ''),
       nama_guru_piket: String(p.nama_guru_piket || '-'),
       catatan: String(p.catatan || ''),
       no_wa_ortu: santriRef ? String(santriRef.no_wa_ortu || '') : ''
@@ -3021,7 +3601,7 @@ function handleUpdateProfilGuru(data, rootScope) {
         // Abaikan bila domain membatasi sharing publik
       }
     }
-    fotoUrl = 'https://drive.google.com/uc?export=view&id=' + file.getId();
+    fotoUrl = 'https://drive.google.com/thumbnail?id=' + file.getId() + '&sz=w400';
   }
 
   const nextNama = data && data.nama_lengkap !== undefined && String(data.nama_lengkap).trim()
@@ -3046,7 +3626,7 @@ function handleUpdateProfilGuru(data, rootScope) {
 
   sheet.getRange(existing._rowIndex, 1, 1, headers.length).setValues([updatedRow]);
   delete _requestSheetData['Users'];
-  bumpSyncVersion();
+  const syncTs = bumpSyncVersion();
 
   return {
     id_user: existing.id_user,
@@ -3057,7 +3637,8 @@ function handleUpdateProfilGuru(data, rootScope) {
     pendidikan_terakhir: nextPendidikan,
     bidang_ajar: nextBidang,
     bio: nextBio,
-    foto_url: fotoUrl
+    foto_url: fotoUrl,
+    sync_ts: syncTs
   };
 }
 
@@ -3117,7 +3698,7 @@ function handleSaveAbsensiGuru(data, rootScope) {
   }
 
   delete _requestSheetData['Absensi_Guru'];
-  bumpSyncVersion();
+  const syncTs = bumpSyncVersion();
   return {
     id_absen_guru: idAbsen,
     tanggal: tanggal,
@@ -3131,7 +3712,8 @@ function handleSaveAbsensiGuru(data, rootScope) {
     keterangan: keterangan,
     status_cek: statusCek,
     catatan_kepsek: catatanKepsek,
-    updated: Boolean(existing)
+    updated: Boolean(existing),
+    sync_ts: syncTs
   };
 }
 
@@ -3160,11 +3742,12 @@ function handleVerifikasiAbsensiGuru(data, rootScope) {
 
   sheet.getRange(existing._rowIndex, 1, 1, headers.length).setValues([updatedRow]);
   delete _requestSheetData['Absensi_Guru'];
-  bumpSyncVersion();
+  const syncTs = bumpSyncVersion();
   return {
     id_absen_guru: targetId,
     status_cek: nextStatusCek,
-    catatan_kepsek: nextCatatan
+    catatan_kepsek: nextCatatan,
+    sync_ts: syncTs
   };
 }
 

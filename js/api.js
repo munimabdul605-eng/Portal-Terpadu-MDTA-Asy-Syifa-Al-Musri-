@@ -193,6 +193,17 @@
     return s;
   }
 
+  function canUseMotion() {
+    if (typeof root.matchMedia !== 'function' || typeof root.getComputedStyle !== 'function') {
+      return false;
+    }
+    try {
+      return !root.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    } catch (err) {
+      return true;
+    }
+  }
+
   // Toast Notification
   function toast(message, type) {
     const container = document.getElementById('toast-container');
@@ -215,19 +226,32 @@
       <button type="button" class="btn-icon-sm btn-secondary" aria-label="Tutup notifikasi" style="min-height:30px;min-width:30px;padding:0;border-radius:6px;">
         <i data-lucide="x" aria-hidden="true" style="width:14px;height:14px;"></i>
       </button>
+      <span class="toast-progress" aria-hidden="true"></span>
     `;
 
     const closeBtn = el.querySelector('button');
     let timer = null;
+    let exitTimer = null;
+    let removed = false;
     const removeToast = () => {
+      if (removed) return;
+      removed = true;
       if (timer) clearTimeout(timer);
-      if (el.parentNode) el.parentNode.removeChild(el);
+      if (canUseMotion()) {
+        el.classList.add('is-leaving');
+        exitTimer = setTimeout(() => {
+          exitTimer = null;
+          if (el.parentNode) el.parentNode.removeChild(el);
+        }, 200);
+      } else if (el.parentNode) {
+        el.parentNode.removeChild(el);
+      }
     };
 
     closeBtn.addEventListener('click', removeToast);
     container.appendChild(el);
     refreshIcons(el);
-    timer = setTimeout(removeToast, 5200);
+    timer = setTimeout(removeToast, 4800);
   }
 
   function setButtonLoading(btn, isLoading, loadingLabel) {
@@ -295,6 +319,7 @@
   // MODAL FOCUS TRAP & DIALOG KONFIRMASI
   // =========================================================================
   const modalStack = [];
+  const modalCloseTimers = new Map();
 
   function getFocusable(container) {
     return Array.from(
@@ -307,6 +332,12 @@
   function openModal(modalId, opts) {
     const backdrop = document.getElementById(modalId);
     if (!backdrop) return;
+
+    if (modalCloseTimers.has(modalId)) {
+      clearTimeout(modalCloseTimers.get(modalId));
+      modalCloseTimers.delete(modalId);
+    }
+    backdrop.classList.remove('is-closing');
 
     const existingIdx = modalStack.findIndex((m) => m.id === modalId);
     if (existingIdx >= 0 && !backdrop.hidden) {
@@ -359,6 +390,7 @@
     backdrop.addEventListener('click', onBackdropClick);
 
     refreshIcons(backdrop);
+    initCustomSelects(backdrop);
     requestAnimationFrame(() => {
       const focusable = getFocusable(panel);
       if (focusable.length > 0) focusable[0].focus();
@@ -367,9 +399,8 @@
 
   function closeModal(modalId) {
     const backdrop = document.getElementById(modalId);
-    if (!backdrop || backdrop.hidden) return;
+    if (!backdrop || backdrop.hidden || modalCloseTimers.has(modalId)) return;
 
-    backdrop.hidden = true;
     const idx = modalStack.findIndex((m) => m.id === modalId);
     let closedEntry = null;
     if (idx >= 0) {
@@ -385,6 +416,19 @@
     }
     if (closedEntry && typeof closedEntry.onClose === 'function') {
       closedEntry.onClose();
+    }
+
+    if (canUseMotion()) {
+      backdrop.classList.add('is-closing');
+      const timerId = setTimeout(() => {
+        modalCloseTimers.delete(modalId);
+        backdrop.classList.remove('is-closing');
+        backdrop.hidden = true;
+      }, 185);
+      modalCloseTimers.set(modalId, timerId);
+    } else {
+      backdrop.classList.remove('is-closing');
+      backdrop.hidden = true;
     }
   }
 
@@ -436,6 +480,7 @@
     if (!tablistEl) return null;
     const tabs = Array.from(tablistEl.querySelectorAll('[role="tab"]'));
     const pill = tablistEl.querySelector('.tab-sliding-indicator');
+    let prevTabIndex = -1;
 
     function positionPill(activeTab) {
       if (!pill || !activeTab) return;
@@ -454,6 +499,8 @@
 
     function activate(tabEl, emit) {
       if (!tabEl) return;
+      const nextIdx = tabs.indexOf(tabEl);
+      const dir = prevTabIndex < 0 ? 'initial' : nextIdx >= prevTabIndex ? 'forward' : 'backward';
       tabs.forEach((t) => {
         const isTarget = t === tabEl;
         t.setAttribute('aria-selected', isTarget ? 'true' : 'false');
@@ -462,9 +509,15 @@
         const panelId = t.getAttribute('aria-controls');
         if (panelId) {
           const panel = document.getElementById(panelId);
-          if (panel) panel.hidden = !isTarget;
+          if (panel) {
+            if (isTarget && panel.dataset) {
+              panel.dataset.enterDir = dir;
+            }
+            panel.hidden = !isTarget;
+          }
         }
       });
+      prevTabIndex = nextIdx;
       requestAnimationFrame(() => positionPill(tabEl));
       if (emit && typeof onSelect === 'function') {
         onSelect(tabEl.dataset.tab || '', tabEl);
@@ -540,6 +593,820 @@
         { passive: true }
       );
     });
+  }
+
+  let motionInteractionsBound = false;
+  function initMotionInteractions() {
+    if (motionInteractionsBound || typeof document === 'undefined' || typeof document.addEventListener !== 'function') {
+      return;
+    }
+    motionInteractionsBound = true;
+
+    const rippleSelector = '.btn, .report-mode-btn, .drawer-nav-item, .kelas-subtab, .filter-chip, .manual-status-btn, .user-session-chip, .day-chip, .cselect-trigger, .cselect-option';
+    document.addEventListener(
+      'pointerdown',
+      (e) => {
+        if (!canUseMotion() || (typeof e.button === 'number' && e.button > 0)) return;
+        const target = e.target && typeof e.target.closest === 'function' ? e.target.closest(rippleSelector) : null;
+        if (!target || target.disabled || target.getAttribute('aria-disabled') === 'true' || target.getAttribute('aria-busy') === 'true') {
+          return;
+        }
+        if (typeof target.getBoundingClientRect !== 'function') return;
+        const rect = target.getBoundingClientRect();
+        if (!rect.width || !rect.height) return;
+
+        const prevRipples = target.querySelectorAll('.ui-ripple');
+        if (prevRipples.length >= 2) {
+          prevRipples[0].remove();
+        }
+
+        const size = Math.ceil(Math.max(rect.width, rect.height) * 2.15);
+        const hasCoords = typeof e.clientX === 'number' && typeof e.clientY === 'number' && (e.clientX !== 0 || e.clientY !== 0);
+        const x = hasCoords ? e.clientX - rect.left : rect.width / 2;
+        const y = hasCoords ? e.clientY - rect.top : rect.height / 2;
+        const isDarkSurface =
+          target.classList.contains('btn-primary') ||
+          target.classList.contains('btn-accent') ||
+          target.getAttribute('aria-pressed') === 'true' ||
+          target.classList.contains('active');
+
+        const wave = document.createElement('span');
+        wave.className = `ui-ripple ${isDarkSurface ? 'ui-ripple-light' : 'ui-ripple-dark'}`;
+        wave.setAttribute('aria-hidden', 'true');
+        wave.style.width = `${size}px`;
+        wave.style.height = `${size}px`;
+        wave.style.left = `${Math.round(x)}px`;
+        wave.style.top = `${Math.round(y)}px`;
+        target.appendChild(wave);
+
+        let cleared = false;
+        const cleanup = () => {
+          if (cleared) return;
+          cleared = true;
+          if (wave.parentNode) wave.parentNode.removeChild(wave);
+        };
+        wave.addEventListener('animationend', cleanup, { once: true });
+        setTimeout(cleanup, 580);
+      },
+      { passive: true }
+    );
+
+    const refreshBtnSelector = '#btn-refresh-dashboard, #btn-refresh-users, #btn-refresh-arsip, #btn-recheck-api';
+    document.addEventListener('click', (e) => {
+      if (!canUseMotion()) return;
+      const btn = e.target && typeof e.target.closest === 'function' ? e.target.closest(refreshBtnSelector) : null;
+      if (!btn || btn.disabled) return;
+      const svg = btn.querySelector('svg');
+      if (!svg) return;
+      svg.classList.remove('is-spin-pulse');
+      void svg.offsetWidth;
+      svg.classList.add('is-spin-pulse');
+      setTimeout(() => {
+        svg.classList.remove('is-spin-pulse');
+      }, 540);
+    });
+  }
+
+  // =========================================================================
+  // CUSTOM SELECT COMPONENT (DESKTOP POPOVER & MOBILE BOTTOM SHEET)
+  // =========================================================================
+  let customSelectGlobalBound = false;
+  let customSelectObserver = null;
+  let cselectPortalEl = null;
+  let cselectBackdropEl = null;
+  let cselectPanelEl = null;
+  let cselectTitleEl = null;
+  let cselectCloseBtn = null;
+  let cselectOptionsEl = null;
+  let cselectActiveSelect = null;
+  let cselectCloseTimer = null;
+  let cselectOpenKeyHandler = null;
+  let cselectOuterScrollHandler = null;
+  let cselectResizeHandler = null;
+
+  function resolveSelectLabel(selectEl) {
+    if (!selectEl) return 'Pilih Opsi';
+    const doc = selectEl.ownerDocument || document;
+    if (selectEl.id && doc && typeof doc.querySelector === 'function') {
+      try {
+        const linkedLabel = doc.querySelector(`label[for="${selectEl.id}"]`);
+        if (linkedLabel && linkedLabel.textContent) {
+          const clean = String(linkedLabel.textContent).replace(/\*/g, '').replace(/\s+/g, ' ').trim();
+          if (clean) return clean;
+        }
+      } catch (err) {
+        // Abaikan selector fallback
+      }
+    }
+    const parentLabel = typeof selectEl.closest === 'function' ? selectEl.closest('label') : null;
+    if (parentLabel && parentLabel.textContent) {
+      const clean = String(parentLabel.textContent).replace(/\*/g, '').replace(/\s+/g, ' ').trim();
+      if (clean) return clean;
+    }
+    const aria = selectEl.getAttribute ? selectEl.getAttribute('aria-label') : '';
+    if (aria && aria.trim()) return aria.trim();
+    const titleAttr = selectEl.getAttribute ? selectEl.getAttribute('title') : '';
+    if (titleAttr && titleAttr.trim()) return titleAttr.trim();
+    return 'Pilih Opsi';
+  }
+
+  function getSelectedOptionFor(selectEl) {
+    if (!selectEl) return null;
+    const opts = Array.from(selectEl.options || []);
+    if (opts.length === 0) return null;
+    const val = String(selectEl.value ?? '');
+    if (typeof selectEl.selectedIndex === 'number' && selectEl.selectedIndex >= 0 && opts[selectEl.selectedIndex]) {
+      if (String(opts[selectEl.selectedIndex].value ?? '') === val || val === '') {
+        return opts[selectEl.selectedIndex];
+      }
+    }
+    return opts.find((o) => String(o.value ?? '') === val) || opts[0];
+  }
+
+  function setNativeSelectValue(selectEl, nextVal) {
+    if (!selectEl) return;
+    const valStr = nextVal === undefined || nextVal === null ? '' : String(nextVal);
+    if (selectEl._cselectOrigValueDesc && typeof selectEl._cselectOrigValueDesc.set === 'function') {
+      selectEl._cselectOrigValueDesc.set.call(selectEl, valStr);
+    } else {
+      selectEl.value = valStr;
+    }
+  }
+
+  function patchSelectDescriptors(selectEl) {
+    if (!selectEl || selectEl._cselectPatched) return;
+    if (typeof root.HTMLSelectElement !== 'function' || typeof root.HTMLElement !== 'function') return;
+    try {
+      const selectProto = root.HTMLSelectElement.prototype;
+      const htmlProto = root.HTMLElement.prototype;
+      const valueDesc = Object.getOwnPropertyDescriptor(selectProto, 'value');
+      const indexDesc = Object.getOwnPropertyDescriptor(selectProto, 'selectedIndex');
+      const disabledDesc = Object.getOwnPropertyDescriptor(selectProto, 'disabled');
+      const hiddenDesc = Object.getOwnPropertyDescriptor(htmlProto, 'hidden');
+
+      selectEl._cselectOrigValueDesc = valueDesc || null;
+
+      if (valueDesc && valueDesc.get && valueDesc.set) {
+        Object.defineProperty(selectEl, 'value', {
+          configurable: true,
+          enumerable: valueDesc.enumerable,
+          get() {
+            return valueDesc.get.call(this);
+          },
+          set(v) {
+            valueDesc.set.call(this, v);
+            syncCustomSelect(this);
+          },
+        });
+      }
+      if (indexDesc && indexDesc.get && indexDesc.set) {
+        Object.defineProperty(selectEl, 'selectedIndex', {
+          configurable: true,
+          enumerable: indexDesc.enumerable,
+          get() {
+            return indexDesc.get.call(this);
+          },
+          set(v) {
+            indexDesc.set.call(this, v);
+            syncCustomSelect(this);
+          },
+        });
+      }
+      if (disabledDesc && disabledDesc.get && disabledDesc.set) {
+        Object.defineProperty(selectEl, 'disabled', {
+          configurable: true,
+          enumerable: disabledDesc.enumerable,
+          get() {
+            return disabledDesc.get.call(this);
+          },
+          set(v) {
+            disabledDesc.set.call(this, v);
+            syncCustomSelect(this);
+          },
+        });
+      }
+      if (hiddenDesc && hiddenDesc.get && hiddenDesc.set) {
+        Object.defineProperty(selectEl, 'hidden', {
+          configurable: true,
+          enumerable: hiddenDesc.enumerable,
+          get() {
+            return hiddenDesc.get.call(this);
+          },
+          set(v) {
+            hiddenDesc.set.call(this, v);
+            syncCustomSelect(this);
+          },
+        });
+      }
+      selectEl._cselectPatched = true;
+    } catch (err) {
+      // Abaikan jika environment mock tidak mendukung defineProperty pada elemen DOM
+    }
+  }
+
+  function ensureCustomSelectPortal() {
+    if (cselectPortalEl) return cselectPortalEl;
+    if (typeof document === 'undefined' || !document.body || typeof document.createElement !== 'function') {
+      return null;
+    }
+    const portal = document.createElement('div');
+    portal.id = 'cselect-portal';
+    portal.className = 'cselect-portal';
+    portal.hidden = true;
+
+    const backdrop = document.createElement('div');
+    backdrop.className = 'cselect-backdrop';
+
+    const panel = document.createElement('div');
+    panel.className = 'cselect-panel';
+    panel.setAttribute('role', 'dialog');
+    panel.setAttribute('aria-modal', 'true');
+
+    const handle = document.createElement('div');
+    handle.className = 'cselect-sheet-handle';
+    handle.setAttribute('aria-hidden', 'true');
+    handle.appendChild(document.createElement('span'));
+
+    const sheetHead = document.createElement('div');
+    sheetHead.className = 'cselect-sheet-head';
+
+    const sheetTitle = document.createElement('div');
+    sheetTitle.className = 'cselect-sheet-title';
+
+    const closeBtn = document.createElement('button');
+    closeBtn.type = 'button';
+    closeBtn.className = 'cselect-sheet-close';
+    closeBtn.setAttribute('aria-label', 'Tutup pilihan');
+    closeBtn.innerHTML = '<i data-lucide="x" aria-hidden="true"></i>';
+
+    sheetHead.appendChild(sheetTitle);
+    sheetHead.appendChild(closeBtn);
+
+    const optionsList = document.createElement('div');
+    optionsList.className = 'cselect-options';
+    optionsList.setAttribute('role', 'listbox');
+
+    panel.appendChild(handle);
+    panel.appendChild(sheetHead);
+    panel.appendChild(optionsList);
+    portal.appendChild(backdrop);
+    portal.appendChild(panel);
+    document.body.appendChild(portal);
+
+    backdrop.addEventListener('click', () => closeCustomSelect({ restoreFocus: true }));
+    closeBtn.addEventListener('click', () => closeCustomSelect({ restoreFocus: true }));
+    refreshIcons(portal);
+
+    cselectPortalEl = portal;
+    cselectBackdropEl = backdrop;
+    cselectPanelEl = panel;
+    cselectTitleEl = sheetTitle;
+    cselectCloseBtn = closeBtn;
+    cselectOptionsEl = optionsList;
+    return portal;
+  }
+
+  function createCustomOptionButton(optEl, selectedOpt, inheritedDisabled) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'cselect-option';
+    btn.setAttribute('role', 'option');
+    const optVal = String(optEl.value ?? '');
+    const isDisabled = Boolean(optEl.disabled || inheritedDisabled);
+    const isSelected = Boolean(optEl === selectedOpt || optEl.selected);
+
+    btn.dataset.value = optVal;
+    btn.disabled = isDisabled;
+    if (isDisabled) btn.classList.add('is-disabled');
+    btn.setAttribute('aria-selected', isSelected ? 'true' : 'false');
+    if (isSelected) btn.classList.add('is-selected');
+
+    const labelSpan = document.createElement('span');
+    labelSpan.className = 'cselect-option-label';
+    labelSpan.textContent = String(optEl.textContent || optVal || '').trim() || '-';
+    btn.appendChild(labelSpan);
+
+    if (isSelected) {
+      const checkSpan = document.createElement('span');
+      checkSpan.className = 'cselect-option-check';
+      checkSpan.setAttribute('aria-hidden', 'true');
+      checkSpan.innerHTML = '<i data-lucide="check" aria-hidden="true"></i>';
+      btn.appendChild(checkSpan);
+    }
+
+    btn.addEventListener('click', () => {
+      if (isDisabled || !cselectActiveSelect) return;
+      const targetSelect = cselectActiveSelect;
+      const prevVal = String(targetSelect.value ?? '');
+      setNativeSelectValue(targetSelect, optVal);
+      syncCustomSelect(targetSelect);
+      closeCustomSelect({ restoreFocus: true });
+      if (prevVal !== optVal || targetSelect.selectedIndex >= 0) {
+        let evt;
+        if (typeof Event === 'function') {
+          evt = new Event('change', { bubbles: true });
+        } else {
+          evt = { type: 'change', bubbles: true, target: targetSelect };
+        }
+        targetSelect.dispatchEvent(evt);
+      }
+    });
+    return btn;
+  }
+
+  function renderCustomSelectOptions(selectEl) {
+    if (!cselectOptionsEl || !selectEl) return;
+    cselectOptionsEl.innerHTML = '';
+    const selectedOpt = getSelectedOptionFor(selectEl);
+    const childNodes = Array.from(selectEl.children || []);
+    let renderedCount = 0;
+
+    if (childNodes.length > 0) {
+      childNodes.forEach((child) => {
+        const tag = String(child.tagName || '').toLowerCase();
+        if (tag === 'optgroup') {
+          const groupDiv = document.createElement('div');
+          groupDiv.className = 'cselect-optgroup';
+          groupDiv.setAttribute('role', 'group');
+          const groupLabel = String(child.getAttribute ? child.getAttribute('label') || child.label || '' : child.label || '').trim();
+          if (groupLabel) {
+            groupDiv.setAttribute('aria-label', groupLabel);
+            const labelEl = document.createElement('div');
+            labelEl.className = 'cselect-optgroup-label';
+            labelEl.textContent = groupLabel;
+            groupDiv.appendChild(labelEl);
+          }
+          const groupDisabled = Boolean(child.disabled);
+          Array.from(child.children || []).forEach((subChild) => {
+            if (String(subChild.tagName || '').toLowerCase() === 'option') {
+              groupDiv.appendChild(createCustomOptionButton(subChild, selectedOpt, groupDisabled));
+              renderedCount += 1;
+            }
+          });
+          cselectOptionsEl.appendChild(groupDiv);
+        } else if (tag === 'option') {
+          cselectOptionsEl.appendChild(createCustomOptionButton(child, selectedOpt, false));
+          renderedCount += 1;
+        }
+      });
+    } else {
+      Array.from(selectEl.options || []).forEach((optEl) => {
+        cselectOptionsEl.appendChild(createCustomOptionButton(optEl, selectedOpt, false));
+        renderedCount += 1;
+      });
+    }
+
+    if (renderedCount === 0) {
+      const emptyEl = document.createElement('div');
+      emptyEl.className = 'cselect-empty';
+      emptyEl.textContent = 'Tidak ada pilihan tersedia';
+      cselectOptionsEl.appendChild(emptyEl);
+    }
+
+    refreshIcons(cselectPortalEl);
+  }
+
+  function positionCustomSelectPortal(selectEl) {
+    if (!cselectPortalEl || !cselectPanelEl || !cselectOptionsEl || !selectEl || !selectEl._cselectMeta) return;
+    const { trigger, labelText } = selectEl._cselectMeta;
+    const vw = typeof root.innerWidth === 'number' ? root.innerWidth : 1024;
+    const vh = typeof root.innerHeight === 'number' ? root.innerHeight : 768;
+    const isMobile = vw <= 768;
+
+    cselectPortalEl.classList.toggle('is-mobile', isMobile);
+    cselectPortalEl.classList.toggle('is-desktop', !isMobile);
+
+    const resolvedLabel = resolveSelectLabel(selectEl) || labelText || 'Pilih Opsi';
+    if (cselectTitleEl) cselectTitleEl.textContent = resolvedLabel;
+    cselectPanelEl.setAttribute('aria-label', resolvedLabel);
+
+    if (isMobile) {
+      cselectPanelEl.style.left = '';
+      cselectPanelEl.style.top = '';
+      cselectPanelEl.style.bottom = '';
+      cselectPanelEl.style.width = '';
+      cselectOptionsEl.style.maxHeight = '';
+      cselectPanelEl.classList.remove('is-above', 'is-below');
+      if (document.body) document.body.classList.add('cselect-mobile-open');
+      return;
+    }
+
+    if (document.body) document.body.classList.remove('cselect-mobile-open');
+    const rect =
+      trigger && typeof trigger.getBoundingClientRect === 'function'
+        ? trigger.getBoundingClientRect()
+        : { left: 16, top: 100, bottom: 140, width: 240 };
+
+    const menuWidth = Math.min(Math.max(Math.round(rect.width || 240), 200), Math.min(420, Math.max(220, vw - 24)));
+    const left = Math.min(Math.max(12, Math.round(rect.left || 16)), Math.max(12, vw - menuWidth - 12));
+    const spaceBelow = Math.max(0, vh - (rect.bottom || 140) - 12);
+    const spaceAbove = Math.max(0, (rect.top || 100) - 12);
+    const openAbove = spaceBelow < 220 && spaceAbove > spaceBelow;
+
+    cselectPanelEl.style.width = `${menuWidth}px`;
+    cselectPanelEl.style.left = `${left}px`;
+    cselectPanelEl.classList.toggle('is-above', openAbove);
+    cselectPanelEl.classList.toggle('is-below', !openAbove);
+
+    if (openAbove) {
+      cselectPanelEl.style.top = 'auto';
+      cselectPanelEl.style.bottom = `${Math.max(12, Math.round(vh - rect.top + 6))}px`;
+      cselectOptionsEl.style.maxHeight = `${Math.min(280, Math.max(130, Math.floor(spaceAbove - 14)))}px`;
+    } else {
+      cselectPanelEl.style.bottom = 'auto';
+      cselectPanelEl.style.top = `${Math.round(rect.bottom + 6)}px`;
+      cselectOptionsEl.style.maxHeight = `${Math.min(280, Math.max(130, Math.floor(spaceBelow - 14)))}px`;
+    }
+  }
+
+  function detachCustomSelectGlobalOpenListeners() {
+    if (typeof document !== 'undefined' && cselectOpenKeyHandler) {
+      document.removeEventListener('keydown', cselectOpenKeyHandler, true);
+      cselectOpenKeyHandler = null;
+    }
+    if (typeof document !== 'undefined' && cselectOuterScrollHandler) {
+      document.removeEventListener('scroll', cselectOuterScrollHandler, true);
+      cselectOuterScrollHandler = null;
+    }
+    if (typeof root !== 'undefined' && typeof root.removeEventListener === 'function' && cselectResizeHandler) {
+      root.removeEventListener('resize', cselectResizeHandler);
+      cselectResizeHandler = null;
+    }
+  }
+
+  function closeCustomSelect(opts) {
+    if (!cselectPortalEl) return;
+    const prevSelect = cselectActiveSelect;
+    cselectActiveSelect = null;
+
+    if (cselectCloseTimer) {
+      clearTimeout(cselectCloseTimer);
+      cselectCloseTimer = null;
+    }
+    detachCustomSelectGlobalOpenListeners();
+
+    if (prevSelect && prevSelect._cselectMeta) {
+      prevSelect._cselectMeta.wrap.classList.remove('is-open');
+      prevSelect._cselectMeta.trigger.setAttribute('aria-expanded', 'false');
+    }
+    if (typeof document !== 'undefined' && document.body) {
+      document.body.classList.remove('cselect-mobile-open');
+    }
+
+    const shouldRestoreFocus = !opts || opts.restoreFocus !== false;
+    if (shouldRestoreFocus && prevSelect && prevSelect._cselectMeta && prevSelect._cselectMeta.trigger) {
+      const trg = prevSelect._cselectMeta.trigger;
+      if (typeof trg.focus === 'function' && !trg.disabled) {
+        trg.focus();
+      }
+    }
+
+    if (cselectPortalEl.hidden) return;
+    if (canUseMotion()) {
+      cselectPortalEl.classList.add('is-closing');
+      cselectCloseTimer = setTimeout(() => {
+        cselectCloseTimer = null;
+        if (!cselectPortalEl) return;
+        cselectPortalEl.classList.remove('is-closing');
+        cselectPortalEl.hidden = true;
+      }, 180);
+    } else {
+      cselectPortalEl.classList.remove('is-closing');
+      cselectPortalEl.hidden = true;
+    }
+  }
+
+  function openCustomSelect(selectEl) {
+    if (!selectEl || !selectEl._cselectMeta || selectEl.disabled) return;
+    const portal = ensureCustomSelectPortal();
+    if (!portal) return;
+
+    if (cselectActiveSelect === selectEl && !portal.hidden && !portal.classList.contains('is-closing')) {
+      closeCustomSelect({ restoreFocus: true });
+      return;
+    }
+
+    if (cselectCloseTimer) {
+      clearTimeout(cselectCloseTimer);
+      cselectCloseTimer = null;
+    }
+    portal.classList.remove('is-closing');
+
+    if (cselectActiveSelect && cselectActiveSelect !== selectEl && cselectActiveSelect._cselectMeta) {
+      cselectActiveSelect._cselectMeta.wrap.classList.remove('is-open');
+      cselectActiveSelect._cselectMeta.trigger.setAttribute('aria-expanded', 'false');
+    }
+
+    cselectActiveSelect = selectEl;
+    selectEl._cselectMeta.wrap.classList.add('is-open');
+    selectEl._cselectMeta.trigger.setAttribute('aria-expanded', 'true');
+
+    renderCustomSelectOptions(selectEl);
+    positionCustomSelectPortal(selectEl);
+    portal.hidden = false;
+
+    detachCustomSelectGlobalOpenListeners();
+    cselectOpenKeyHandler = (e) => {
+      if (!cselectActiveSelect) return;
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        if (typeof e.stopPropagation === 'function') e.stopPropagation();
+        closeCustomSelect({ restoreFocus: true });
+        return;
+      }
+      if (e.key === 'Tab') {
+        closeCustomSelect({ restoreFocus: false });
+        return;
+      }
+      if (!cselectOptionsEl) return;
+      const enabledOpts = Array.from(cselectOptionsEl.querySelectorAll('.cselect-option')).filter((o) => !o.disabled);
+      if (enabledOpts.length === 0) return;
+      const activeIdx = enabledOpts.indexOf(document.activeElement);
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        const nextIdx = activeIdx >= 0 ? (activeIdx + 1) % enabledOpts.length : 0;
+        enabledOpts[nextIdx].focus();
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        const prevIdx = activeIdx > 0 ? activeIdx - 1 : enabledOpts.length - 1;
+        enabledOpts[prevIdx].focus();
+      } else if (e.key === 'Home') {
+        e.preventDefault();
+        enabledOpts[0].focus();
+      } else if (e.key === 'End') {
+        e.preventDefault();
+        enabledOpts[enabledOpts.length - 1].focus();
+      } else if (e.key === 'Enter' || e.key === ' ') {
+        if (document.activeElement && enabledOpts.includes(document.activeElement)) {
+          e.preventDefault();
+          document.activeElement.click();
+        }
+      }
+    };
+    document.addEventListener('keydown', cselectOpenKeyHandler, true);
+
+    cselectOuterScrollHandler = (e) => {
+      if (!cselectPortalEl || cselectPortalEl.hidden) return;
+      if (e && e.target && (e.target === cselectPortalEl || cselectPortalEl.contains(e.target))) {
+        return;
+      }
+      if (cselectPortalEl.classList.contains('is-desktop')) {
+        closeCustomSelect({ restoreFocus: false });
+      }
+    };
+    document.addEventListener('scroll', cselectOuterScrollHandler, true);
+
+    if (typeof root.addEventListener === 'function') {
+      cselectResizeHandler = () => {
+        if (cselectActiveSelect && cselectPortalEl && !cselectPortalEl.hidden) {
+          positionCustomSelectPortal(cselectActiveSelect);
+        }
+      };
+      root.addEventListener('resize', cselectResizeHandler);
+    }
+
+    const focusInitialOption = () => {
+      if (!cselectOptionsEl) return;
+      const selectedBtn = cselectOptionsEl.querySelector('.cselect-option.is-selected:not(:disabled)');
+      const targetBtn = selectedBtn || cselectOptionsEl.querySelector('.cselect-option:not(:disabled)');
+      if (targetBtn) {
+        if (typeof targetBtn.scrollIntoView === 'function') {
+          try {
+            targetBtn.scrollIntoView({ block: 'nearest' });
+          } catch (err) {
+            // Abaikan pada environment mock
+          }
+        }
+        if (typeof targetBtn.focus === 'function') {
+          targetBtn.focus();
+        }
+      }
+    };
+    if (typeof requestAnimationFrame === 'function') {
+      requestAnimationFrame(focusInitialOption);
+    } else {
+      focusInitialOption();
+    }
+  }
+
+  function syncCustomSelect(selectEl) {
+    if (!selectEl || !selectEl._cselectMeta) return;
+    const { wrap, trigger, valueEl } = selectEl._cselectMeta;
+    const isHidden = Boolean(selectEl.hidden || (selectEl.hasAttribute && selectEl.hasAttribute('hidden')));
+    const isDisabled = Boolean(selectEl.disabled || (selectEl.hasAttribute && selectEl.hasAttribute('disabled')));
+
+    wrap.hidden = isHidden;
+    trigger.disabled = isDisabled;
+    wrap.classList.toggle('is-disabled', isDisabled);
+    wrap.classList.toggle('is-table-select', Boolean(selectEl.classList && selectEl.classList.contains('table-input')));
+
+    if (isHidden && cselectActiveSelect === selectEl) {
+      closeCustomSelect({ restoreFocus: false });
+    }
+
+    const selectedOpt = getSelectedOptionFor(selectEl);
+    const labelText = resolveSelectLabel(selectEl);
+    selectEl._cselectMeta.labelText = labelText;
+    trigger.setAttribute('aria-label', labelText);
+
+    let displayText = 'Pilih...';
+    let isPlaceholder = true;
+    if (selectedOpt) {
+      displayText = String(selectedOpt.textContent || selectedOpt.value || '').trim() || 'Pilih...';
+      const optVal = String(selectedOpt.value ?? '');
+      isPlaceholder = optVal === '' && (/^[- ]*pilih/i.test(displayText) || /^--/.test(displayText));
+    } else if (Array.from(selectEl.options || []).length === 0) {
+      displayText = 'Belum ada opsi';
+    }
+
+    valueEl.textContent = displayText;
+    valueEl.classList.toggle('is-placeholder', isPlaceholder);
+
+    if (cselectActiveSelect === selectEl && cselectPortalEl && !cselectPortalEl.hidden) {
+      renderCustomSelectOptions(selectEl);
+      positionCustomSelectPortal(selectEl);
+    }
+  }
+
+  function enhanceCustomSelect(selectEl) {
+    if (!selectEl || String(selectEl.tagName || '').toLowerCase() !== 'select') return null;
+    if (selectEl._cselectMeta) {
+      syncCustomSelect(selectEl);
+      return selectEl._cselectMeta;
+    }
+    if (selectEl.dataset && selectEl.dataset.nativeSelect === 'true') return null;
+    if (!selectEl.parentNode || typeof selectEl.parentNode.insertBefore !== 'function') return null;
+
+    const wrap = document.createElement('div');
+    wrap.className = 'cselect-wrap';
+    if (selectEl.classList && selectEl.classList.contains('table-input')) {
+      wrap.classList.add('is-table-select');
+    }
+    if (selectEl.style) {
+      if (selectEl.style.maxWidth) {
+        wrap.style.maxWidth = selectEl.style.maxWidth;
+        selectEl.style.maxWidth = '';
+      }
+      if (selectEl.style.minWidth) {
+        wrap.style.minWidth = selectEl.style.minWidth;
+        selectEl.style.minWidth = '';
+      }
+      if (selectEl.style.flex) {
+        wrap.style.flex = selectEl.style.flex;
+        selectEl.style.flex = '';
+      }
+      if (selectEl.style.width) {
+        wrap.style.width = selectEl.style.width;
+      }
+    }
+
+    const trigger = document.createElement('button');
+    trigger.type = 'button';
+    trigger.className = 'cselect-trigger';
+    trigger.setAttribute('role', 'combobox');
+    trigger.setAttribute('aria-haspopup', 'listbox');
+    trigger.setAttribute('aria-expanded', 'false');
+
+    const valueEl = document.createElement('span');
+    valueEl.className = 'cselect-value';
+
+    const chevronEl = document.createElement('span');
+    chevronEl.className = 'cselect-chevron';
+    chevronEl.setAttribute('aria-hidden', 'true');
+    chevronEl.innerHTML = '<i data-lucide="chevron-down" aria-hidden="true"></i>';
+
+    trigger.appendChild(valueEl);
+    trigger.appendChild(chevronEl);
+
+    const parent = selectEl.parentNode;
+    parent.insertBefore(wrap, selectEl);
+    wrap.appendChild(selectEl);
+    wrap.appendChild(trigger);
+
+    if (selectEl.classList) selectEl.classList.add('cselect-native');
+    selectEl.tabIndex = -1;
+    selectEl.setAttribute('aria-hidden', 'true');
+
+    selectEl._cselectMeta = {
+      wrap,
+      trigger,
+      valueEl,
+      labelText: resolveSelectLabel(selectEl),
+    };
+
+    patchSelectDescriptors(selectEl);
+    syncCustomSelect(selectEl);
+    refreshIcons(wrap);
+
+    trigger.addEventListener('click', (e) => {
+      e.preventDefault();
+      openCustomSelect(selectEl);
+    });
+    trigger.addEventListener('keydown', (e) => {
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp' || e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        openCustomSelect(selectEl);
+      }
+    });
+    selectEl.addEventListener('invalid', () => {
+      if (typeof trigger.focus === 'function' && !trigger.disabled) {
+        trigger.focus();
+      }
+    });
+
+    return selectEl._cselectMeta;
+  }
+
+  function bindGlobalCustomSelectListeners() {
+    if (customSelectGlobalBound || typeof document === 'undefined' || typeof document.addEventListener !== 'function') {
+      return;
+    }
+    customSelectGlobalBound = true;
+
+    document.addEventListener('change', (e) => {
+      const target = e && e.target;
+      if (target && String(target.tagName || '').toLowerCase() === 'select' && target._cselectMeta) {
+        syncCustomSelect(target);
+      }
+    });
+
+    document.addEventListener('reset', (e) => {
+      const formEl = e && e.target;
+      if (!formEl || typeof formEl.querySelectorAll !== 'function') return;
+      setTimeout(() => {
+        formEl.querySelectorAll('select').forEach((sel) => syncCustomSelect(sel));
+      }, 0);
+    });
+
+    document.addEventListener('click', (e) => {
+      const lbl = e && e.target && typeof e.target.closest === 'function' ? e.target.closest('label[for]') : null;
+      if (!lbl) return;
+      const forId = lbl.getAttribute('for');
+      if (!forId) return;
+      const targetEl = document.getElementById(forId);
+      if (targetEl && String(targetEl.tagName || '').toLowerCase() === 'select' && targetEl._cselectMeta) {
+        e.preventDefault();
+        const trg = targetEl._cselectMeta.trigger;
+        if (trg && !trg.disabled && typeof trg.focus === 'function') {
+          trg.focus();
+        }
+      }
+    });
+
+    if (typeof root.MutationObserver === 'function' && document.body && !customSelectObserver) {
+      customSelectObserver = new root.MutationObserver((mutations) => {
+        const selectsToSync = new Set();
+        mutations.forEach((m) => {
+          if (m.type === 'childList') {
+            Array.from(m.addedNodes || []).forEach((node) => {
+              if (!node || node.nodeType !== 1) return;
+              const tag = String(node.tagName || '').toLowerCase();
+              if (tag === 'select') {
+                enhanceCustomSelect(node);
+              } else if (tag === 'option' || tag === 'optgroup') {
+                const owner = typeof node.closest === 'function' ? node.closest('select') : null;
+                if (owner) selectsToSync.add(owner);
+              } else if (typeof node.querySelectorAll === 'function') {
+                node.querySelectorAll('select').forEach((sel) => enhanceCustomSelect(sel));
+              }
+            });
+            const parentSelect =
+              m.target && String(m.target.tagName || '').toLowerCase() === 'select'
+                ? m.target
+                : m.target && typeof m.target.closest === 'function'
+                  ? m.target.closest('select')
+                  : null;
+            if (parentSelect && parentSelect._cselectMeta) {
+              selectsToSync.add(parentSelect);
+            }
+          } else if (m.type === 'attributes' && m.target) {
+            const tag = String(m.target.tagName || '').toLowerCase();
+            if (tag === 'select' && m.target._cselectMeta) {
+              selectsToSync.add(m.target);
+            } else if ((tag === 'option' || tag === 'optgroup') && typeof m.target.closest === 'function') {
+              const owner = m.target.closest('select');
+              if (owner && owner._cselectMeta) selectsToSync.add(owner);
+            }
+          }
+        });
+        selectsToSync.forEach((sel) => syncCustomSelect(sel));
+      });
+      customSelectObserver.observe(document.body, {
+        childList: true,
+        subtree: true,
+        attributes: true,
+        attributeFilter: ['disabled', 'hidden', 'label', 'selected'],
+      });
+    }
+  }
+
+  function initCustomSelects(scope) {
+    if (typeof document === 'undefined') return;
+    bindGlobalCustomSelectListeners();
+    const container = scope || document;
+    if (!container || typeof container.querySelectorAll !== 'function') return;
+    const selects = Array.from(container.querySelectorAll('select'));
+    selects.forEach((sel) => enhanceCustomSelect(sel));
   }
 
   // =========================================================================
@@ -621,6 +1488,8 @@
     }
   }
 
+  const inflightGetRequests = new Map();
+
   async function requestGet(action, params) {
     const url = new URL(CONFIG.GAS_WEB_APP_URL);
     url.searchParams.set('action', action);
@@ -641,17 +1510,29 @@
       }
     }
 
-    let response;
-    try {
-      response = await fetch(url.toString(), {
-        method: 'GET',
-        redirect: 'follow',
-      });
-    } catch (err) {
-      throw new Error(`Gagal terhubung ke server (${action}): periksa koneksi internet atau akses deployment Apps Script.`);
+    const reqKey = url.toString();
+    if (inflightGetRequests.has(reqKey)) {
+      return inflightGetRequests.get(reqKey);
     }
 
-    return parseGasResponse(response, action);
+    const reqPromise = (async () => {
+      let response;
+      try {
+        response = await fetch(reqKey, {
+          method: 'GET',
+          redirect: 'follow',
+        });
+      } catch (err) {
+        throw new Error(`Gagal terhubung ke server (${action}): periksa koneksi internet atau akses deployment Apps Script.`);
+      }
+
+      return parseGasResponse(response, action);
+    })().finally(() => {
+      inflightGetRequests.delete(reqKey);
+    });
+
+    inflightGetRequests.set(reqKey, reqPromise);
+    return reqPromise;
   }
 
   async function requestPost(action, payload) {
@@ -721,6 +1602,7 @@
   function normalizeSantri(raw) {
     const id = String(pick(raw, ['id_santri', 'id'], '')).trim();
     const nama = String(pick(raw, ['nama_lengkap', 'nama', 'name'], ''));
+    const namaAyahKandung = String(pick(raw, ['nama_ayah_kandung', 'nama_ayah', 'ayah_kandung', 'ayah'], '')).trim();
     const nis = String(pick(raw, ['nis', 'nis_santri', 'no_induk'], '')).trim();
     const nik = String(pick(raw, ['nik', 'nik_santri', 'no_nik'], '')).trim();
     const tempatLahir = String(pick(raw, ['tempat_lahir', 'tmp_lahir'], '')).trim();
@@ -739,6 +1621,7 @@
       ttl,
       nama_lengkap: nama,
       nama: nama,
+      nama_ayah_kandung: namaAyahKandung,
       kelas: String(pick(raw, ['kelas', 'rombel', 'class'], '')),
       no_wa_ortu: wa,
       no_hp: wa,
@@ -808,17 +1691,424 @@
     return 'Diniyyah';
   }
 
+  const DAY_SHORT_ORDER = ['Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab', 'Min'];
+  const DAY_FULL_NAMES = {
+    Sen: 'Senin',
+    Sel: 'Selasa',
+    Rab: 'Rabu',
+    Kam: 'Kamis',
+    Jum: 'Jumat',
+    Sab: 'Sabtu',
+    Min: 'Minggu',
+  };
+
+  function defaultHariMengajarForProgram(kategoriProgram) {
+    const kat = normalizeKategoriProgram(kategoriProgram, '');
+    return kat === 'Wustho'
+      ? ['Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab', 'Min']
+      : ['Sen', 'Sel', 'Rab', 'Kam', 'Jum'];
+  }
+
+  function mapSingleHariToken(tok) {
+    const clean = String(tok || '').trim().toLowerCase().replace(/[^a-z]/g, '');
+    if (!clean) return '';
+    if (clean.startsWith('sen')) return 'Sen';
+    if (clean.startsWith('sel')) return 'Sel';
+    if (clean.startsWith('rab')) return 'Rab';
+    if (clean.startsWith('kam')) return 'Kam';
+    if (clean.startsWith('jum')) return 'Jum';
+    if (clean.startsWith('sab')) return 'Sab';
+    if (clean.startsWith('min') || clean.startsWith('ahad')) return 'Min';
+    return '';
+  }
+
+  function parseHariMengajar(raw, kategoriProgram) {
+    const picked = new Set();
+    const list = Array.isArray(raw) ? raw : String(raw || '').split(/[,;|]+/);
+    list.forEach((item) => {
+      const part = String(item || '').trim();
+      if (!part) return;
+      const rangeParts = part.split(/\s*(?:-|s\/d|sd|hingga)\s*/i);
+      if (rangeParts.length === 2) {
+        const i1 = DAY_SHORT_ORDER.indexOf(mapSingleHariToken(rangeParts[0]));
+        const i2 = DAY_SHORT_ORDER.indexOf(mapSingleHariToken(rangeParts[1]));
+        if (i1 >= 0 && i2 >= i1) {
+          for (let idx = i1; idx <= i2; idx += 1) picked.add(DAY_SHORT_ORDER[idx]);
+          return;
+        }
+      }
+      part.split(/\s+/).forEach((word) => {
+        const mapped = mapSingleHariToken(word);
+        if (mapped) picked.add(mapped);
+      });
+    });
+    const ordered = DAY_SHORT_ORDER.filter((d) => picked.has(d));
+    return ordered.length > 0 ? ordered : defaultHariMengajarForProgram(kategoriProgram);
+  }
+
+  function formatHariMengajarShort(hariInput) {
+    const list = Array.isArray(hariInput)
+      ? DAY_SHORT_ORDER.filter((d) => hariInput.includes(d))
+      : parseHariMengajar(hariInput, '');
+    if (list.length === 0) return '-';
+    if (list.length === 7) return 'Setiap Hari (Sen - Min)';
+    if (
+      list.length === 5 &&
+      list[0] === 'Sen' &&
+      list[4] === 'Jum'
+    ) {
+      return 'Sen - Jum';
+    }
+    const indices = list.map((d) => DAY_SHORT_ORDER.indexOf(d));
+    const contiguous = indices.every((val, idx) => idx === 0 || val === indices[idx - 1] + 1);
+    if (contiguous && list.length >= 3) {
+      return `${list[0]} - ${list[list.length - 1]}`;
+    }
+    return list.join(', ');
+  }
+
+  function normalizeTimeHHMM(val) {
+    if (val === undefined || val === null || val === '') return '';
+    if (val instanceof Date && !Number.isNaN(val.getTime())) {
+      try {
+        const fmt = new Intl.DateTimeFormat('en-GB', {
+          timeZone: 'Asia/Jakarta',
+          hour: '2-digit',
+          minute: '2-digit',
+          hour12: false,
+        }).format(val);
+        if (/^\d{2}:\d{2}$/.test(fmt)) return fmt;
+      } catch (err) {
+        const wib = new Date(val.getTime() + 7 * 3600 * 1000);
+        return `${String(wib.getUTCHours()).padStart(2, '0')}:${String(wib.getUTCMinutes()).padStart(2, '0')}`;
+      }
+    }
+    const s = String(val).trim();
+    if (!s) return '';
+    const m = s.match(/^(\d{1,2})[:.](\d{2})(?::\d{2})?$/);
+    if (m) {
+      const hh = parseInt(m[1], 10);
+      const mm = parseInt(m[2], 10);
+      if (hh >= 0 && hh <= 23 && mm >= 0 && mm <= 59) {
+        return `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`;
+      }
+      return '';
+    }
+    const parsed = new Date(s);
+    if (!Number.isNaN(parsed.getTime())) {
+      const wib = new Date(parsed.getTime() + 7 * 3600 * 1000);
+      return `${String(wib.getUTCHours()).padStart(2, '0')}:${String(wib.getUTCMinutes()).padStart(2, '0')}`;
+    }
+    return '';
+  }
+
+  function parseLegacyJadwalRange(rawJadwal) {
+    const s = String(rawJadwal || '').trim();
+    if (!s) return { jam_mulai: '', jam_selesai: '' };
+    const matches = s.match(/\d{1,2}[:.]\d{2}/g) || [];
+    return {
+      jam_mulai: matches[0] ? normalizeTimeHHMM(matches[0]) : '',
+      jam_selesai: matches[1] ? normalizeTimeHHMM(matches[1]) : '',
+    };
+  }
+
+  function normalizeOverrideStatus(raw) {
+    const s = String(raw || '').trim().toLowerCase();
+    if (s === 'libur') return 'Libur';
+    if (s === 'ubah jam' || s === 'ubah_jam' || s === 'ganti jam') return 'Ubah Jam';
+    return 'Normal';
+  }
+
+  function timeToSeconds(hhmm) {
+    const m = String(hhmm || '').match(/^(\d{2}):(\d{2})$/);
+    if (!m) return -1;
+    return parseInt(m[1], 10) * 3600 + parseInt(m[2], 10) * 60;
+  }
+
+  function addDaysToIso(isoDate, deltaDays) {
+    const m = String(isoDate || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (!m) return isoDate;
+    const utcMs = Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]) + Number(deltaDays || 0));
+    const dt = new Date(utcMs);
+    const y = dt.getUTCFullYear();
+    const mo = String(dt.getUTCMonth() + 1).padStart(2, '0');
+    const da = String(dt.getUTCDate()).padStart(2, '0');
+    return `${y}-${mo}-${da}`;
+  }
+
+  function weekdayIndexFromIso(isoDate) {
+    const m = String(isoDate || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (!m) return 0;
+    const utcDay = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]))).getUTCDay();
+    return (utcDay + 6) % 7; // 0 = Sen, ..., 6 = Min
+  }
+
+  function getWibDateParts(dateInput) {
+    const now = dateInput instanceof Date ? dateInput : (dateInput ? new Date(dateInput) : new Date());
+    const safeNow = Number.isNaN(now.getTime()) ? new Date() : now;
+    let isoDate = '';
+    let hour = 0;
+    let minute = 0;
+    let second = 0;
+    try {
+      const parts = new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'Asia/Jakarta',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: false,
+      }).formatToParts(safeNow);
+      const map = {};
+      parts.forEach((p) => {
+        map[p.type] = p.value;
+      });
+      if (map.year && map.month && map.day) {
+        isoDate = `${map.year}-${map.month}-${map.day}`;
+        hour = parseInt(map.hour || '0', 10) % 24;
+        minute = parseInt(map.minute || '0', 10);
+        second = parseInt(map.second || '0', 10);
+      }
+    } catch (err) {
+      isoDate = '';
+    }
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(isoDate)) {
+      const wib = new Date(safeNow.getTime() + 7 * 3600 * 1000);
+      const y = wib.getUTCFullYear();
+      const mo = String(wib.getUTCMonth() + 1).padStart(2, '0');
+      const da = String(wib.getUTCDate()).padStart(2, '0');
+      isoDate = `${y}-${mo}-${da}`;
+      hour = wib.getUTCHours();
+      minute = wib.getUTCMinutes();
+      second = wib.getUTCSeconds();
+    }
+    const weekdayIdx = weekdayIndexFromIso(isoDate);
+    const weekdayShort = DAY_SHORT_ORDER[weekdayIdx] || 'Sen';
+    return {
+      isoDate,
+      weekdayIdx,
+      weekdayShort,
+      weekdayFull: DAY_FULL_NAMES[weekdayShort] || weekdayShort,
+      hour,
+      minute,
+      second,
+      totalSeconds: hour * 3600 + minute * 60 + second,
+    };
+  }
+
+  function getEffectiveScheduleForDate(kelasNorm, isoDate, weekdayShort) {
+    if (!kelasNorm || kelasNorm.status === 'nonaktif') {
+      return { type: 'off', kelas: kelasNorm, isoDate, weekdayShort };
+    }
+    const ovDate = String(kelasNorm.override_tanggal || '').trim();
+    const ovStatus = normalizeOverrideStatus(kelasNorm.override_status);
+    const hasOverride = Boolean(ovDate && ovDate === isoDate && (ovStatus === 'Libur' || ovStatus === 'Ubah Jam'));
+
+    if (hasOverride && ovStatus === 'Libur') {
+      return {
+        type: 'holiday',
+        kelas: kelasNorm,
+        isoDate,
+        weekdayShort,
+        weekdayFull: DAY_FULL_NAMES[weekdayShort] || weekdayShort,
+        isOverride: true,
+        overrideStatus: 'Libur',
+        overrideCatatan: String(kelasNorm.override_catatan || '').trim(),
+      };
+    }
+
+    if (hasOverride && ovStatus === 'Ubah Jam') {
+      const sSec = timeToSeconds(kelasNorm.override_jam_mulai);
+      const eSec = timeToSeconds(kelasNorm.override_jam_selesai);
+      if (sSec >= 0 && eSec > sSec) {
+        return {
+          type: 'scheduled',
+          kelas: kelasNorm,
+          isoDate,
+          weekdayShort,
+          weekdayFull: DAY_FULL_NAMES[weekdayShort] || weekdayShort,
+          jamMulai: kelasNorm.override_jam_mulai,
+          jamSelesai: kelasNorm.override_jam_selesai,
+          startSec: sSec,
+          endSec: eSec,
+          isOverride: true,
+          overrideStatus: 'Ubah Jam',
+          overrideCatatan: String(kelasNorm.override_catatan || '').trim(),
+        };
+      }
+    }
+
+    const fixedStart = timeToSeconds(kelasNorm.jam_mulai);
+    const fixedEnd = timeToSeconds(kelasNorm.jam_selesai);
+    const days = Array.isArray(kelasNorm.hari_mengajar_list)
+      ? kelasNorm.hari_mengajar_list
+      : parseHariMengajar(kelasNorm.hari_mengajar, kelasNorm.kategori_program);
+
+    if (days.includes(weekdayShort) && fixedStart >= 0 && fixedEnd > fixedStart) {
+      return {
+        type: 'scheduled',
+        kelas: kelasNorm,
+        isoDate,
+        weekdayShort,
+        weekdayFull: DAY_FULL_NAMES[weekdayShort] || weekdayShort,
+        jamMulai: kelasNorm.jam_mulai,
+        jamSelesai: kelasNorm.jam_selesai,
+        startSec: fixedStart,
+        endSec: fixedEnd,
+        isOverride: false,
+        overrideStatus: 'Normal',
+        overrideCatatan: '',
+      };
+    }
+
+    return { type: 'off', kelas: kelasNorm, isoDate, weekdayShort };
+  }
+
+  function resolveClassScheduleState(classesList, nowInput) {
+    const nowWib = getWibDateParts(nowInput);
+    const activeClasses = (Array.isArray(classesList) ? classesList : [])
+      .map(normalizeKelas)
+      .filter((k) => k.nama_kelas && k.status !== 'nonaktif');
+
+    if (activeClasses.length === 0) {
+      return { state: 'empty', nowWib, todayHolidays: [], todayQueue: [] };
+    }
+
+    const todayHolidays = [];
+    const ongoingList = [];
+    const upcomingTodayList = [];
+
+    activeClasses.forEach((k) => {
+      const eff = getEffectiveScheduleForDate(k, nowWib.isoDate, nowWib.weekdayShort);
+      if (eff.type === 'holiday') {
+        todayHolidays.push(eff);
+      } else if (eff.type === 'scheduled') {
+        if (nowWib.totalSeconds >= eff.startSec && nowWib.totalSeconds < eff.endSec) {
+          ongoingList.push(eff);
+        } else if (nowWib.totalSeconds < eff.startSec) {
+          upcomingTodayList.push(eff);
+        }
+      }
+    });
+
+    ongoingList.sort((a, b) => (a.endSec - b.endSec) || (a.startSec - b.startSec));
+    upcomingTodayList.sort((a, b) => (a.startSec - b.startSec) || a.kelas.nama_kelas.localeCompare(b.kelas.nama_kelas));
+
+    const futureCandidates = [];
+    for (let offset = 1; offset <= 7; offset += 1) {
+      const targetIso = addDaysToIso(nowWib.isoDate, offset);
+      const targetDayShort = DAY_SHORT_ORDER[weekdayIndexFromIso(targetIso)] || 'Sen';
+      activeClasses.forEach((k) => {
+        const eff = getEffectiveScheduleForDate(k, targetIso, targetDayShort);
+        if (eff.type === 'scheduled') {
+          const remainingSec = (offset * 86400 - nowWib.totalSeconds) + eff.startSec;
+          futureCandidates.push(Object.assign({}, eff, { daysAhead: offset, remainingSec }));
+        }
+      });
+    }
+    futureCandidates.sort((a, b) => (a.remainingSec - b.remainingSec) || a.kelas.nama_kelas.localeCompare(b.kelas.nama_kelas));
+
+    if (ongoingList.length > 0) {
+      const primary = ongoingList[0];
+      const remainingSec = Math.max(0, primary.endSec - nowWib.totalSeconds);
+      return {
+        state: 'ongoing',
+        primary,
+        remainingSec,
+        isWarningSoon: false,
+        todayQueue: upcomingTodayList,
+        todayHolidays,
+        nowWib,
+      };
+    }
+
+    if (upcomingTodayList.length > 0) {
+      const primary = upcomingTodayList[0];
+      const remainingSec = Math.max(0, primary.startSec - nowWib.totalSeconds);
+      return {
+        state: 'upcoming_today',
+        primary,
+        remainingSec,
+        isWarningSoon: remainingSec > 0 && remainingSec <= 900,
+        todayQueue: upcomingTodayList.slice(1),
+        todayHolidays,
+        nowWib,
+      };
+    }
+
+    if (todayHolidays.length > 0) {
+      const primary = todayHolidays[0];
+      const nextUp = futureCandidates[0] || null;
+      return {
+        state: 'holiday',
+        primary,
+        remainingSec: nextUp ? nextUp.remainingSec : 0,
+        nextUp,
+        isWarningSoon: false,
+        todayQueue: [],
+        todayHolidays,
+        nowWib,
+      };
+    }
+
+    if (futureCandidates.length > 0) {
+      const primary = futureCandidates[0];
+      return {
+        state: 'next_day',
+        primary,
+        remainingSec: primary.remainingSec,
+        isWarningSoon: false,
+        todayQueue: [],
+        todayHolidays: [],
+        nowWib,
+      };
+    }
+
+    return {
+      state: 'unconfigured',
+      activeClasses,
+      remainingSec: 0,
+      isWarningSoon: false,
+      todayQueue: [],
+      todayHolidays: [],
+      nowWib,
+    };
+  }
+
   function normalizeKelas(raw) {
     const src = raw || {};
     const nama = String(pick(src, ['nama_kelas', 'kelas', 'nama'], '')).trim();
+    const katProg = normalizeKategoriProgram(pick(src, ['kategori_program', 'program'], ''), nama);
+    const legacy = parseLegacyJadwalRange(pick(src, ['jadwal', 'jadwal_kelas'], ''));
+    const jamMulai = normalizeTimeHHMM(pick(src, ['jam_mulai'], '')) || legacy.jam_mulai;
+    const jamSelesai = normalizeTimeHHMM(pick(src, ['jam_selesai'], '')) || legacy.jam_selesai;
+    const hariList = parseHariMengajar(pick(src, ['hari_mengajar'], ''), katProg);
+    const overrideStatus = normalizeOverrideStatus(pick(src, ['override_status'], 'Normal'));
+    const ovRawDate = pick(src, ['override_tanggal'], '');
+    const ovDateIso = ovRawDate ? normalizeISODate(ovRawDate) : '';
+    const overrideTanggal = /^\d{4}-\d{2}-\d{2}$/.test(ovDateIso) ? ovDateIso : '';
+    const overrideJamMulai = overrideStatus === 'Ubah Jam' ? normalizeTimeHHMM(pick(src, ['override_jam_mulai'], '')) : '';
+    const overrideJamSelesai = overrideStatus === 'Ubah Jam' ? normalizeTimeHHMM(pick(src, ['override_jam_selesai'], '')) : '';
     return {
       id_kelas: String(pick(src, ['id_kelas', 'id'], '')),
       nama_kelas: nama,
-      kategori_program: normalizeKategoriProgram(pick(src, ['kategori_program', 'program'], ''), nama),
+      kategori_program: katProg,
       tingkat: String(pick(src, ['tingkat', 'level'], '')).trim(),
       keterangan: String(pick(src, ['keterangan', 'catatan'], '')).trim(),
       status: String(pick(src, ['status'], 'aktif')).trim().toLowerCase(),
       created_at: formatSheetDate(pick(src, ['created_at'], '')),
+      jadwal: String(pick(src, ['jadwal', 'jadwal_kelas'], '')).trim() || (jamMulai && jamSelesai ? `${jamMulai}-${jamSelesai}` : ''),
+      hari_mengajar: hariList.join(','),
+      hari_mengajar_list: hariList,
+      jam_mulai: jamMulai,
+      jam_selesai: jamSelesai,
+      override_tanggal: overrideTanggal,
+      override_status: overrideStatus,
+      override_jam_mulai: overrideJamMulai,
+      override_jam_selesai: overrideJamSelesai,
+      override_catatan: String(pick(src, ['override_catatan'], '')).trim(),
     };
   }
 
@@ -1054,6 +2344,103 @@
     return `https://wa.me/${normalized}${msg}`;
   }
 
+  function extractDriveFileId(url) {
+    const raw = String(url || '').trim();
+    if (!raw || /^data:/i.test(raw)) return '';
+    const qMatch = raw.match(/drive\.google\.com\/(?:uc|open|thumbnail)(?:\/)?\?(?:[^#]*&)?id=([a-zA-Z0-9_-]+)/i);
+    if (qMatch && qMatch[1]) return qMatch[1];
+    const fileMatch = raw.match(/drive\.google\.com\/file\/d\/([a-zA-Z0-9_-]+)/i);
+    if (fileMatch && fileMatch[1]) return fileMatch[1];
+    const lh3Match = raw.match(/lh3\.googleusercontent\.com\/d\/([a-zA-Z0-9_-]+)/i);
+    if (lh3Match && lh3Match[1]) return lh3Match[1];
+    return '';
+  }
+
+  function normalizeDriveImageUrl(url) {
+    const raw = String(url || '').trim();
+    if (!raw) return '';
+    if (/^data:/i.test(raw) || /lh3\.googleusercontent\.com\/d\//i.test(raw)) {
+      return raw;
+    }
+    const fileId = extractDriveFileId(raw);
+    if (fileId) {
+      return `https://drive.google.com/thumbnail?id=${fileId}&sz=w400`;
+    }
+    return raw;
+  }
+
+  function getDriveImageFallbackUrl(url) {
+    const raw = String(url || '').trim();
+    if (!raw || /^data:/i.test(raw)) return '';
+    const fileId = extractDriveFileId(raw);
+    if (!fileId) return '';
+    if (/drive\.google\.com\/thumbnail/i.test(raw)) {
+      return `https://lh3.googleusercontent.com/d/${fileId}=w400`;
+    }
+    return '';
+  }
+
+  function getInitials(name, fallback) {
+    const fb = String(fallback || 'G').trim() || 'G';
+    const clean = String(name || '').trim();
+    if (!clean) return fb;
+    const initials = clean
+      .split(/\s+/)
+      .slice(0, 2)
+      .map((w) => w.charAt(0).toUpperCase())
+      .join('');
+    return initials || fb;
+  }
+
+  function buildAvatarInnerHtml(name, fotoUrl, opts) {
+    const cfg = opts && typeof opts === 'object' ? opts : {};
+    const size = Number(cfg.size) > 0 ? Number(cfg.size) : 40;
+    const fallbackInitial = String(cfg.fallback || 'G').trim() || 'G';
+    const cleanName = String(name || '').trim() || fallbackInitial;
+    const initials = getInitials(cleanName, fallbackInitial);
+    const primarySrc = normalizeDriveImageUrl(fotoUrl);
+    const driveAlt = getDriveImageFallbackUrl(primarySrc);
+    const rawFallbackUrl = String(cfg.fallbackUrl || '').trim();
+    const customFallback = rawFallbackUrl && rawFallbackUrl !== primarySrc ? rawFallbackUrl : '';
+    const altSrc = driveAlt || customFallback;
+    const altSrc2 = driveAlt && customFallback && customFallback !== driveAlt ? customFallback : '';
+
+    if (primarySrc) {
+      return `<img src="${esc(primarySrc)}" alt="Foto profil ${esc(cleanName)}" width="${size}" height="${size}" class="avatar-img" referrerpolicy="no-referrer" data-fallback-initials="${esc(initials)}"${altSrc ? ` data-fallback-src="${esc(altSrc)}"` : ''}${altSrc2 ? ` data-fallback-src2="${esc(altSrc2)}"` : ''} />`;
+    }
+    return esc(initials);
+  }
+
+  function bindAvatarFallbacks(container) {
+    if (!container || typeof container.querySelectorAll !== 'function') return;
+    container.querySelectorAll('img[data-fallback-initials]').forEach((img) => {
+      if (img.dataset.avatarBound === '1') return;
+      img.dataset.avatarBound = '1';
+      img.addEventListener('error', () => {
+        if (img.dataset.fallbackSrc) {
+          const next = img.dataset.fallbackSrc;
+          delete img.dataset.fallbackSrc;
+          img.src = next;
+          return;
+        }
+        if (img.dataset.fallbackSrc2) {
+          const next2 = img.dataset.fallbackSrc2;
+          delete img.dataset.fallbackSrc2;
+          img.src = next2;
+          return;
+        }
+        const box = img.parentElement;
+        if (box) box.textContent = img.dataset.fallbackInitials || 'G';
+      });
+    });
+  }
+
+  function renderAvatarElement(el, name, fotoUrl, opts) {
+    if (!el) return;
+    el.innerHTML = buildAvatarInnerHtml(name, fotoUrl, opts);
+    bindAvatarFallbacks(el);
+  }
+
   root.MDTA_UI = {
     esc,
     parseLocaleNumber,
@@ -1071,6 +2458,15 @@
     confirmDialog,
     initSlidingTabs,
     bindSpotlights,
+    canUseMotion,
+    initMotionInteractions,
+    initCustomSelects,
+    syncCustomSelect,
+    closeCustomSelect,
+    getInitials,
+    buildAvatarInnerHtml,
+    bindAvatarFallbacks,
+    renderAvatarElement,
   };
 
   // =========================================================================
@@ -1235,6 +2631,18 @@
         });
       }
     }
+    if ((!st.absensiGuruToday || st.absensiGuruToday.length === 0)) {
+      const c = readCache('absensiGuruToday');
+      if (c && Array.isArray(c.data)) {
+        const todayWib = todayISO();
+        const cacheDate = c.ts ? normalizeISODate(new Date(c.ts)) : '';
+        st.absensiGuruToday = c.data.filter((r) => {
+          const itemDate = normalizeISODate(r && r.tanggal);
+          if (itemDate) return itemDate === todayWib;
+          return cacheDate === todayWib;
+        });
+      }
+    }
     if ((!st.raportRows || st.raportRows.length === 0)) {
       const c = readCache('raportRows');
       if (c && Array.isArray(c.data)) st.raportRows = c.data.filter(isValidNama);
@@ -1392,9 +2800,19 @@
     normalizeDokumen,
     normalizeLogSetoran,
     normalizeKategoriProgram,
+    defaultHariMengajarForProgram,
+    parseHariMengajar,
+    formatHariMengajarShort,
+    normalizeTimeHHMM,
+    parseLegacyJadwalRange,
+    getWibDateParts,
+    resolveClassScheduleState,
     normalizeISODate,
     formatTTL,
     formatWhatsAppUrl,
+    extractDriveFileId,
+    normalizeDriveImageUrl,
+    getDriveImageFallbackUrl,
 
     ping: () => requestGet('ping'),
     login: (username, password) => requestPost('login', { username, password }),

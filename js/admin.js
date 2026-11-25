@@ -55,6 +55,7 @@
     editingSantriId: null,
     editingKelasId: null,
     editingKelasOriginalName: '',
+    kelasHariManuallyEdited: false,
     mappingKelasName: '',
     movingSantriId: '',
     selectedSantriIds: new Set(),
@@ -154,6 +155,93 @@
     );
   }
 
+  function findGuruUserRecord(ref) {
+    const users = Array.isArray(STATE.users) ? STATE.users : [];
+    const isObj = ref && typeof ref === 'object';
+    const refId = isObj ? String(ref.id_user || '').trim() : '';
+    const refUsername = isObj ? String(ref.username || '').trim() : '';
+    const refNamaRaw = isObj
+      ? String(ref.nama_lengkap || ref.nama || ref.username || '').trim()
+      : String(ref || '').trim();
+    const refFoto = isObj ? String(ref.foto_url || '').trim() : '';
+
+    const refUnameLower = refUsername.toLowerCase();
+    const refNamaLower = refNamaRaw.toLowerCase();
+
+    const matched = users.find((u) => {
+      if (!u) return false;
+      const uid = String(u.id_user || '').trim();
+      const uUser = String(u.username || '').trim().toLowerCase();
+      const uName = String(u.nama_lengkap || '').trim().toLowerCase();
+      if (refId && uid && refId === uid) return true;
+      if (refUnameLower && uUser && refUnameLower === uUser) return true;
+      if (refNamaLower && ((uName && refNamaLower === uName) || (uUser && refNamaLower === uUser))) {
+        return true;
+      }
+      return false;
+    });
+
+    return {
+      nama: refNamaRaw || (matched ? String(matched.nama_lengkap || matched.username || '').trim() : ''),
+      foto_url: refFoto || (matched ? String(matched.foto_url || '').trim() : ''),
+    };
+  }
+
+  function renderGuruInlineListHtml(entries, opts) {
+    const cfg = opts && typeof opts === 'object' ? opts : {};
+    const fallbackText = cfg.fallbackText !== undefined ? String(cfg.fallbackText) : 'Belum dipetakan';
+    const compact = Boolean(cfg.compact);
+    const rawList = Array.isArray(entries) ? entries : entries ? [entries] : [];
+    const expanded = [];
+
+    rawList.forEach((entry) => {
+      if (typeof entry === 'string') {
+        const s = entry.trim();
+        if (!s) return;
+        const exact = findGuruUserRecord(s);
+        if (exact.foto_url || !s.includes(',')) {
+          expanded.push(exact);
+        } else {
+          s.split(',')
+            .map((part) => part.trim())
+            .filter(Boolean)
+            .forEach((part) => expanded.push(findGuruUserRecord(part)));
+        }
+      } else if (entry && typeof entry === 'object') {
+        expanded.push(findGuruUserRecord(entry));
+      }
+    });
+
+    const seen = new Set();
+    const normalized = [];
+    expanded.forEach((item) => {
+      const nama = String((item && item.nama) || '').trim();
+      if (!nama || nama === '-' || nama.toLowerCase() === 'belum dipetakan') return;
+      const key = nama.toLowerCase();
+      if (seen.has(key)) return;
+      seen.add(key);
+      normalized.push({ nama, foto_url: String((item && item.foto_url) || '').trim() });
+    });
+
+    if (normalized.length === 0) {
+      return `<strong>${UI.esc(fallbackText)}</strong>`;
+    }
+
+    const size = compact ? 20 : 24;
+    const compactCls = compact ? ' is-compact' : '';
+    const personsHtml = normalized
+      .map((g) => {
+        const inner =
+          typeof UI.buildAvatarInnerHtml === 'function'
+            ? UI.buildAvatarInnerHtml(g.nama, g.foto_url, { size, fallback: 'G' })
+            : UI.esc((g.nama || 'G').charAt(0).toUpperCase());
+        return `<span class="guru-inline-person${compactCls}"><span class="user-avatar-circle guru-inline-avatar${compactCls}">${inner}</span><strong>${UI.esc(g.nama)}</strong></span>`;
+      })
+      .join('');
+
+    return `<span class="guru-inline-list">${personsHtml}</span>`;
+  }
+
   function populateClassSelect(el, names, opts) {
     if (!el) return;
     const cfg = opts || {};
@@ -212,7 +300,7 @@
   function renderAbsentStudentListHtml(list, tanggal, compactEmpty) {
     if (!Array.isArray(list) || list.length === 0) {
       if (compactEmpty) {
-        return `<div class="sub-surface text-muted" style="font-size:0.84rem;padding:12px 14px;">Semua santri kelas ini yang tercatat pada tanggal terpilih berstatus Hadir.</div>`;
+        return `<div class="sub-surface text-muted" style="font-size:0.8rem;padding:9px 11px;">Semua santri kelas ini yang tercatat pada tanggal terpilih berstatus Hadir.</div>`;
       }
       return UI.renderStateBox({
         type: 'empty',
@@ -229,13 +317,20 @@
 
         return `
           <div class="absent-student-item">
-            <div style="min-width:0;flex:1 1 200px;">
+            <div class="absent-student-info">
               <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
                 <strong style="font-size:0.92rem;">${UI.esc(item.nama_santri)}</strong>
                 <span class="status-badge ${statusBadgeClass(item.status)}">${UI.esc(item.status)}</span>
               </div>
-              <div class="text-muted" style="font-size:0.8rem;margin-top:4px;">
-                ${item.catatan ? `Keterangan: ${UI.esc(item.catatan)} · ` : ''}Dicatat oleh ${UI.esc(item.nama_guru_piket || '-')}
+              <div class="text-muted guru-recorder-row">
+                ${item.catatan ? `<span>Keterangan: ${UI.esc(item.catatan)} ·</span>` : ''}
+                <span>Dicatat oleh</span>
+                ${renderGuruInlineListHtml(
+                  item.nama_guru_piket && item.nama_guru_piket !== '-'
+                    ? [{ id_user: item.id_guru_piket || '', nama_lengkap: item.nama_guru_piket }]
+                    : [],
+                  { fallbackText: item.nama_guru_piket || '-', compact: true }
+                )}
               </div>
             </div>
             <div>
@@ -618,11 +713,20 @@
     );
     const todayLogs = Array.isArray(STATE.absensiGuruToday) ? STATE.absensiGuruToday : [];
     const progFilter = localState.kepsekProgramFilter || '';
+    const activeKelas = document.getElementById('kepsek-filter-kelas')?.value || '';
+    const activeKelasLower = activeKelas.toLowerCase();
 
-    if (countEl) countEl.textContent = String(todayLogs.length);
+    const filteredAllLogs = todayLogs.filter((l) => {
+      const kat = l.kategori_program || resolveClassKategori(l.kelas);
+      if (progFilter && kat !== progFilter) return false;
+      if (activeKelasLower && String(l.kelas || '').trim().toLowerCase() !== activeKelasLower) return false;
+      return true;
+    });
+
+    if (countEl) countEl.textContent = String(filteredAllLogs.length);
     if (!container) return;
 
-    if (activeGurus.length === 0 && todayLogs.length === 0) {
+    if (activeGurus.length === 0 && filteredAllLogs.length === 0) {
       container.innerHTML = UI.renderStateBox({
         type: 'empty',
         title: 'Belum ada data guru aktif',
@@ -634,23 +738,49 @@
 
     const cards = [];
     const logByGuruId = new Map();
-    todayLogs.forEach((log) => {
+    const logByGuruName = new Map();
+    const consumedLogs = new Set();
+
+    filteredAllLogs.forEach((log) => {
       const gid = String(log.id_guru || '').trim();
-      if (!gid) return;
-      if (!logByGuruId.has(gid)) logByGuruId.set(gid, []);
-      logByGuruId.get(gid).push(log);
+      const gname = String(log.nama_guru || '').trim().toLowerCase();
+      if (gid) {
+        if (!logByGuruId.has(gid)) logByGuruId.set(gid, []);
+        logByGuruId.get(gid).push(log);
+      }
+      if (gname) {
+        if (!logByGuruName.has(gname)) logByGuruName.set(gname, []);
+        logByGuruName.get(gname).push(log);
+      }
     });
 
-    activeGurus.forEach((g) => {
-      const gid = String(g.id_user || g.username || '').trim();
-      const logs = (logByGuruId.get(gid) || []).filter((l) => !progFilter || l.kategori_program === progFilter);
-      const displayName = g.nama_lengkap || g.username || 'Guru';
-      const initials = displayName.split(/\s+/).slice(0, 2).map((w) => w.charAt(0).toUpperCase()).join('') || 'G';
-      const avatarHtml = g.foto_url
-        ? `<img src="${UI.esc(g.foto_url)}" alt="${UI.esc(displayName)}" class="avatar-img" referrerpolicy="no-referrer" />`
-        : UI.esc(initials);
+    const normalizeAvatarSrc = (url) => {
+      const raw = String(url || '').trim();
+      if (!raw) return '';
+      return typeof API.normalizeDriveImageUrl === 'function' ? API.normalizeDriveImageUrl(raw) : raw;
+    };
 
-      if (logs.length === 0) {
+    activeGurus.forEach((g) => {
+      const gid = String(g.id_user || '').trim();
+      const uname = String(g.username || '').trim().toLowerCase();
+      const displayName = g.nama_lengkap || g.username || 'Guru';
+      const dKey = displayName.trim().toLowerCase();
+      const matchedLogs = (gid && logByGuruId.get(gid)) || logByGuruName.get(dKey) || logByGuruName.get(uname) || [];
+      matchedLogs.forEach((l) => consumedLogs.add(l));
+
+      const avatarHtml =
+        typeof UI.buildAvatarInnerHtml === 'function'
+          ? UI.buildAvatarInnerHtml(displayName, g.foto_url, { size: 40, fallback: 'G' })
+          : (() => {
+              const initials = displayName.split(/\s+/).slice(0, 2).map((w) => w.charAt(0).toUpperCase()).join('') || 'G';
+              const fotoSrc = normalizeAvatarSrc(g.foto_url);
+              return fotoSrc
+                ? `<img src="${UI.esc(fotoSrc)}" alt="${UI.esc(displayName)}" class="avatar-img" data-fallback-initials="${UI.esc(initials)}" referrerpolicy="no-referrer" />`
+                : UI.esc(initials);
+            })();
+
+      if (matchedLogs.length === 0) {
+        if (activeKelas && !API.isKelasAllowed(activeKelas, g.kelas_ampu || [])) return;
         if (progFilter) {
           const hasProgramClass = (g.kelas_ampu || []).some((k) => resolveClassKategori(k) === progFilter);
           if (!hasProgramClass) return;
@@ -671,7 +801,7 @@
         return;
       }
 
-      logs.forEach((log) => {
+      matchedLogs.forEach((log) => {
         const isChecked = String(log.status_cek || '').toLowerCase() === 'sudah dicek';
         const stCls =
           log.status === 'Hadir Mengajar'
@@ -687,7 +817,7 @@
               <div class="user-avatar-circle guru-monitor-avatar">${avatarHtml}</div>
               <div style="min-width:0;flex:1;">
                 <strong style="display:block;">${UI.esc(displayName)}</strong>
-                <div class="text-muted" style="font-size:0.78rem;">${UI.esc(log.kelas)} · ${UI.esc(log.kategori_program || 'Diniyyah')} · Jam ${UI.esc(log.waktu_masuk || '-')}</div>
+                <div class="text-muted" style="font-size:0.78rem;">${UI.esc(log.kelas)} · ${UI.esc(log.kategori_program || resolveClassKategori(log.kelas))} · Jam ${UI.esc(log.waktu_masuk || '-')}</div>
               </div>
               <span class="status-badge ${stCls}">${UI.esc(log.status)}</span>
             </div>
@@ -711,14 +841,24 @@
     if (cards.length === 0) {
       container.innerHTML = UI.renderStateBox({
         type: 'empty',
-        title: 'Tidak ada data guru pada program ini',
-        message: 'Pilih program lain atau ubah filter tanggal untuk melihat monitoring guru.',
+        title: 'Tidak ada data guru pada filter ini',
+        message: 'Pilih program atau kelas lain, atau ubah filter tanggal untuk melihat monitoring guru.',
       });
       UI.refreshIcons(container);
       return;
     }
 
     container.innerHTML = cards.join('');
+    if (typeof UI.bindAvatarFallbacks === 'function') {
+      UI.bindAvatarFallbacks(container);
+    } else {
+      container.querySelectorAll('.guru-monitor-avatar img[data-fallback-initials]').forEach((img) => {
+        img.addEventListener('error', () => {
+          const box = img.parentElement;
+          if (box) box.textContent = img.dataset.fallbackInitials || 'G';
+        });
+      });
+    }
     container.querySelectorAll('button[data-verifikasi-guru]').forEach((btn) => {
       btn.addEventListener('click', async () => {
         const idAbsen = btn.dataset.verifikasiGuru;
@@ -732,6 +872,7 @@
             catatan_kepsek: catatan,
           });
           const updated = (res && res.data) || res || {};
+          if (updated.sync_ts !== undefined) recordLocalSyncTs(updated.sync_ts);
           STATE.absensiGuruToday = (STATE.absensiGuruToday || []).map((row) =>
             row.id_absen_guru === idAbsen
               ? Object.assign({}, row, {
@@ -769,23 +910,30 @@
     if (manualCount > 0) metodeParts.push(`Manual: ${manualCount}`);
 
     let pengampu = String(blk.nama_guru_pengampu || '').trim();
+    let pengampuList = Array.isArray(blk.guru_pengampu) && blk.guru_pengampu.length > 0 ? blk.guru_pengampu.slice() : [];
     if (!pengampu || pengampu === 'Belum dipetakan') {
-      const recorders = Array.from(
-        new Set(
-          riwayat
-            .map((r) => String(r.nama_guru_piket || '').trim())
-            .filter((n) => n && n !== '-')
-        )
-      );
-      if (recorders.length > 0) pengampu = recorders.join(', ');
+      const seenRec = new Set();
+      const recorderEntries = [];
+      riwayat.forEach((r) => {
+        const n = String(r.nama_guru_piket || '').trim();
+        if (!n || n === '-' || seenRec.has(n.toLowerCase())) return;
+        seenRec.add(n.toLowerCase());
+        recorderEntries.push({ id_user: String(r.id_guru_piket || '').trim(), nama_lengkap: n });
+      });
+      if (recorderEntries.length > 0) {
+        pengampu = recorderEntries.map((x) => x.nama_lengkap).join(', ');
+        if (pengampuList.length === 0) pengampuList = recorderEntries;
+      }
     }
     if (!pengampu || pengampu === 'Belum dipetakan') {
       const stNama = blk.status_setoran && String(blk.status_setoran.nama_guru || '').trim();
       pengampu = stNama || 'Belum dipetakan';
+      if (stNama && pengampuList.length === 0) pengampuList = [stNama];
     }
 
     return {
       pengampu,
+      pengampuList,
       metodeText: metodeParts.join(' · '),
     };
   }
@@ -831,8 +979,10 @@
                     <span>${totalCatatan} tercatat</span>
                   </span>
                 </div>
-                <div class="text-secondary" style="font-size:0.84rem;margin-top:4px;">
-                  Pengampu: <strong>${UI.esc(meta.pengampu)}</strong>${meta.metodeText ? ` · ${UI.esc(meta.metodeText)}` : ''}
+                <div class="text-secondary guru-pengampu-row">
+                  <span>Pengampu:</span>
+                  ${renderGuruInlineListHtml(meta.pengampuList, { fallbackText: meta.pengampu })}
+                  ${meta.metodeText ? `<span class="text-muted">· ${UI.esc(meta.metodeText)}</span>` : ''}
                 </div>
               </div>
             </div>
@@ -873,6 +1023,7 @@
       })
       .join('');
 
+    if (typeof UI.bindAvatarFallbacks === 'function') UI.bindAvatarFallbacks(container);
     UI.refreshIcons(container);
   }
 
@@ -1094,7 +1245,16 @@
         </div>
         <div class="detail-field">
           <span class="detail-label">Metode &amp; Guru Piket</span>
-          <strong class="detail-value">${UI.esc(row.metode || '-')} · ${UI.esc(row.nama_guru_piket || '-')}</strong>
+          <div class="detail-value guru-pengampu-row" style="margin-top:0;">
+            <strong>${UI.esc(row.metode || '-')}</strong>
+            <span>·</span>
+            ${renderGuruInlineListHtml(
+              row.nama_guru_piket && row.nama_guru_piket !== '-'
+                ? [{ id_user: row.id_guru_piket || '', nama_lengkap: row.nama_guru_piket }]
+                : [],
+              { fallbackText: row.nama_guru_piket || '-' }
+            )}
+          </div>
         </div>
         ${row.catatan ? `
         <div class="detail-field detail-field-full">
@@ -1105,6 +1265,7 @@
       ${nilaiHtml}
     `;
 
+    if (typeof UI.bindAvatarFallbacks === 'function') UI.bindAvatarFallbacks(bodyEl);
     UI.openModal('modal-detail-rekap');
     UI.refreshIcons(bodyEl);
   }
@@ -1468,7 +1629,8 @@
       .filter((r) => {
         const matchDate = !targetIso || API.normalizeISODate(r.tanggal) === targetIso;
         const matchKelas = !activeKelas || String(r.kelas || '').toLowerCase() === activeKelas.toLowerCase();
-        return matchDate && matchKelas;
+        const matchProg = !progFilter || resolveClassKategori(r.kelas) === progFilter;
+        return matchDate && matchKelas && matchProg;
       });
     if (riwayatSec) {
       riwayatSec.hidden = absensiBlocksToday.length === 0 || localState.riwayatHarian.length === 0;
@@ -1486,6 +1648,9 @@
       }
     }
     applyKepsekReportMode(localState.kepsekReportMode);
+    if (localState.kepsekReportMode !== 'guru') {
+      renderKepsekMonitoringGuru();
+    }
   }
 
   function applyBootstrapData(bundle, targetTanggal, targetKelas) {
@@ -1592,10 +1757,10 @@
     const noticeBox = document.getElementById('kepsek-backend-notice');
     const noticeMsg = document.getElementById('kepsek-backend-notice-msg');
 
-    const tanggalInp = document.getElementById('kepsek-filter-tanggal');
     const kelasSel = document.getElementById('kepsek-filter-kelas');
-    if (tanggalInp && !tanggalInp.value) tanggalInp.value = UI.todayISO();
-    const targetTanggal = tanggalInp ? tanggalInp.value : UI.todayISO();
+    const targetTanggal = UI.todayISO();
+    localState.activeDateWib = targetTanggal;
+    if (updatedEl) updatedEl.textContent = UI.formatDateId(targetTanggal);
     const targetKelas = kelasSel ? kelasSel.value : '';
     const key = `${targetTanggal}|${targetKelas}`;
 
@@ -1623,7 +1788,7 @@
       });
       UI.refreshIcons(absContainer);
     } else if (riwayatTbody) {
-      riwayatTbody.innerHTML = UI.renderSkeletonRows(6, 4);
+      riwayatTbody.innerHTML = UI.renderSkeletonRows(3, 4);
     }
 
     if (hasCachedUsers) {
@@ -1679,16 +1844,32 @@
         syncClassFilterOptions();
         renderKelasManagement();
       } else {
-        // Pergantian filter tanggal/kelas saja: cukup fetch getRekapKepsek yang ringan & cached
-        const rekapRes = await API.getRekapKepsek(targetTanggal, targetKelas);
-        const rk = rekapRes.data || rekapRes;
-        if (rk && rk.sync_ts !== undefined) recordLocalSyncTs(rk.sync_ts);
-        const rkChanged = !CACHE || CACHE.hasChanged(STATE.rekapKepsek, rk) || !hasCachedRk;
-        STATE.rekapKepsek = rk;
-        STATE.rekapKepsekKey = key;
-        if (CACHE) CACHE.write('rekapKepsek', { key, payload: rk });
-        if (rkChanged) {
-          renderKepsekBlockFromData(rk, targetTanggal);
+        // Pergantian filter tanggal/kelas saja: fetch getRekapKepsek & monitoring guru sesuai tanggal
+        const [rekapRes, monRes] = await Promise.allSettled([
+          API.getRekapKepsek(targetTanggal, targetKelas),
+          API.getMonitoringGuru({ tanggal: targetTanggal }),
+        ]);
+        if (monRes.status === 'fulfilled' && monRes.value) {
+          const md = monRes.value.data || monRes.value || {};
+          if (Array.isArray(md.absensi_guru)) {
+            STATE.absensiGuruToday = md.absensi_guru;
+            if (CACHE) CACHE.write('absensiGuruToday', STATE.absensiGuruToday);
+          }
+        }
+        if (rekapRes.status === 'fulfilled' && rekapRes.value) {
+          const rk = rekapRes.value.data || rekapRes.value;
+          if (rk && rk.sync_ts !== undefined) recordLocalSyncTs(rk.sync_ts);
+          const rkChanged = !CACHE || CACHE.hasChanged(STATE.rekapKepsek, rk) || !hasCachedRk;
+          STATE.rekapKepsek = rk;
+          STATE.rekapKepsekKey = key;
+          if (CACHE) CACHE.write('rekapKepsek', { key, payload: rk });
+          if (rkChanged) {
+            renderKepsekBlockFromData(rk, targetTanggal);
+          } else {
+            renderKepsekMonitoringGuru();
+          }
+        } else {
+          renderKepsekMonitoringGuru();
         }
       }
 
@@ -1719,6 +1900,70 @@
       }
     } finally {
       UI.setButtonLoading(refreshBtn, false);
+    }
+  }
+
+  function reconcileAdminBackground(opts) {
+    const o = opts || {};
+    if (o.syncTs !== undefined && o.syncTs !== null && o.syncTs !== '') {
+      recordLocalSyncTs(o.syncTs);
+    }
+    const CACHE = root.MDTA_CACHE;
+    if (o.refreshReports) {
+      STATE.rekapKepsek = null;
+      STATE.rekapKepsekKey = '';
+      if (CACHE) {
+        CACHE.remove('rekapKepsek');
+        CACHE.remove('dashboard');
+      }
+      silentRefreshFromSync(o.syncTs || null, { quiet: true }).catch(() => {});
+    }
+  }
+
+  async function refreshUsersOnly() {
+    const CACHE = root.MDTA_CACHE;
+    const btn = document.getElementById('btn-refresh-users');
+    UI.setButtonLoading(btn, true, 'Memuat...');
+    try {
+      const res = await API.getUsers();
+      const freshUsers = API.extractArray(res, ['users', 'daftar_pengguna']).map(API.normalizeUser);
+      STATE.users = freshUsers;
+      if (CACHE) CACHE.write('users', freshUsers);
+      renderUsersTable();
+      renderKelasManagement();
+      UI.toast(`${freshUsers.length} akun pengguna diperbarui.`, 'success');
+    } catch (err) {
+      UI.toast(err.message, 'error');
+    } finally {
+      UI.setButtonLoading(btn, false);
+    }
+  }
+
+  async function refreshKelasOnly() {
+    const CACHE = root.MDTA_CACHE;
+    const btn = document.getElementById('btn-refresh-kelas');
+    UI.setButtonLoading(btn, true, 'Memuat...');
+    try {
+      const [kRes, uRes] = await Promise.allSettled([API.getKelas(), API.getUsers()]);
+      if (kRes.status === 'fulfilled' && kRes.value) {
+        STATE.kelas = API.extractArray(kRes.value, ['kelas']).map(API.normalizeKelas);
+        STATE.loaded.kelas = true;
+        if (CACHE) CACHE.write('kelas', STATE.kelas);
+      } else if (kRes.status === 'rejected') {
+        throw kRes.reason;
+      }
+      if (uRes.status === 'fulfilled' && uRes.value) {
+        STATE.users = API.extractArray(uRes.value, ['users', 'daftar_pengguna']).map(API.normalizeUser);
+        if (CACHE) CACHE.write('users', STATE.users);
+      }
+      syncClassFilterOptions();
+      renderKelasManagement();
+      renderUsersTable();
+      UI.toast('Daftar kelas dan pemetaan guru diperbarui.', 'success');
+    } catch (err) {
+      UI.toast(err.message, 'error');
+    } finally {
+      UI.setButtonLoading(btn, false);
     }
   }
 
@@ -1763,6 +2008,24 @@
               .join('')}</div>`
           : `<span class="text-muted" style="font-size:0.8rem;">Belum ada guru pengampu dipetakan</span>`;
       const katProg = kls.kategori_program || resolveClassKategori(kls.nama_kelas);
+      const hariLabel =
+        typeof API.formatHariMengajarShort === 'function'
+          ? API.formatHariMengajarShort(kls.hari_mengajar_list || kls.hari_mengajar || '')
+          : 'Sen - Jum';
+      const hasFixedClock = Boolean(kls.jam_mulai && kls.jam_selesai);
+      const scheduleText = hasFixedClock
+        ? `${hariLabel}, ${kls.jam_mulai} - ${kls.jam_selesai} WIB`
+        : `${hariLabel}, jam belum diatur`;
+      const todayWib = UI.todayISO();
+      const hasActiveOverride =
+        kls.override_status &&
+        kls.override_status !== 'Normal' &&
+        kls.override_tanggal &&
+        kls.override_tanggal >= todayWib;
+      const overrideLabel =
+        kls.override_status === 'Libur'
+          ? `Libur ${kls.override_tanggal}`
+          : `Ubah Jam ${kls.override_tanggal} (${kls.override_jam_mulai || '--:--'}-${kls.override_jam_selesai || '--:--'})`;
 
       return `
         <article class="kelas-manage-card">
@@ -1779,6 +2042,20 @@
             <span class="status-badge ${kls.status !== 'nonaktif' ? 'status-hadir' : 'status-sakit'}">
               ${kls.status !== 'nonaktif' ? 'Aktif' : 'Nonaktif'}
             </span>
+          </div>
+
+          <div class="kelas-card-schedule">
+            <span class="kelas-card-schedule-row">
+              <i data-lucide="clock" aria-hidden="true" style="width:13px;height:13px;flex-shrink:0;"></i>
+              <span>${UI.esc(scheduleText)}</span>
+            </span>
+            ${
+              hasActiveOverride
+                ? `<span class="status-badge ${kls.override_status === 'Libur' ? 'status-alpa' : 'status-sakit'} kelas-card-override-pill">${UI.esc(overrideLabel)}${
+                    kls.override_catatan ? ` (${UI.esc(kls.override_catatan)})` : ''
+                  }</span>`
+                : ''
+            }
           </div>
 
           ${kls.keterangan ? `<div class="text-muted" style="font-size:0.8rem;">${UI.esc(kls.keterangan)}</div>` : ''}
@@ -1862,13 +2139,25 @@
         if (!ok) return;
 
         try {
-          await API.deleteKelas({ id_kelas: idKls, nama_kelas: namaKls });
+          const res = await API.deleteKelas({ id_kelas: idKls, nama_kelas: namaKls });
+          const d = (res && res.data) || res || {};
           STATE.kelas = STATE.kelas.filter((k) => k.id_kelas !== idKls);
-          if (root.MDTA_CACHE) root.MDTA_CACHE.write('kelas', STATE.kelas);
+          const delLower = String(namaKls || '').trim().toLowerCase();
+          STATE.users = (STATE.users || []).map((u) => {
+            const list = Array.isArray(u.kelas_ampu) ? u.kelas_ampu : [];
+            const next = list.filter((k) => k.toLowerCase() !== delLower);
+            if (next.length === list.length) return u;
+            return Object.assign({}, u, { kelas_ampu: next, kelas_ampu_text: next.join(', ') });
+          });
+          if (root.MDTA_CACHE) {
+            root.MDTA_CACHE.write('kelas', STATE.kelas);
+            root.MDTA_CACHE.write('users', STATE.users);
+          }
           syncClassFilterOptions();
           renderKelasManagement();
+          renderUsersTable();
           UI.toast(`Kelas "${namaKls}" berhasil dihapus.`, 'success');
-          await loadDashboard(false, { force: true });
+          reconcileAdminBackground({ refreshReports: true, syncTs: d.sync_ts });
         } catch (err) {
           UI.toast(err.message, 'error');
         }
@@ -1878,13 +2167,52 @@
     UI.refreshIcons(grid);
   }
 
+  function setKelasHariChips(hariList) {
+    const group = document.getElementById('kelas-hari-chips');
+    if (!group) return;
+    const selectedSet = new Set(Array.isArray(hariList) ? hariList : []);
+    group.querySelectorAll('.day-chip[data-kelas-hari]').forEach((btn) => {
+      const active = selectedSet.has(btn.dataset.kelasHari);
+      btn.setAttribute('aria-pressed', active ? 'true' : 'false');
+      btn.classList.toggle('active', active);
+    });
+  }
+
+  function getSelectedKelasHariChips() {
+    const group = document.getElementById('kelas-hari-chips');
+    if (!group) return [];
+    const order = CONFIG.HARI_OPTIONS || ['Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab', 'Min'];
+    const picked = new Set();
+    group.querySelectorAll('.day-chip[data-kelas-hari]').forEach((btn) => {
+      if (btn.getAttribute('aria-pressed') === 'true') {
+        picked.add(btn.dataset.kelasHari);
+      }
+    });
+    return order.filter((d) => picked.has(d));
+  }
+
+  function syncKelasOverrideFieldsUI() {
+    const statusEl = document.getElementById('kelas-override-status');
+    const fieldsWrap = document.getElementById('kelas-override-fields');
+    const timeRow = document.getElementById('kelas-override-time-row');
+    const dateInput = document.getElementById('kelas-override-tanggal');
+    const statusVal = (statusEl && statusEl.value) || 'Normal';
+    if (fieldsWrap) fieldsWrap.hidden = statusVal === 'Normal';
+    if (timeRow) timeRow.hidden = statusVal !== 'Ubah Jam';
+    if (dateInput && statusVal !== 'Normal' && !dateInput.value) {
+      dateInput.value = UI.todayISO();
+    }
+  }
+
   function closeKelasModal() {
     localState.editingKelasId = null;
     localState.editingKelasOriginalName = '';
+    localState.kelasHariManuallyEdited = false;
     const form = document.getElementById('form-kelas');
     if (form) form.reset();
     const idEl = document.getElementById('kelas-id');
     if (idEl) idEl.value = '';
+    syncKelasOverrideFieldsUI();
     UI.closeModal('modal-kelas');
   }
 
@@ -1896,16 +2224,54 @@
     const hint = document.getElementById('kelas-edit-hint');
     localState.editingKelasId = kelasObj ? (kelasObj.isSynthetic ? '' : kelasObj.id_kelas) : null;
     localState.editingKelasOriginalName = kelasObj ? kelasObj.nama_kelas : '';
+    localState.kelasHariManuallyEdited = Boolean(kelasObj && kelasObj.hari_mengajar);
 
     document.getElementById('kelas-id').value = localState.editingKelasId || '';
     document.getElementById('kelas-nama').value = kelasObj ? kelasObj.nama_kelas : '';
     const katSel = document.getElementById('kelas-kategori-program');
+    const katProg = kelasObj ? (kelasObj.kategori_program || resolveClassKategori(kelasObj.nama_kelas)) : 'Diniyyah';
     if (katSel) {
-      katSel.value = kelasObj ? (kelasObj.kategori_program || resolveClassKategori(kelasObj.nama_kelas)) : 'Diniyyah';
+      katSel.value = katProg;
+      if (typeof UI.syncCustomSelect === 'function') UI.syncCustomSelect(katSel);
     }
     document.getElementById('kelas-tingkat').value = kelasObj ? kelasObj.tingkat || '' : '';
     document.getElementById('kelas-keterangan').value = kelasObj ? kelasObj.keterangan || '' : '';
-    document.getElementById('kelas-status').value = kelasObj ? kelasObj.status || 'aktif' : 'aktif';
+    const statusSel = document.getElementById('kelas-status');
+    if (statusSel) {
+      statusSel.value = kelasObj ? kelasObj.status || 'aktif' : 'aktif';
+      if (typeof UI.syncCustomSelect === 'function') UI.syncCustomSelect(statusSel);
+    }
+
+    const hariList =
+      typeof API.parseHariMengajar === 'function'
+        ? API.parseHariMengajar(kelasObj ? kelasObj.hari_mengajar_list || kelasObj.hari_mengajar : '', katProg)
+        : ['Sen', 'Sel', 'Rab', 'Kam', 'Jum'];
+    setKelasHariChips(hariList);
+
+    const legacyRange =
+      typeof API.parseLegacyJadwalRange === 'function' && kelasObj && !kelasObj.jam_mulai
+        ? API.parseLegacyJadwalRange(kelasObj.jadwal || '')
+        : { jam_mulai: '', jam_selesai: '' };
+    const jamMulaiEl = document.getElementById('kelas-jam-mulai');
+    const jamSelesaiEl = document.getElementById('kelas-jam-selesai');
+    if (jamMulaiEl) jamMulaiEl.value = (kelasObj && kelasObj.jam_mulai) || legacyRange.jam_mulai || '';
+    if (jamSelesaiEl) jamSelesaiEl.value = (kelasObj && kelasObj.jam_selesai) || legacyRange.jam_selesai || '';
+
+    const ovStatusEl = document.getElementById('kelas-override-status');
+    const ovDateEl = document.getElementById('kelas-override-tanggal');
+    const ovStartEl = document.getElementById('kelas-override-jam-mulai');
+    const ovEndEl = document.getElementById('kelas-override-jam-selesai');
+    const ovNoteEl = document.getElementById('kelas-override-catatan');
+    const ovStatus = (kelasObj && kelasObj.override_status) || 'Normal';
+    if (ovStatusEl) {
+      ovStatusEl.value = ovStatus;
+      if (typeof UI.syncCustomSelect === 'function') UI.syncCustomSelect(ovStatusEl);
+    }
+    if (ovDateEl) ovDateEl.value = ovStatus !== 'Normal' && kelasObj ? kelasObj.override_tanggal || '' : '';
+    if (ovStartEl) ovStartEl.value = ovStatus === 'Ubah Jam' && kelasObj ? kelasObj.override_jam_mulai || '' : '';
+    if (ovEndEl) ovEndEl.value = ovStatus === 'Ubah Jam' && kelasObj ? kelasObj.override_jam_selesai || '' : '';
+    if (ovNoteEl) ovNoteEl.value = ovStatus !== 'Normal' && kelasObj ? kelasObj.override_catatan || '' : '';
+    syncKelasOverrideFieldsUI();
 
     if (title) title.textContent = kelasObj && !kelasObj.isSynthetic ? `Edit Kelas (${kelasObj.nama_kelas})` : 'Tambah Kelas Resmi';
     if (hint) hint.hidden = !(kelasObj && !kelasObj.isSynthetic);
@@ -2070,10 +2436,40 @@
     const santriMapForm = document.getElementById('form-kelas-santri');
     const saveSantriMapBtn = document.getElementById('btn-save-kelas-santri');
 
-    if (refreshKelasBtn) refreshKelasBtn.addEventListener('click', () => loadDashboard(true, { force: true }));
+    if (refreshKelasBtn) refreshKelasBtn.addEventListener('click', refreshKelasOnly);
     if (addKelasBtn) addKelasBtn.addEventListener('click', () => openKelasModal(null));
     if (closeKelasBtn) closeKelasBtn.addEventListener('click', closeKelasModal);
     if (cancelKelasBtn) cancelKelasBtn.addEventListener('click', closeKelasModal);
+
+    const hariChipsGroup = document.getElementById('kelas-hari-chips');
+    if (hariChipsGroup) {
+      hariChipsGroup.addEventListener('click', (e) => {
+        const chip = e.target && typeof e.target.closest === 'function' ? e.target.closest('.day-chip[data-kelas-hari]') : null;
+        if (!chip) return;
+        const pressed = chip.getAttribute('aria-pressed') === 'true';
+        chip.setAttribute('aria-pressed', pressed ? 'false' : 'true');
+        chip.classList.toggle('active', !pressed);
+        localState.kelasHariManuallyEdited = true;
+      });
+    }
+
+    const katSelectEl = document.getElementById('kelas-kategori-program');
+    if (katSelectEl) {
+      katSelectEl.addEventListener('change', () => {
+        if (!localState.editingKelasId && !localState.kelasHariManuallyEdited) {
+          const defHari =
+            typeof API.defaultHariMengajarForProgram === 'function'
+              ? API.defaultHariMengajarForProgram(katSelectEl.value)
+              : ['Sen', 'Sel', 'Rab', 'Kam', 'Jum'];
+          setKelasHariChips(defHari);
+        }
+      });
+    }
+
+    const ovStatusSel = document.getElementById('kelas-override-status');
+    if (ovStatusSel) {
+      ovStatusSel.addEventListener('change', syncKelasOverrideFieldsUI);
+    }
 
     if (closeMapBtn) closeMapBtn.addEventListener('click', closeKelasGuruModal);
     if (cancelMapBtn) cancelMapBtn.addEventListener('click', closeKelasGuruModal);
@@ -2096,6 +2492,55 @@
         const keterangan = document.getElementById('kelas-keterangan').value.trim();
         const status = document.getElementById('kelas-status').value || 'aktif';
 
+        const selectedHari = getSelectedKelasHariChips();
+        const hariMengajar =
+          selectedHari.length > 0
+            ? selectedHari.join(',')
+            : (typeof API.defaultHariMengajarForProgram === 'function'
+                ? API.defaultHariMengajarForProgram(kategoriProgram).join(',')
+                : 'Sen,Sel,Rab,Kam,Jum');
+        const jamMulai = (document.getElementById('kelas-jam-mulai')?.value || '').trim();
+        const jamSelesai = (document.getElementById('kelas-jam-selesai')?.value || '').trim();
+        if ((jamMulai && !jamSelesai) || (!jamMulai && jamSelesai)) {
+          UI.toast('Lengkapi Jam Mulai dan Jam Selesai jadwal tetap.', 'error');
+          return;
+        }
+        if (jamMulai && jamSelesai && jamSelesai <= jamMulai) {
+          UI.toast('Jam Selesai jadwal tetap harus lebih akhir dari Jam Mulai.', 'error');
+          return;
+        }
+
+        const overrideStatus = document.getElementById('kelas-override-status')?.value || 'Normal';
+        let overrideTanggal = (document.getElementById('kelas-override-tanggal')?.value || '').trim();
+        let overrideJamMulai = (document.getElementById('kelas-override-jam-mulai')?.value || '').trim();
+        let overrideJamSelesai = (document.getElementById('kelas-override-jam-selesai')?.value || '').trim();
+        let overrideCatatan = (document.getElementById('kelas-override-catatan')?.value || '').trim();
+
+        if (overrideStatus === 'Normal') {
+          overrideTanggal = '';
+          overrideJamMulai = '';
+          overrideJamSelesai = '';
+          overrideCatatan = '';
+        } else {
+          if (!overrideTanggal) {
+            UI.toast('Pilih Tanggal Berlaku untuk penyesuaian jadwal sementara.', 'error');
+            return;
+          }
+          if (overrideStatus === 'Ubah Jam') {
+            if (!overrideJamMulai || !overrideJamSelesai) {
+              UI.toast('Lengkapi Jam Mulai dan Jam Selesai pengganti.', 'error');
+              return;
+            }
+            if (overrideJamSelesai <= overrideJamMulai) {
+              UI.toast('Jam Selesai pengganti harus lebih akhir dari Jam Mulai pengganti.', 'error');
+              return;
+            }
+          } else {
+            overrideJamMulai = '';
+            overrideJamSelesai = '';
+          }
+        }
+
         if (!namaKelas) {
           UI.toast('Nama kelas wajib diisi.', 'error');
           return;
@@ -2110,14 +2555,66 @@
           tingkat,
           keterangan,
           status,
+          hari_mengajar: hariMengajar,
+          jam_mulai: jamMulai,
+          jam_selesai: jamSelesai,
+          override_status: overrideStatus,
+          override_tanggal: overrideTanggal,
+          override_jam_mulai: overrideJamMulai,
+          override_jam_selesai: overrideJamSelesai,
+          override_catatan: overrideCatatan,
         };
 
         UI.setButtonLoading(saveKelasBtn, true, 'Menyimpan...');
         try {
-          await API.saveKelas(payload);
+          const oldName = localState.editingKelasOriginalName || '';
+          const res = await API.saveKelas(payload);
+          const d = (res && res.data) || res || {};
+          const savedKelas = API.normalizeKelas(
+            Object.assign({}, payload, d, {
+              id_kelas: d.id_kelas || payload.id_kelas,
+              nama_kelas: d.nama_kelas || namaKelas,
+            })
+          );
+          const idxK = (STATE.kelas || []).findIndex(
+            (k) =>
+              (savedKelas.id_kelas && k.id_kelas === savedKelas.id_kelas) ||
+              (oldName && k.nama_kelas.toLowerCase() === oldName.toLowerCase())
+          );
+          if (idxK >= 0) STATE.kelas[idxK] = savedKelas;
+          else STATE.kelas.push(savedKelas);
+          STATE.kelas.sort((a, b) => a.nama_kelas.localeCompare(b.nama_kelas));
+          STATE.loaded.kelas = true;
+
+          const renamedFrom = d.renamed_from || (isEdit && oldName && oldName.toLowerCase() !== savedKelas.nama_kelas.toLowerCase() ? oldName : '');
+          if (renamedFrom) {
+            const oldLower = renamedFrom.toLowerCase();
+            STATE.santri = (STATE.santri || []).map((s) => {
+              const cur = API.parseKelasAmpu(s.kelas);
+              if (!cur.some((c) => c.toLowerCase() === oldLower)) return s;
+              const next = cur.map((c) => (c.toLowerCase() === oldLower ? savedKelas.nama_kelas : c));
+              return Object.assign({}, s, { kelas: next.join(', ') });
+            });
+            STATE.users = (STATE.users || []).map((u) => {
+              const cur = Array.isArray(u.kelas_ampu) ? u.kelas_ampu : [];
+              if (!cur.some((c) => c.toLowerCase() === oldLower)) return u;
+              const next = cur.map((c) => (c.toLowerCase() === oldLower ? savedKelas.nama_kelas : c));
+              return Object.assign({}, u, { kelas_ampu: next, kelas_ampu_text: next.join(', ') });
+            });
+            if (root.MDTA_CACHE) {
+              root.MDTA_CACHE.write('santri', STATE.santri);
+              root.MDTA_CACHE.write('users', STATE.users);
+            }
+          }
+          if (root.MDTA_CACHE) root.MDTA_CACHE.write('kelas', STATE.kelas);
+
           closeKelasModal();
-          UI.toast(`Kelas "${namaKelas}" berhasil disimpan.`, 'success');
-          await loadDashboard(false, { force: true });
+          syncClassFilterOptions();
+          renderKelasManagement();
+          renderSantriTable();
+          renderUsersTable();
+          UI.toast(`Kelas "${savedKelas.nama_kelas}" berhasil disimpan.`, 'success');
+          reconcileAdminBackground({ refreshReports: true, syncTs: d.sync_ts });
         } catch (err) {
           UI.toast(err.message, 'error');
         } finally {
@@ -2137,7 +2634,8 @@
 
         UI.setButtonLoading(saveMapBtn, true, 'Menyimpan...');
         try {
-          await API.saveKelasMapping({ nama_kelas: namaKelas, guru_ids: selectedIds });
+          const res = await API.saveKelasMapping({ nama_kelas: namaKelas, guru_ids: selectedIds });
+          const d = (res && res.data) || res || {};
           const selectedSet = new Set(selectedIds);
           STATE.users = (STATE.users || []).map((u) => {
             if (String(u.role || '').toLowerCase() === 'admin') return u;
@@ -2160,11 +2658,10 @@
           renderUsersTable();
           renderKelasManagement();
           if (STATE.rekapKepsek) {
-            const tgl = document.getElementById('kepsek-filter-tanggal')?.value || UI.todayISO();
-            renderKepsekBlockFromData(STATE.rekapKepsek, tgl);
+            renderKepsekBlockFromData(STATE.rekapKepsek, UI.todayISO());
           }
           UI.toast(`Pemetaan guru pengampu untuk "${namaKelas}" tersimpan.`, 'success');
-          await loadDashboard(false, { force: true });
+          reconcileAdminBackground({ refreshReports: true, syncTs: d.sync_ts });
         } catch (err) {
           UI.toast(err.message, 'error');
         } finally {
@@ -2186,7 +2683,8 @@
 
         UI.setButtonLoading(saveSantriMapBtn, true, 'Menyimpan...');
         try {
-          await API.saveKelasSantri({ nama_kelas: namaKelas, santri_ids: selectedIds });
+          const res = await API.saveKelasSantri({ nama_kelas: namaKelas, santri_ids: selectedIds });
+          const d = (res && res.data) || res || {};
           STATE.santri = (STATE.santri || []).map((s) => {
             if (!s.id_santri) return s;
             const sid = String(s.id_santri).trim();
@@ -2208,7 +2706,7 @@
           renderKelasManagement();
           renderSantriTable();
           UI.toast(`Anggota santri kelas "${namaKelas}" berhasil disimpan.`, 'success');
-          await loadDashboard(false, { force: true });
+          reconcileAdminBackground({ refreshReports: true, syncTs: d.sync_ts });
         } catch (err) {
           UI.toast(err.message, 'error');
         } finally {
@@ -2317,7 +2815,6 @@
 
   function bindDashboardEvents() {
     const refreshBtn = document.getElementById('btn-refresh-dashboard');
-    const filterTanggal = document.getElementById('kepsek-filter-tanggal');
     const filterKelas = document.getElementById('kepsek-filter-kelas');
     const searchInput = document.getElementById('admin-riwayat-search');
     const refreshUsersBtn = document.getElementById('btn-refresh-users');
@@ -2334,12 +2831,10 @@
     const tutupDetailBtn = document.getElementById('btn-tutup-detail-nilai');
     const clearDailyBtn = document.getElementById('btn-admin-clear-presensi-harian');
 
-    if (filterTanggal && !filterTanggal.value) filterTanggal.value = UI.todayISO();
     if (clearDailyBtn) {
       clearDailyBtn.addEventListener('click', async () => {
-        const tanggalInp = document.getElementById('kepsek-filter-tanggal');
         const kelasSel = document.getElementById('kepsek-filter-kelas');
-        const targetTanggal = (tanggalInp && tanggalInp.value) || UI.todayISO();
+        const targetTanggal = UI.todayISO();
         const targetKelas = (kelasSel && kelasSel.value) || '';
         const scopeLabel = targetKelas ? `kelas ${targetKelas}` : 'semua kelas';
 
@@ -2355,29 +2850,49 @@
         try {
           const res = await API.clearPresensiHarian({ tanggal: targetTanggal, kelas: targetKelas });
           const d = res.data || res || {};
-          STATE.rekapKepsek = null;
-          STATE.rekapKepsekKey = '';
-          if (root.MDTA_CACHE) {
-            root.MDTA_CACHE.remove('rekapKepsek');
-            root.MDTA_CACHE.remove('dashboard');
+          const kelasLower = String(targetKelas || '').trim().toLowerCase();
+          if (STATE.rekapKepsek && typeof STATE.rekapKepsek === 'object') {
+            const rk = STATE.rekapKepsek;
+            if (rk.absensi_harian) {
+              const keepRow = (r) => Boolean(kelasLower && String((r && r.kelas) || '').trim().toLowerCase() !== kelasLower);
+              const nextRiwayat = Array.isArray(rk.absensi_harian.riwayat)
+                ? rk.absensi_harian.riwayat.filter(keepRow)
+                : [];
+              rk.absensi_harian.riwayat = nextRiwayat;
+              rk.absensi_harian.santri_tidak_hadir = Array.isArray(rk.absensi_harian.santri_tidak_hadir)
+                ? rk.absensi_harian.santri_tidak_hadir.filter(keepRow)
+                : [];
+              const nextAg = { Hadir: 0, Sakit: 0, Izin: 0, Alpa: 0, total: nextRiwayat.length };
+              nextRiwayat.forEach((r) => {
+                const st = String((r && r.status) || 'Hadir');
+                if (Object.prototype.hasOwnProperty.call(nextAg, st)) nextAg[st]++;
+              });
+              rk.absensi_harian.agregat = nextAg;
+            }
+            if (Array.isArray(rk.laporan_per_kelas)) {
+              rk.laporan_per_kelas = rk.laporan_per_kelas.map((blk) => {
+                if (kelasLower && String((blk && blk.kelas) || '').trim().toLowerCase() !== kelasLower) return blk;
+                return Object.assign({}, blk, {
+                  agregat_absensi: { Hadir: 0, Sakit: 0, Izin: 0, Alpa: 0, total: 0 },
+                  metode_absensi: { qr: 0, manual: 0 },
+                  santri_tidak_hadir: [],
+                  riwayat_absensi: [],
+                  status_setoran: Object.assign({}, blk.status_setoran || {}, { sudah_setor: false }),
+                });
+              });
+            }
+            renderKepsekBlockFromData(rk, targetTanggal);
           }
-          await loadDashboard(false, { force: true });
           UI.toast(
             `Log presensi ${UI.formatDateShort(targetTanggal)} (${scopeLabel}) dibersihkan (${d.deletedCount ?? 0} catatan dihapus). Rekap bulanan tetap aman.`,
             'success'
           );
+          reconcileAdminBackground({ refreshReports: true, syncTs: d.sync_ts });
         } catch (err) {
           UI.toast(`Gagal membersihkan log harian: ${err.message}`, 'error');
         } finally {
           UI.setButtonLoading(clearDailyBtn, false);
         }
-      });
-    }
-    if (filterTanggal) {
-      filterTanggal.addEventListener('change', () => {
-        localState.kepsekModeLocked = false;
-        localState.kepsekReportMode = 'absensi';
-        loadDashboard(false, { force: false });
       });
     }
     if (filterKelas) filterKelas.addEventListener('change', () => loadDashboard(false, { force: false }));
@@ -2395,13 +2910,12 @@
           c.setAttribute('aria-pressed', c === chip ? 'true' : 'false');
         });
         if (STATE.rekapKepsek) {
-          const tgl = (filterTanggal && filterTanggal.value) || UI.todayISO();
-          renderKepsekBlockFromData(STATE.rekapKepsek, tgl);
+          renderKepsekBlockFromData(STATE.rekapKepsek, UI.todayISO());
         }
         renderKepsekMonitoringGuru();
       });
     });
-    if (refreshUsersBtn) refreshUsersBtn.addEventListener('click', () => loadDashboard(true, { force: true }));
+    if (refreshUsersBtn) refreshUsersBtn.addEventListener('click', refreshUsersOnly);
     if (usersSearchInput) {
       usersSearchInput.addEventListener('input', (e) => {
         localState.usersQuery = e.target.value || '';
@@ -2498,10 +3012,33 @@
 
         UI.setButtonLoading(saveUserBtn, true, 'Menyimpan...');
         try {
-          await API.saveUser(payload);
+          const res = await API.saveUser(payload);
+          const d = (res && res.data) || res || {};
+          const savedUser = API.normalizeUser(
+            Object.assign({}, payload, d, {
+              id_user: d.id_user || payload.id_user,
+              username: d.username || payload.username,
+              nama_lengkap: d.nama_lengkap || payload.nama_lengkap,
+              role: d.role || payload.role,
+              status_aktif: d.status_aktif || payload.status_aktif,
+              kelas_ampu: d.kelas_ampu !== undefined ? d.kelas_ampu : payload.kelas_ampu,
+            })
+          );
+          const idxU = (STATE.users || []).findIndex(
+            (u) =>
+              (savedUser.id_user && u.id_user === savedUser.id_user) ||
+              (localState.editingUserOriginalUsername &&
+                u.username.toLowerCase() === localState.editingUserOriginalUsername.toLowerCase()) ||
+              u.username.toLowerCase() === savedUser.username.toLowerCase()
+          );
+          if (idxU >= 0) STATE.users[idxU] = Object.assign({}, STATE.users[idxU], savedUser);
+          else STATE.users.push(savedUser);
+          if (root.MDTA_CACHE) root.MDTA_CACHE.write('users', STATE.users);
           closeUserModal();
+          renderUsersTable();
+          renderKelasManagement();
           UI.toast(`Akun "${namaLengkap}" berhasil disimpan.`, 'success');
-          await loadDashboard(false, { force: true });
+          reconcileAdminBackground({ refreshReports: true, syncTs: d.sync_ts });
         } catch (err) {
           UI.toast(err.message, 'error');
         } finally {
@@ -2629,6 +3166,10 @@
           <span class="detail-label">Nama Lengkap</span>
           <strong class="detail-value">${UI.esc(s.nama_lengkap || '-')}</strong>
         </div>
+        <div class="detail-field detail-field-full">
+          <span class="detail-label">Nama Ayah Kandung</span>
+          <strong class="detail-value">${UI.esc(s.nama_ayah_kandung || '-')}</strong>
+        </div>
         <div class="detail-field">
           <span class="detail-label">Kelas</span>
           <strong class="detail-value">${UI.esc(s.kelas || '-')}</strong>
@@ -2698,6 +3239,7 @@
       const matchQ =
         !q ||
         s.nama_lengkap.toLowerCase().includes(q) ||
+        (s.nama_ayah_kandung || '').toLowerCase().includes(q) ||
         s.id_santri.toLowerCase().includes(q) ||
         (s.nis || '').toLowerCase().includes(q) ||
         (s.nik || '').toLowerCase().includes(q) ||
@@ -2718,7 +3260,7 @@
       updateBulkSantriBar(filtered);
       tbody.innerHTML = `
         <tr class="table-state-row">
-          <td colspan="5">
+          <td colspan="6">
             ${UI.renderStateBox({
         type: 'empty',
         title: STATE.santri.length === 0 ? 'Belum ada data santri' : 'Santri tidak ditemukan',
@@ -2749,6 +3291,7 @@
               <i data-lucide="chevron-right" class="row-chevron-hint" aria-hidden="true"></i>
             </div>
           </td>
+          <td class="snt-ayah" data-label="Nama Ayah Kandung">${UI.esc(s.nama_ayah_kandung || '-')}</td>
           <td class="snt-kelas" data-label="Kelas">${UI.esc(s.kelas || '-')}</td>
           <td class="snt-status" data-label="Status">
             <span class="status-badge ${s.status === 'aktif' ? 'status-hadir' : 'status-sakit'}">
@@ -2769,6 +3312,7 @@
                 <i data-lucide="pencil" aria-hidden="true"></i>
                 <span class="mobile-only-btn-label">Edit</span>
               </button>
+              <i data-lucide="chevron-right" class="snt-mobile-chevron" aria-hidden="true"></i>
             </div>
           </td>
         </tr>
@@ -2847,7 +3391,7 @@
       syncClassFilterOptions();
       renderSantriTable();
     } else if (tbody) {
-      tbody.innerHTML = UI.renderSkeletonRows(11, 5);
+      tbody.innerHTML = UI.renderSkeletonRows(5, 6);
     }
 
     if (!force && (STATE.loaded.santri || STATE.loaded.bootstrap) && hasCache) {
@@ -2874,7 +3418,7 @@
       if (showToast) UI.toast(`${STATE.santri.length} data santri dimuat.`, 'success');
     } catch (err) {
       if (!hasCache && tbody) {
-        tbody.innerHTML = `<tr class="table-state-row"><td colspan="11">${UI.renderStateBox({
+        tbody.innerHTML = `<tr class="table-state-row"><td colspan="6">${UI.renderStateBox({
           type: 'error',
           title: 'Gagal memuat database santri',
           message: err.message,
@@ -2888,6 +3432,70 @@
       if (force || !hasCache) UI.toast(err.message, 'error');
     } finally {
       UI.setButtonLoading(refreshBtn, false);
+    }
+  }
+
+  function reconcileAdminBackground(opts) {
+    const o = opts || {};
+    if (o.syncTs !== undefined && o.syncTs !== null && o.syncTs !== '') {
+      recordLocalSyncTs(o.syncTs);
+    }
+    const CACHE = root.MDTA_CACHE;
+    if (o.refreshReports) {
+      STATE.rekapKepsek = null;
+      STATE.rekapKepsekKey = '';
+      if (CACHE) {
+        CACHE.remove('rekapKepsek');
+        CACHE.remove('dashboard');
+      }
+      silentRefreshFromSync(o.syncTs || null, { quiet: true }).catch(() => {});
+    }
+  }
+
+  async function refreshUsersOnly() {
+    const CACHE = root.MDTA_CACHE;
+    const btn = document.getElementById('btn-refresh-users');
+    UI.setButtonLoading(btn, true, 'Memuat...');
+    try {
+      const res = await API.getUsers();
+      const freshUsers = API.extractArray(res, ['users', 'daftar_pengguna']).map(API.normalizeUser);
+      STATE.users = freshUsers;
+      if (CACHE) CACHE.write('users', freshUsers);
+      renderUsersTable();
+      renderKelasManagement();
+      UI.toast(`${freshUsers.length} akun pengguna diperbarui.`, 'success');
+    } catch (err) {
+      UI.toast(err.message, 'error');
+    } finally {
+      UI.setButtonLoading(btn, false);
+    }
+  }
+
+  async function refreshKelasOnly() {
+    const CACHE = root.MDTA_CACHE;
+    const btn = document.getElementById('btn-refresh-kelas');
+    UI.setButtonLoading(btn, true, 'Memuat...');
+    try {
+      const [kRes, uRes] = await Promise.allSettled([API.getKelas(), API.getUsers()]);
+      if (kRes.status === 'fulfilled' && kRes.value) {
+        STATE.kelas = API.extractArray(kRes.value, ['kelas']).map(API.normalizeKelas);
+        STATE.loaded.kelas = true;
+        if (CACHE) CACHE.write('kelas', STATE.kelas);
+      } else if (kRes.status === 'rejected') {
+        throw kRes.reason;
+      }
+      if (uRes.status === 'fulfilled' && uRes.value) {
+        STATE.users = API.extractArray(uRes.value, ['users', 'daftar_pengguna']).map(API.normalizeUser);
+        if (CACHE) CACHE.write('users', STATE.users);
+      }
+      syncClassFilterOptions();
+      renderKelasManagement();
+      renderUsersTable();
+      UI.toast('Daftar kelas dan pemetaan guru diperbarui.', 'success');
+    } catch (err) {
+      UI.toast(err.message, 'error');
+    } finally {
+      UI.setButtonLoading(btn, false);
     }
   }
 
@@ -2911,10 +3519,12 @@
 
     document.getElementById('santri-id').value = santri ? (santri.id_santri || '') : '';
     document.getElementById('santri-nama').value = santri ? (santri.nama_lengkap || '') : '';
+    const ayahEl = document.getElementById('santri-nama-ayah');
     const nisEl = document.getElementById('santri-nis');
     const nikEl = document.getElementById('santri-nik');
     const tmpEl = document.getElementById('santri-tempat-lahir');
     const tglEl = document.getElementById('santri-tanggal-lahir');
+    if (ayahEl) ayahEl.value = santri ? (santri.nama_ayah_kandung || '') : '';
     if (nisEl) nisEl.value = santri ? (santri.nis || '') : '';
     if (nikEl) nikEl.value = santri ? (santri.nik || '') : '';
     if (tmpEl) tmpEl.value = santri ? (santri.tempat_lahir || '') : '';
@@ -2990,6 +3600,7 @@
           isEdit: true,
           id_santri: s.id_santri,
           nama_lengkap: s.nama_lengkap,
+          nama_ayah_kandung: s.nama_ayah_kandung || '',
           nis: s.nis || '',
           nik: s.nik || '',
           tempat_lahir: s.tempat_lahir || '',
@@ -3334,13 +3945,6 @@
     const downloadQrBtn = document.getElementById('btn-download-qr-png');
     const printQrBtn = document.getElementById('btn-print-qr-card');
 
-    const closeDetailSantriBtn = document.getElementById('btn-close-detail-santri');
-    const closeDetailRekapBtn = document.getElementById('btn-close-detail-rekap');
-    const tutupDetailRekapBtn = document.getElementById('btn-detail-rekap-tutup');
-    if (closeDetailSantriBtn) closeDetailSantriBtn.addEventListener('click', () => UI.closeModal('modal-detail-santri'));
-    if (closeDetailRekapBtn) closeDetailRekapBtn.addEventListener('click', () => UI.closeModal('modal-detail-rekap'));
-    if (tutupDetailRekapBtn) tutupDetailRekapBtn.addEventListener('click', () => UI.closeModal('modal-detail-rekap'));
-
     if (searchInput) {
       searchInput.addEventListener('input', (e) => {
         localState.santriQuery = e.target.value || '';
@@ -3362,6 +3966,7 @@
           const matchQ =
             !q ||
             s.nama_lengkap.toLowerCase().includes(q) ||
+            (s.nama_ayah_kandung || '').toLowerCase().includes(q) ||
             s.id_santri.toLowerCase().includes(q) ||
             (s.nis || '').toLowerCase().includes(q) ||
             (s.nik || '').toLowerCase().includes(q) ||
@@ -3450,6 +4055,7 @@
         const isEdit = Boolean(localState.editingSantriId);
         const idSantri = isEdit ? localState.editingSantriId : generateNextLocalId(STATE.santri || [], 'id_santri', 'S-', 3);
         const namaLengkap = document.getElementById('santri-nama').value.trim();
+        const namaAyahKandung = (document.getElementById('santri-nama-ayah')?.value || '').trim();
         const nis = (document.getElementById('santri-nis')?.value || '').trim();
         const nik = (document.getElementById('santri-nik')?.value || '').replace(/\s+/g, '').trim();
         const tempatLahir = (document.getElementById('santri-tempat-lahir')?.value || '').trim();
@@ -3476,6 +4082,7 @@
           isEdit,
           id_santri: idSantri,
           nama_lengkap: namaLengkap,
+          nama_ayah_kandung: namaAyahKandung,
           nis,
           nik,
           tempat_lahir: tempatLahir,
@@ -3488,11 +4095,27 @@
 
         UI.setButtonLoading(saveSantriBtn, true, 'Menyimpan...');
         try {
-          await API.saveSantri(payload);
+          const res = await API.saveSantri(payload);
+          const d = (res && res.data) || res || {};
+          const savedSantri = API.normalizeSantri(
+            Object.assign({}, payload, d, {
+              id_santri: d.id_santri || payload.id_santri,
+              qr_token: d.qr_token || payload.qr_token,
+            })
+          );
+          const idxS = (STATE.santri || []).findIndex(
+            (s) => savedSantri.id_santri && s.id_santri === savedSantri.id_santri
+          );
+          if (idxS >= 0) STATE.santri[idxS] = savedSantri;
+          else STATE.santri.unshift(savedSantri);
+          STATE.loaded.santri = true;
+          if (root.MDTA_CACHE) root.MDTA_CACHE.write('santri', STATE.santri);
           closeSantriModal();
-          STATE.loaded.bootstrap = false;
+          syncClassFilterOptions();
+          renderSantriTable();
+          renderKelasManagement();
           UI.toast(`Data santri "${namaLengkap}" berhasil disimpan.`, 'success');
-          await loadSantri(false, { force: true });
+          reconcileAdminBackground({ refreshReports: true, syncTs: d.sync_ts });
         } catch (err) {
           UI.toast(err.message, 'error');
         } finally {
@@ -3565,6 +4188,7 @@
 
       return {
         kelas: k,
+        guru_pengampu: gurus,
         guru_pengampu_names: guruNames,
         rows: classRows,
         totalHadir,
@@ -3645,14 +4269,17 @@
     }).join('');
 
     const raportItems = raportList.slice(0, 5).map((rp) => {
-      const akhir = Number(rp.nilai_akhir ?? 0);
+      const akhir = Number(rp.n_akhir ?? rp.nilai_akhir ?? 0);
+      const predLabel = rp.grade
+        ? `${rp.grade} (${rp.keterangan || API.computeRaportGrade(akhir).keterangan})`
+        : (rp.predikat || '-');
       return `
         <div class="detail-history-item">
           <div>
             <strong>Nilai Raport${rp.semester ? ` · ${UI.esc(rp.semester)}` : ''}</strong>
-            <div class="text-muted" style="font-size:0.78rem;">${UI.esc(rp.tahun_ajaran || rp.periode || '-')} · ${UI.esc(rp.predikat || '-')}</div>
+            <div class="text-muted" style="font-size:0.78rem;">${UI.esc(rp.tahun_ajaran || rp.periode || '-')} · ${UI.esc(predLabel)}</div>
           </div>
-          <span class="status-badge status-hadir mono-num">${Number.isFinite(akhir) ? akhir.toFixed(1) : '-'}</span>
+          <span class="status-badge status-hadir mono-num">${Number.isFinite(akhir) ? akhir.toFixed(2) : '-'}</span>
         </div>
       `;
     }).join('');
@@ -3798,8 +4425,10 @@
                   Kehadiran: ${grp.avgPct}%
                 </span>
               </div>
-              <div class="text-secondary" style="font-size:0.84rem;margin-top:4px;">
-                Guru Pengampu: <strong>${UI.esc(grp.guru_pengampu_names)}</strong> · H: ${grp.totalHadir} · S: ${grp.totalSakit} · I: ${grp.totalIzin} · A: ${grp.totalAlpa}
+              <div class="text-secondary guru-pengampu-row">
+                <span>Guru Pengampu:</span>
+                ${renderGuruInlineListHtml(grp.guru_pengampu, { fallbackText: grp.guru_pengampu_names })}
+                <span class="text-muted">· H: ${grp.totalHadir} · S: ${grp.totalSakit} · I: ${grp.totalIzin} · A: ${grp.totalAlpa}</span>
               </div>
             </div>
             <div class="toolbar-actions kelas-header-actions">
@@ -3880,6 +4509,7 @@
       btn.addEventListener('click', () => printRekapPDF(btn.dataset.printRekapKelas));
     });
 
+    if (typeof UI.bindAvatarFallbacks === 'function') UI.bindAvatarFallbacks(container);
     UI.refreshIcons(container);
   }
 
@@ -4033,6 +4663,7 @@
       return;
     }
 
+    const docTitle = getProgramDocumentTitle(localState.rekapProgramFilter);
     printContainer.innerHTML = grouped
       .map(
         (grp) => `
@@ -4040,7 +4671,7 @@
           <div class="print-kop">
             <div>
               <h2 class="print-kop-title">${UI.esc(CONFIG.INSTITUTION_NAME)}</h2>
-              <p class="print-kop-sub">Rekapitulasi Kehadiran Santri (${UI.esc(CONFIG.INSTITUTION_LOCATION)})</p>
+              <p class="print-kop-sub">${UI.esc(docTitle)} (${UI.esc(CONFIG.INSTITUTION_LOCATION)})</p>
               <p class="print-kop-sub">Kelas: <strong>${UI.esc(grp.kelas)}</strong> | Guru Pengampu: <strong>${UI.esc(grp.guru_pengampu_names)}</strong> | Periode: ${UI.esc(bulanNama)} ${UI.esc(tahun)}</p>
             </div>
           </div>
@@ -4109,11 +4740,12 @@
     const grouped = groupRekapByClass(getFilteredRekapRows());
     const doc = new root.jspdf.jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
 
+    const docTitle = getProgramDocumentTitle(localState.rekapProgramFilter);
     const drawClassHeader = (grp) => {
       doc.setFontSize(14);
       doc.text(CONFIG.INSTITUTION_NAME, 14, 18);
       doc.setFontSize(11);
-      doc.text(`Rekap Laporan Presensi MDTA: ${bulanNama} ${tahun} - ${grp.kelas}`, 14, 25);
+      doc.text(`${docTitle}: ${bulanNama} ${tahun} - ${grp.kelas}`, 14, 25);
       doc.setFontSize(9);
       doc.text(`Guru Pengampu: ${grp.guru_pengampu_names} | Dicetak: ${UI.formatDateShort(new Date())}`, 14, 31);
 
@@ -4188,61 +4820,55 @@
       );
     }
 
-    if (kelasSelect) {
-      kelasSelect.addEventListener('change', () => {
-        if (kelasSelect.value) {
-          localState.rekapHasSearched = true;
-          if (!isCurrentRekapLoaded()) {
-            loadRekapLaporan(false);
-            return;
-          }
-        }
-        if (localState.rekapHasSearched) {
-          renderRekapTable();
-        }
-      });
-    }
-
-    const closeDetailSantriBtn = document.getElementById('btn-close-detail-santri');
-    const closeDetailRekapBtn = document.getElementById('btn-close-detail-rekap');
-    const tutupDetailRekapBtn = document.getElementById('btn-detail-rekap-tutup');
-    if (closeDetailSantriBtn) closeDetailSantriBtn.addEventListener('click', () => UI.closeModal('modal-detail-santri'));
-
-    async function loadRekapGuru() {
-      const guruCont = document.getElementById('admin-rekap-guru-container');
-      const bulan = bulanSelect ? bulanSelect.value : String(new Date().getMonth() + 1);
-      const tahun = tahunInput ? tahunInput.value : String(new Date().getFullYear());
-      if (!guruCont) return;
-      guruCont.innerHTML = UI.renderStateBox({ type: 'loading', title: 'Memuat rekap kehadiran guru...' });
-      try {
-        const res = await API.getMonitoringGuru({ bulan, tahun });
-        const d = (res && res.data) || res || {};
-        localState.rekapGuruRows = Array.isArray(d.absensi_guru) ? d.absensi_guru : [];
-        renderRekapGuruTable();
-      } catch (err) {
-        guruCont.innerHTML = UI.renderStateBox({ type: 'error', title: 'Gagal memuat rekap guru', message: err.message });
-      }
-    }
-
-    function renderRekapGuruTable() {
-      const guruCont = document.getElementById('admin-rekap-guru-container');
-      if (!guruCont) return;
+    function getFilteredRekapGuruRows() {
       const progF = localState.rekapProgramFilter || '';
+      const kelasF = (kelasSelect ? kelasSelect.value : '') || '';
       const q = (localState.rekapSearchQuery || '').trim().toLowerCase();
-      const rows = (localState.rekapGuruRows || []).filter((r) => {
-        if (progF && r.kategori_program !== progF) return false;
+      return (localState.rekapGuruRows || []).filter((r) => {
+        const rProg = r.kategori_program || resolveClassKategori(r.kelas);
+        if (progF && rProg !== progF) return false;
+        if (kelasF && String(r.kelas || '').trim().toLowerCase() !== kelasF.trim().toLowerCase()) return false;
         if (!q) return true;
         return (
           String(r.nama_guru || '').toLowerCase().includes(q) ||
           String(r.kelas || '').toLowerCase().includes(q) ||
-          String(r.materi_diajarkan || '').toLowerCase().includes(q)
+          String(r.materi_diajarkan || '').toLowerCase().includes(q) ||
+          String(r.status || '').toLowerCase().includes(q)
         );
       });
+    }
+
+    function guruStatusBadgeClass(st) {
+      const s = String(st || '').toLowerCase();
+      if (s.includes('hadir')) return 'status-hadir';
+      if (s.includes('izin') || s.includes('tugas')) return 'status-izin';
+      if (s.includes('sakit')) return 'status-sakit';
+      return 'status-alpa';
+    }
+
+    function renderRekapGuruTable() {
+      const guruCont = document.getElementById('admin-rekap-guru-container');
+      const periodEl = document.getElementById('rekap-period-label');
+      const subtabsBar = document.getElementById('rekap-kelas-subtabs');
+      const actionsWrap = document.getElementById('rekap-toolbar-actions');
+      if (subtabsBar) subtabsBar.hidden = true;
+      if (!guruCont) return;
+
+      const bulan = Number(bulanSelect ? bulanSelect.value : 1) || 1;
+      const tahun = (tahunInput ? tahunInput.value : new Date().getFullYear());
+      const bulanNama = CONFIG.MONTH_NAMES[bulan - 1] || String(bulan);
+      const rows = getFilteredRekapGuruRows();
+
+      if (actionsWrap) actionsWrap.hidden = rows.length === 0;
+      if (periodEl) {
+        periodEl.textContent = `Rekap Kehadiran & Materi Guru · Periode: ${bulanNama} ${tahun} (${rows.length} catatan)`;
+      }
+
       if (rows.length === 0) {
         guruCont.innerHTML = UI.renderStateBox({
           type: 'empty',
           title: 'Belum ada rekap kehadiran guru',
-          message: 'Tidak ditemukan catatan absen & materi guru untuk periode dan program yang dipilih.',
+          message: 'Tidak ditemukan catatan absen & materi guru untuk periode dan filter yang dipilih.',
         });
         UI.refreshIcons(guruCont);
         return;
@@ -4267,8 +4893,8 @@
                 <tr>
                   <td class="mono-num" data-label="Tanggal">${UI.esc(r.tanggal)} <span class="text-muted">${UI.esc(r.waktu_masuk || '')}</span></td>
                   <td class="mc-primary" data-label="Nama Guru"><strong>${UI.esc(r.nama_guru)}</strong></td>
-                  <td data-label="Kelas &amp; Program">${UI.esc(r.kelas)} <span class="status-badge status-izin">${UI.esc(r.kategori_program || 'Diniyyah')}</span></td>
-                  <td class="mc-status" data-label="Status"><span class="status-badge status-hadir">${UI.esc(r.status)}</span></td>
+                  <td data-label="Kelas &amp; Program">${UI.esc(r.kelas)} <span class="status-badge status-izin">${UI.esc(r.kategori_program || resolveClassKategori(r.kelas))}</span></td>
+                  <td class="mc-status" data-label="Status"><span class="status-badge ${guruStatusBadgeClass(r.status)}">${UI.esc(r.status)}</span></td>
                   <td data-label="Materi">${UI.esc(r.materi_diajarkan || '-')}</td>
                   <td data-label="Cek Kepsek">${UI.esc(r.status_cek || 'Belum Dicek')}${r.catatan_kepsek ? ` · ${UI.esc(r.catatan_kepsek)}` : ''}</td>
                 </tr>`
@@ -4280,6 +4906,188 @@
       `;
     }
 
+    async function loadRekapGuru(showToastMsg) {
+      const guruCont = document.getElementById('admin-rekap-guru-container');
+      const bulan = bulanSelect ? bulanSelect.value : String(new Date().getMonth() + 1);
+      const tahun = tahunInput ? tahunInput.value : String(new Date().getFullYear());
+      if (!guruCont) return;
+      guruCont.innerHTML = UI.renderStateBox({ type: 'loading', title: 'Memuat rekap kehadiran guru...' });
+      UI.refreshIcons(guruCont);
+      try {
+        const res = await API.getMonitoringGuru({ bulan, tahun });
+        const d = (res && res.data) || res || {};
+        localState.rekapGuruRows = Array.isArray(d.absensi_guru) ? d.absensi_guru : [];
+        renderRekapGuruTable();
+        if (showToastMsg) {
+          const bNama = CONFIG.MONTH_NAMES[Number(bulan) - 1] || String(bulan);
+          UI.toast(`Rekap kehadiran guru ${bNama} ${tahun} dimuat.`, 'success');
+        }
+      } catch (err) {
+        guruCont.innerHTML = UI.renderStateBox({ type: 'error', title: 'Gagal memuat rekap guru', message: err.message });
+        UI.refreshIcons(guruCont);
+        if (showToastMsg) UI.toast(err.message, 'error');
+      }
+    }
+
+    function exportRekapGuruCSV() {
+      const rows = getFilteredRekapGuruRows();
+      if (rows.length === 0) {
+        UI.toast('Belum ada data rekap guru untuk diekspor ke CSV.', 'warn');
+        return;
+      }
+      const bulan = Number(bulanSelect ? bulanSelect.value : 1) || 1;
+      const tahun = tahunInput ? tahunInput.value : new Date().getFullYear();
+      const bulanNama = CONFIG.MONTH_NAMES[bulan - 1] || String(bulan);
+      const escapeCsv = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+      const headers = ['No', 'Tanggal', 'Jam Masuk', 'Nama Guru', 'Kelas', 'Program', 'Status', 'Materi Diajarkan', 'Keterangan', 'Cek Kepsek', 'Catatan Kepsek'];
+      const lines = [headers.map(escapeCsv).join(',')];
+      rows.forEach((r, idx) => {
+        lines.push([
+          idx + 1,
+          r.tanggal || '-',
+          r.waktu_masuk || '-',
+          r.nama_guru || '-',
+          r.kelas || '-',
+          r.kategori_program || resolveClassKategori(r.kelas),
+          r.status || '-',
+          r.materi_diajarkan || '-',
+          r.keterangan || '-',
+          r.status_cek || 'Belum Dicek',
+          r.catatan_kepsek || '-',
+        ].map(escapeCsv).join(','));
+      });
+      const blob = new Blob(['\uFEFF' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `Rekap-Kehadiran-Guru-MDTA-${bulanNama}-${tahun}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+      UI.toast(`File CSV Rekap Guru ${bulanNama} ${tahun} berhasil diunduh.`, 'success');
+    }
+
+    function printRekapGuruPDF() {
+      const printContainer = document.getElementById('rekap-print-pages');
+      if (!printContainer) return;
+      const rows = getFilteredRekapGuruRows();
+      if (rows.length === 0) {
+        UI.toast('Belum ada data rekap guru untuk dicetak.', 'warn');
+        return;
+      }
+      const bulan = Number(bulanSelect ? bulanSelect.value : 1) || 1;
+      const tahun = tahunInput ? tahunInput.value : new Date().getFullYear();
+      const bulanNama = CONFIG.MONTH_NAMES[bulan - 1] || String(bulan);
+
+      printContainer.innerHTML = `
+        <div class="print-class-page">
+          <div class="print-kop">
+            <div>
+              <h2 class="print-kop-title">${UI.esc(CONFIG.INSTITUTION_NAME)}</h2>
+              <p class="print-kop-sub">Rekap Kehadiran &amp; Materi Mengajar Guru (${UI.esc(CONFIG.INSTITUTION_LOCATION)})</p>
+              <p class="print-kop-sub">Periode: <strong>${UI.esc(bulanNama)} ${UI.esc(tahun)}</strong> | Total Catatan: ${rows.length}</p>
+            </div>
+          </div>
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th style="width:36px;">No</th>
+                <th>Tanggal</th>
+                <th>Nama Guru</th>
+                <th>Kelas</th>
+                <th>Status</th>
+                <th>Materi Diajarkan</th>
+                <th>Status Cek</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${rows.map((r, idx) => `
+                <tr>
+                  <td>${idx + 1}</td>
+                  <td>${UI.esc(r.tanggal)} ${UI.esc(r.waktu_masuk || '')}</td>
+                  <td><strong>${UI.esc(r.nama_guru)}</strong></td>
+                  <td>${UI.esc(r.kelas)} (${UI.esc(r.kategori_program || resolveClassKategori(r.kelas))})</td>
+                  <td>${UI.esc(r.status)}</td>
+                  <td>${UI.esc(r.materi_diajarkan || '-')}</td>
+                  <td>${UI.esc(r.status_cek || 'Belum Dicek')}</td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+          <div class="print-signatures">
+            <div class="print-sign-box">
+              <div>${UI.esc(CONFIG.INSTITUTION_LOCATION)}</div>
+              <div>Kepala Madrasah MDTA</div>
+              <div class="print-sign-space"></div>
+              <div><strong>( ____________________ )</strong></div>
+            </div>
+          </div>
+        </div>
+      `;
+      document.body.classList.add('printing-rekap');
+      window.print();
+      setTimeout(() => document.body.classList.remove('printing-rekap'), 300);
+    }
+
+    function generateRekapGuruPDFBase64(bulanNama, tahun) {
+      if (!root.jspdf || typeof root.jspdf.jsPDF !== 'function') {
+        throw new Error('Library jsPDF belum termuat. Gunakan opsi unggah berkas PDF dari perangkat Anda.');
+      }
+      const rows = getFilteredRekapGuruRows();
+      const doc = new root.jspdf.jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+      const drawHeader = () => {
+        doc.setFontSize(14);
+        doc.text(CONFIG.INSTITUTION_NAME, 14, 18);
+        doc.setFontSize(11);
+        doc.text(`Rekap Kehadiran & Materi Guru: ${bulanNama} ${tahun}`, 14, 25);
+        doc.setFontSize(9);
+        doc.text(`Dicetak: ${UI.formatDateShort(new Date())}`, 14, 31);
+        const y = 40;
+        doc.text('No', 14, y);
+        doc.text('Tanggal', 23, y);
+        doc.text('Nama Guru', 48, y);
+        doc.text('Kelas', 86, y);
+        doc.text('Status', 112, y);
+        doc.text('Materi', 140, y);
+        doc.line(14, y + 2, 196, y + 2);
+        return y + 8;
+      };
+      let y = drawHeader();
+      rows.forEach((r, idx) => {
+        if (y > 275) {
+          doc.addPage();
+          y = drawHeader();
+        }
+        doc.text(String(idx + 1), 14, y);
+        doc.text(String(r.tanggal || '-').slice(0, 10), 23, y);
+        doc.text(String(r.nama_guru || '-').slice(0, 18), 48, y);
+        doc.text(String(r.kelas || '-').slice(0, 13), 86, y);
+        doc.text(String(r.status || '-').slice(0, 14), 112, y);
+        doc.text(String(r.materi_diajarkan || '-').slice(0, 28), 140, y);
+        y += 7;
+      });
+      const dataUri = doc.output('datauristring');
+      return dataUri.includes(',') ? dataUri.split(',')[1] : dataUri;
+    }
+
+    if (kelasSelect) {
+      kelasSelect.addEventListener('change', () => {
+        if (localState.rekapMode === 'guru') {
+          renderRekapGuruTable();
+          return;
+        }
+        if (kelasSelect.value) {
+          localState.rekapHasSearched = true;
+          if (!isCurrentRekapLoaded()) {
+            loadRekapLaporan(false);
+            return;
+          }
+        }
+        if (localState.rekapHasSearched) {
+          renderRekapTable();
+        }
+      });
+    }
+
     document.querySelectorAll('#rekap-mode-tabs .report-mode-btn').forEach((btn) => {
       btn.addEventListener('click', () => {
         const nextMode = btn.dataset.rekapMode === 'guru' ? 'guru' : 'santri';
@@ -4289,9 +5097,17 @@
         });
         const santriCont = document.getElementById('admin-rekap-grouped-container');
         const guruCont = document.getElementById('admin-rekap-guru-container');
+        const subtabsBar = document.getElementById('rekap-kelas-subtabs');
+        const actionsWrap = document.getElementById('rekap-toolbar-actions');
         if (santriCont) santriCont.hidden = nextMode !== 'santri';
         if (guruCont) guruCont.hidden = nextMode !== 'guru';
-        if (nextMode === 'guru') loadRekapGuru();
+        if (nextMode === 'guru') {
+          if (subtabsBar) subtabsBar.hidden = true;
+          if (actionsWrap) actionsWrap.hidden = true;
+          loadRekapGuru(false);
+        } else {
+          renderRekapTable();
+        }
       });
     });
 
@@ -4305,14 +5121,16 @@
         else if (localState.rekapHasSearched) renderRekapTable();
       });
     });
-    if (closeDetailRekapBtn) closeDetailRekapBtn.addEventListener('click', () => UI.closeModal('modal-detail-rekap'));
-    if (tutupDetailRekapBtn) tutupDetailRekapBtn.addEventListener('click', () => UI.closeModal('modal-detail-rekap'));
 
     if (searchInput) {
       searchInput.addEventListener('input', (e) => {
         const val = e.target.value || '';
         localState.rekapSearchQuery = val;
         if (searchDebounce) clearTimeout(searchDebounce);
+        if (localState.rekapMode === 'guru') {
+          renderRekapGuruTable();
+          return;
+        }
         if (val.trim()) {
           localState.rekapHasSearched = true;
           if (!isCurrentRekapLoaded()) {
@@ -4328,7 +5146,8 @@
         if (e.key === 'Enter') {
           e.preventDefault();
           if (searchDebounce) clearTimeout(searchDebounce);
-          loadRekapLaporan(false);
+          if (localState.rekapMode === 'guru') loadRekapGuru(false);
+          else loadRekapLaporan(false);
         }
       });
     }
@@ -4336,7 +5155,9 @@
     [bulanSelect, tahunInput].forEach((el) => {
       if (el) {
         el.addEventListener('change', () => {
-          if (localState.rekapHasSearched) {
+          if (localState.rekapMode === 'guru') {
+            loadRekapGuru(false);
+          } else if (localState.rekapHasSearched) {
             loadRekapLaporan(false);
           }
         });
@@ -4353,13 +5174,29 @@
         const dNow = new Date();
         if (bulanSelect) bulanSelect.value = String(dNow.getMonth() + 1);
         if (tahunInput) tahunInput.value = String(dNow.getFullYear());
-        renderRekapTable();
+        if (localState.rekapMode === 'guru') loadRekapGuru(false);
+        else renderRekapTable();
       });
     }
 
-    if (fetchBtn) fetchBtn.addEventListener('click', () => loadRekapLaporan(true));
-    if (csvBtn) csvBtn.addEventListener('click', () => exportRekapCSV());
-    if (printBtn) printBtn.addEventListener('click', () => printRekapPDF());
+    if (fetchBtn) {
+      fetchBtn.addEventListener('click', () => {
+        if (localState.rekapMode === 'guru') loadRekapGuru(true);
+        else loadRekapLaporan(true);
+      });
+    }
+    if (csvBtn) {
+      csvBtn.addEventListener('click', () => {
+        if (localState.rekapMode === 'guru') exportRekapGuruCSV();
+        else exportRekapCSV();
+      });
+    }
+    if (printBtn) {
+      printBtn.addEventListener('click', () => {
+        if (localState.rekapMode === 'guru') printRekapGuruPDF();
+        else printRekapPDF();
+      });
+    }
 
     if (openUploadBtn) {
       openUploadBtn.addEventListener('click', () => {
@@ -4367,7 +5204,11 @@
         const tahun = tahunInput.value;
         const bulanNama = CONFIG.MONTH_NAMES[bulan - 1] || String(bulan);
         const nameInp = document.getElementById('upload-pdf-filename');
-        if (nameInp) nameInp.value = `Rekap-Presensi-MDTA-${bulanNama}-${tahun}.pdf`;
+        if (nameInp) {
+          nameInp.value = localState.rekapMode === 'guru'
+            ? `Rekap-Kehadiran-Guru-MDTA-${bulanNama}-${tahun}.pdf`
+            : `Rekap-Presensi-MDTA-${bulanNama}-${tahun}.pdf`;
+        }
         if (fileInput) fileInput.value = '';
         UI.openModal('modal-upload-pdf');
       });
@@ -4402,6 +5243,12 @@
               reader.onerror = () => reject(new Error('Gagal membaca berkas PDF.'));
               reader.readAsDataURL(f);
             });
+          } else if (localState.rekapMode === 'guru') {
+            if (getFilteredRekapGuruRows().length === 0) {
+              UI.toast('Belum ada data rekap guru untuk dibuat menjadi PDF.', 'warn');
+              return;
+            }
+            base64Content = generateRekapGuruPDFBase64(bulanNama, tahun);
           } else {
             if (getFilteredRekapRows().length === 0) {
               UI.toast('Belum ada data rekap untuk dibuat menjadi PDF. Muat rekap terlebih dahulu.', 'warn');
@@ -4416,16 +5263,35 @@
 
         UI.setButtonLoading(submitUploadBtn, true, 'Mengunggah ke Drive...');
         try {
+          const docJudul = localState.rekapMode === 'guru'
+            ? `Rekap Kehadiran Guru ${bulanNama} ${tahun}`
+            : `${getProgramDocumentTitle(localState.rekapProgramFilter)} ${bulanNama} ${tahun}`;
           const res = await API.uploadDokumenDrive({
             filename,
             mimeType: 'application/pdf',
             base64Content,
             kategori: 'Laporan PDF',
-            judul: `Rekap Presensi ${bulanNama} ${tahun}`,
+            judul: docJudul,
             diunggah_oleh: (adminSession && (adminSession.nama_lengkap || adminSession.username)) || 'Administrator',
           });
           UI.closeModal('modal-upload-pdf');
-          const d = res.data || res;
+          const d = res.data || res || {};
+          const docRec = API.normalizeDokumen({
+            id_dokumen: d.id_dokumen || '',
+            judul: docJudul,
+            kategori: 'Laporan PDF',
+            drive_id: d.drive_id || '',
+            drive_url: d.drive_url || '',
+            diunggah_oleh: (adminSession && (adminSession.nama_lengkap || adminSession.username)) || 'Administrator',
+            tanggal_upload: UI.todayISO(),
+          });
+          if (!Array.isArray(STATE.dokumenArsip)) STATE.dokumenArsip = [];
+          STATE.dokumenArsip = [docRec].concat(
+            STATE.dokumenArsip.filter((item) => !docRec.id_dokumen || item.id_dokumen !== docRec.id_dokumen)
+          );
+          STATE.loaded.arsip = true;
+          if (root.MDTA_CACHE) root.MDTA_CACHE.write('dokumenArsip', STATE.dokumenArsip);
+          if (d.sync_ts !== undefined) recordLocalSyncTs(d.sync_ts);
           UI.toast(
             d.drive_url
               ? `PDF "${filename}" berhasil diunggah ke Drive & disimpan di arsip.`
@@ -4529,27 +5395,43 @@
     syncPollTimer = setInterval(pollSyncVersion, intervalMs);
   }
 
-  async function silentRefreshFromSync(nextServerTs) {
+  async function silentRefreshFromSync(nextServerTs, opts) {
     if (syncRefreshInFlight) return;
     syncRefreshInFlight = true;
     updateLiveSyncBadge('syncing');
 
     const CACHE = root.MDTA_CACHE;
-    const tanggalInp = document.getElementById('kepsek-filter-tanggal');
     const kelasSel = document.getElementById('kepsek-filter-kelas');
-    const targetTanggal = (tanggalInp && tanggalInp.value) || UI.todayISO();
+    const targetTanggal = UI.todayISO();
+    localState.activeDateWib = targetTanggal;
     const targetKelas = (kelasSel && kelasSel.value) || '';
     const key = `${targetTanggal}|${targetKelas}`;
 
     try {
-      const [rkRes, dashRes] = await Promise.allSettled([
+      const [rkRes, dashRes, monRes] = await Promise.allSettled([
         API.getRekapKepsek(targetTanggal, targetKelas),
         API.getDashboard(),
+        API.getMonitoringGuru({ tanggal: targetTanggal }),
       ]);
 
       let anySucceeded = false;
       let latestTsFromServer = nextServerTs;
       let rkUpdated = false;
+      let monUpdated = false;
+
+      if (monRes.status === 'fulfilled' && monRes.value) {
+        anySucceeded = true;
+        const monData = monRes.value.data || monRes.value || {};
+        if (Array.isArray(monData.absensi_guru)) {
+          const monChanged = !CACHE || CACHE.hasChanged(STATE.absensiGuruToday, monData.absensi_guru);
+          STATE.absensiGuruToday = monData.absensi_guru;
+          if (CACHE) CACHE.write('absensiGuruToday', STATE.absensiGuruToday);
+          if (monChanged) {
+            monUpdated = true;
+            renderKepsekMonitoringGuru();
+          }
+        }
+      }
 
       if (dashRes.status === 'fulfilled' && dashRes.value) {
         anySucceeded = true;
@@ -4592,7 +5474,7 @@
       if (anySucceeded) {
         recordLocalSyncTs(latestTsFromServer);
         STATE.lastSyncAt = Date.now();
-        if (rkUpdated) {
+        if ((rkUpdated || monUpdated) && !(opts && opts.quiet)) {
           UI.toast('Pembaruan otomatis: data presensi/nilai baru masuk.', 'info');
         }
       }
@@ -4606,14 +5488,7 @@
   function checkAdminDayRollover(opts) {
     const todayWib = UI.todayISO();
     if (todayWib === localState.activeDateWib) return false;
-    const prevDay = localState.activeDateWib;
     localState.activeDateWib = todayWib;
-
-    const tanggalInp = document.getElementById('kepsek-filter-tanggal');
-    const wasOnPrevToday = !tanggalInp || !tanggalInp.value || tanggalInp.value === prevDay;
-    if (tanggalInp && wasOnPrevToday) {
-      tanggalInp.value = todayWib;
-    }
 
     STATE.rekapKepsek = null;
     STATE.rekapKepsekKey = '';
@@ -4700,11 +5575,9 @@
     localState.rekapSearchQuery = '';
     localState.localSyncTs = STATE.localSyncTs || null;
     checkAdminDayRollover({ skipLoad: true });
-    const kepsekTglInp = document.getElementById('kepsek-filter-tanggal');
-    if (kepsekTglInp && (!initialized || !kepsekTglInp.value)) {
-      kepsekTglInp.value = UI.todayISO();
-      localState.activeDateWib = kepsekTglInp.value;
-    }
+    localState.activeDateWib = UI.todayISO();
+    const updatedEl = document.getElementById('dashboard-last-updated');
+    if (updatedEl) updatedEl.textContent = UI.formatDateId(localState.activeDateWib);
     const rekapSearchInp = document.getElementById('rekap-search-input');
     if (rekapSearchInp) rekapSearchInp.value = '';
     const rekapKelasSel = document.getElementById('rekap-kelas-filter');
@@ -4732,7 +5605,7 @@
       tabController = UI.initSlidingTabs(tablist, (tabName) => {
         closeAdminCalculators();
         if (tabName === 'dashboard') {
-          if (!STATE.loaded.bootstrap || !STATE.rekapKepsek) {
+          if (!checkAdminDayRollover() && (!STATE.loaded.bootstrap || !STATE.rekapKepsek)) {
             loadDashboard(false, { force: false });
           }
         } else if (tabName === 'santri') {
